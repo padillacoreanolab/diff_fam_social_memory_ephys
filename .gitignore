@@ -1,5 +1,6 @@
 bin/
 data/
+proc/
 spike_interface/
 
 # Byte-compiled / optimized / DLL files
@@ -131,3 +132,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+*.npy
+*.raw
+*.dat
