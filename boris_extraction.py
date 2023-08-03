@@ -36,9 +36,8 @@ def threshold_bouts(start_stop_array, min_iti, min_bout):
     
     return start_stop_array
                                         
-
 def get_behavior_bouts(boris_df, subject, behavior, min_iti = 0, min_bout = 0):
-    #to do: make sure these if loops work properly
+    #to do: make sure these if loops work correctly, also make subject a list always
     """
     extracts behavior bout start and stop times from a boris df
     thresholds individually by subject and behavior
