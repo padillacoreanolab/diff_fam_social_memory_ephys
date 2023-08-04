@@ -37,7 +37,7 @@ def threshold_bouts(start_stop_array, min_iti, min_bout):
     return start_stop_array
                                         
 def get_behavior_bouts(boris_df, subject, behavior, min_iti = 0, min_bout = 0):
-    #to do: make sure these if loops work correctly, also make subject a list always
+    #to do: make sure these if loops work correctly
     """
     extracts behavior bout start and stop times from a boris df
     thresholds individually by subject and behavior
@@ -45,8 +45,8 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti = 0, min_bout = 0):
     
     Args (5 total, 3 required):
         boris_df: pandas dataframe of a boris file (aggregated event table)
-        subject: string or list of strings, desired subject(s) (as written in boris_df)
-        behavior: string or list of strings, desired behavior(s) (as written in boris_df)
+        subject: list of strings, desired subject(s) (as written in boris_df)
+        behavior: list of strings, desired behavior(s) (as written in boris_df)
         min_iti: float, default=0, bouts with itis (s) < min_iti will be combined
         min_bout: float, default=0, bouts of length < threshold (s) will be deleted
         
@@ -55,10 +55,6 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti = 0, min_bout = 0):
         numpy array (ndim=(n bouts, 2)) of start&stop times (ms)
     """
     start_stop_arrays = []
-    if type(subject) != list:
-        subject = [subject]
-    if type(behavior) != list:
-        behavior = [behavior]
     for mouse in subject:
         subject_df = boris_df[boris_df['Subject'] == mouse]
         for act in behavior:
