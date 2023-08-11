@@ -9,7 +9,7 @@ def threshold_bouts(start_stop_array, min_iti, min_bout):
     by combining behavior bouts with interbout intervals of < min_iti
     and then removing remaining bouts of < min_bout
     
-    Args (3):
+    Args (3 total):
         start_stop_array: numpy array of dim (# of bouts, 2)
         min_iti: float, min interbout interval in seconds
         min_bout: float, min bout length in seconds

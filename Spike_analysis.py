@@ -10,7 +10,7 @@ def get_spike_specs(path):
     imports a spike_time and spike_unit from phy folder
     deletes spikes from units labeled noise in unit and timestamp array
     
-    Args (1):
+    Args (1 total):
         path: path to phy folder
         path format: './folder/folder/phy'
     
@@ -23,25 +23,19 @@ def get_spike_specs(path):
     unit = 'spike_clusters.npy'
     labels_dict = get_unit_labels(path)
     
-    timestamp_array = np.load(os.path.join(path, timestamps))
+    timestamps = np.load(os.path.join(path, timestamps))
     unit_array = np.load(os.path.join(path, unit))
    
     spikes_to_delete = []
    
-    for spike in range(len(timestamp_array)): 
+    for spike in range(len(timestamps)): 
         if labels_dict[unit_array[spike].astype(str)] == 'noise':
                 spikes_to_delete.append(spike)
-        if unit_array[spike] in timestamp_dict.keys():
-            timestamp_list = timestamp_dict[unit_array[spike]] 
-            timestamp_list = np.append(timestamp_list, spiketrain_array[spike])
-            timestamp_dict[unit_array[spike]] = spikestamp_list
-        else:
-            timestamp_dict[unit_array[spike]] = spikestamp_array[spike]
         if spike != 0:
-            if timestamps_array[spike - 1] == spikestamps_array[spike]:
+            if timestamps[spike - 1] == timestamps[spike]:
                 print('2 spikes in a sampling')
                 
-    timestamps_array = np.delete(timestamps_array, spikes_to_delete)
+    timestamps = np.delete(timestamps, spikes_to_delete)
     unit_array = np.delete(unit_array, spikes_to_delete)
     
     return timestamps, unit_array
@@ -51,11 +45,11 @@ def get_unit_labels(path):
     creates a dictionary with unit id as key and label as value
     labels: good, mua, noise 
     
-    Arg (1):
+    Arg (1 total):
         path: path to phy folder
         
     Return (1):
-        labels_dict: dict, unit ids, int(?): label, string
+        labels_dict: dict, unit ids (str): label (str)
     """
     
     labels = 'cluster_group.tsv'
@@ -71,14 +65,14 @@ def get_unit_timestamps(timestamp_array, unit_array):
     values are spike timestamp arrays associated with the unit as key
     no noise units are included
     
-    Arg(2):
+    Arg(2 total):
         timestamp_array: numpy array, spike timestamps
         unit_array: numpy array, unit ids associated with spikes
     
     Return (1):
-        timestamp_dict: dict, unit id as keys, spike timestamps (numpy array) as values 
+        timestamp_dict: dict, unit id (int) as keys, spike timestamps (numpy array) as values 
     """
-    #thoughts: does this make more sense to have a single argument and it just be the path to the phy folder? 
+    
     timestamp_dict = {}
     for spike in range(len(timestamp_array)): 
         if unit_array[spike] in timestamp_dict.keys():
@@ -95,8 +89,11 @@ def get_spiketrain(timestamp_array, recording_length, sampling_rate = 20000):
     """
     creates a spiketrain of ms time bins 
     each array element is the number of spikes recorded per ms
+    if recording (timestamp_array) is longer than the recording_length given,
+    the amount of dropped data will be printed in a message
     
-    Args (3, 2 required):
+    
+    Args (3 total, 2 required):
         timestamp_array: numpy array, spike timestamp array
         recording_length: int, length of recording (min)
         sampling_rate: int, default=20000, sampling rate of ephys recording
@@ -106,11 +103,19 @@ def get_spiketrain(timestamp_array, recording_length, sampling_rate = 20000):
             array elements are number of spikes per ms 
     """
     
-    #recording_length = recording_length * 60 * sampling_rate
+    recording_length = recording_length * 60 * sampling_rate
     hz_to_ms = int(sampling_rate*.001)
     spiketrain = np.zeros(recording_length + 1)
     for i in range(len(timestamp_array)):
-        spiketrain[timestamp_array[i]] = 1
+        try:
+            spiketrain[timestamp_array[i]] = 1
+        except IndexError:
+            dropped_recording = (timestamp_array[-1] - recording_length)/20000
+            if dropped_recording > 0: 
+                print(f"you are dropping {dropped_recording} seconds of recorded data")
+            else:
+                print("recording length is shorter than specified")
+            break
         
     spiketrain_ms_timebins = np.zeros(math.floor(len(spiketrain)/hz_to_ms)) 
     ms_bin = 0
@@ -125,22 +130,21 @@ def get_spiketrain(timestamp_array, recording_length, sampling_rate = 20000):
 
     return spiketrain_ms_timebins
         
-def get_firing_rate(timestamp_array, recording_length, smoothing_window = 250, timebin = 1, sampling_rate = 20000):
+def get_firing_rate(spiketrain, smoothing_window = 250, timebin = 1):
     """
     calculates firing rate (spikes/second)
     
-    Args (5, 2 required):
-        timestamp_array: numpy array, spike timestamp array
+    Args (3 total, 1 required):
+        spiketrain: numpy array, in 1 ms time bin
         recording_length: int, length of recording (min)
         smoothing_window: int, default = 250, smoothing average window (ms)
             min smoothing_window = 1
-        sampling_rate: int, default=20000, sampling rate of ephys recording
-        
+        timebin: int, default = 1, window (ms) of firing rates returned
+
     Return (1):
-        firing_rate: numpy array of firing rates in 1 ms time bins
+        firing_rate: numpy array of firing rates in timebin sized windows
         
     """ 
-    spiketrain = get_spiketrain(timestamp_array, recording_length, sampling_rate)
     
     if timebin != 1:
         current_timebin = 0
@@ -162,13 +166,12 @@ def get_firing_rate(timestamp_array, recording_length, smoothing_window = 250, t
     return firing_rate
 
 def get_unit_spiketrains(labels_dict, spike_dict, recording_length, sampling_rate = 20000):  
-    #to do: figure out how unit ids are saved into dictionaries (i.e. labels_dict and spike_dict) are they ints or strings
     """
     Creates a dictionary of spiketrains per good unit 
     where unit id is key and unit spike train is value
     does not create spiketrains for mua's
     
-    Args (4, 3 required):
+    Args (4 total, 3 required):
         labels_dict: dict, unit id for keys and labels for values
         spike_dict: dict, unit id for keys and spike timestamps for values
         recording_length: int, recording length in min
@@ -181,7 +184,7 @@ def get_unit_spiketrains(labels_dict, spike_dict, recording_length, sampling_rat
     unit_spiketrains = {}
     
     for unit in spike_dict.keys():
-        if labels_dict[unit] == 'good':
+        if labels_dict[str(unit)] == 'good':
             unit_spiketrains[unit] = get_spiketrain(spike_dict[unit], recording_length, sampling_rate)
             
     return unit_spiketrains
@@ -190,13 +193,13 @@ def get_unit_firing_rates(labels_dict, spike_dict, recording_length, smoothing_w
     """
     Calculates firing rates per unit 
     
-    Args (6, 3 required):
+    Args (6 total, 3 required):
         labels_dict:dict, unit id for keys and labels for values
         spike_dict: dict, unit id for keys and spike timestamps for values
         recording_length: int, recording length in min
         smoothing_window: int, default = 250, smoothing average window (ms)
-            min smoothing_window = 1 
-        timebin: int, default 1, timebin in ms for firing rate array
+            min smoothing_window = 1
+        timebin: int, default = 1, window (ms) of firing rates returned
         sampling_rate: int, default=20000, sampling rate of ephys recording
         
     Return (1):
@@ -204,7 +207,124 @@ def get_unit_firing_rates(labels_dict, spike_dict, recording_length, smoothing_w
     """
     unit_firing_rates = {}
     for unit in spike_dict.keys():
-        if labels_dict[unit] == 'good':
-            unit_firing_rates[unit] = get_firing_rate(spike_dict[unit], smoothing_window, timebin, sampling_rate)
+        if labels_dict[str(unit)] == 'good':
+            spiketrain = get_spiketrain(spike_dict[unit], recording_length, sampling_rate)
+            unit_firing_rates[unit] = get_firing_rate(spiketrain, smoothing_window, timebin)
         
     return unit_firing_rates
+
+def get_event_spiketrains(events, timestamp_array, pre_window, post_window, recording_length, sampling_rate):
+    event_spiketrains = []
+    spiketrain = get_spiketrain(timestamp_array, recording_length, sampling_rate)
+    pre_window_ms = pre_window*1000
+    post_window_ms = post_window*1000
+    longest_event = 0
+    event_lengths = []
+    for i in range(events.shape[0]):
+        event_length = int(events[i][1] - events[i][0])
+        event_lengths.append(event_length)
+        if event_length > longest_event:
+            longest_event = event_length
+    for i in range(events.shape[0]):
+        event_diff = int(longest_event - event_lengths[i])
+        pre_event = int(events[i][0] - pre_window_ms)
+        post_event = int(events[i][1] + post_window_ms + event_diff)
+        event_spiketrain = spiketrain[pre_event:post_event]
+        event_spiketrains.append(event_spiketrain)
+    return event_spiketrains
+
+def get_event_firing_rates(events, timestamp_array, recording_length, smoothing_window = 250, timebin = 1,
+                           sampling_rate = 20000, pre_window = 0, post_window = 0, equalize = False):
+    """
+    calculates firing rates for events
+    
+    Args (9 total, 3 required):
+        events:numpy array of [[start (ms), stop (ms)] x n events]
+        timestamp_array: numpy array of spike timestamps in 1 ms windows 
+        recording_length: int, length of recording (min)
+        smoothing_window: int, default = 250, smoothing average window (ms)
+            min smoothing_window = 1 
+        timebin: int, default 1, timebin in ms for firing rate array
+        sampling_rate: int, default=20000, sampling rate of ephys recording
+        pre_window: int, default = 0, seconds prior to start of event returned
+        post_window: int, default = 0, seconds after end of event returned
+        equalize: Boolean, default False, if True, equalizes lengths of each event to longest event
+        
+    Return (1):
+        event_firing_rates: lst of numpy arrays of firing rates 
+    """
+    event_firing_rates = []
+    spiketrain = get_spiketrain(timestamp_array, recording_length, sampling_rate)
+    pre_window_ms = pre_window*1000
+    post_window_ms = post_window*1000
+    if equalize:
+        longest_event = 0
+        event_lengths = []
+        for i in range(events.shape[0]):
+            event_length = int(events[i][1] - events[i][0])
+            event_lengths.append(event_length)
+            if event_length > longest_event:
+                longest_event = event_length
+    for i in range(events.shape[0]):
+        if equalize:
+            event_diff = int(longest_event - event_lengths[i])
+        else:
+            event_diff = 0
+        pre_event = int(events[i][0] - pre_window_ms)
+        post_event = int(events[i][1] + post_window_ms + event_diff)
+        event_spiketrain = spiketrain[pre_event:post_event]
+        event_firing_rate = get_firing_rate(event_spiketrain)
+        event_firing_rates.append(event_firing_rate)
+    return event_firing_rates
+
+def wilcoxon_average_firingrates(spike_dict, events, baseline_window, recording_length, max_event=0, 
+                                 smoothing_window = 250, timebin = 1, sampling_rate = 20000):
+    """
+    calculates the wilcoxon signed-rank test for average firing rates of two windows: event vs baseline
+    baseline used is an amount of time immediately prior to the event
+    wilcoxon signed-rank test is applied to two sets of measurements:
+    average firing rate per event, average firing rate per baseline
+    
+    Args (8 total, 3 required):
+        spike_dict: dict, keys are unit ids, and values is a numpy array of timestamps
+        events:numpy array of [[start (ms), stop (ms)] x n events]
+        baseline_window: int, length of baseline firing rate (s)
+        recording_length: int, length of recording (min)
+        max_event: int, default=0, max length of an event (s)
+        smoothing_window: int, default = 250, smoothing average window (ms)
+            min smoothing_window = 1 
+        timebin: int, default 1, timebin in ms for firing rate array
+        sampling_rate: int, default=20000, sampling rate of ephys recording
+
+    Return (1):
+        wilcoxon_df: pandas dataframe, columns are unit ids, row[0] is wilcoxon 
+    
+    """
+    trimmed_events = np.zeros(events.shape)
+    preevent_baseline = np.zeros(events.shape)
+    for bout in range(len(events)):
+        if max_event != 0:
+            if events[bout][1] - events[bout][0] > (max_event*1000):
+                trimmed_events[bout][1] = events[bout][0]+(max_event*1000)
+                trimmed_events[bout][0] = events[bout][0]
+            else:
+                trimmed_events[bout] = events[bout]
+        preevent_baseline[bout] = [(events[bout][0] - (baseline_window*1000)+1), (events[bout][0]-1)]
+    unit_averages = {}
+    for unit in unit_dict:
+        event_firing_rates = get_event_firing_rates(trimmed_events, spike_dict[unit], 
+                                                    recording_length, smoothing_window, timebin, sampling_rate)
+        preevent_firing_rates = get_event_firing_rates(preevent_baseline, spike_dict[unit], 
+                                                        recording_length, smoothing_window, timebin, sampling_rate)
+        event_averages = []
+        preevent_averages = []
+        for event in range(len(event_firing_rates)):
+            event_averages.append(mean(event_firing_rates[event]))
+            preevent_averages.append(mean(preevent_firing_rates[event]))
+        unit_averages[unit] = [event_averages, preevent_averages]
+    wilcoxon_stats = {}
+    for unit in unit_averages.keys(): 
+        wilcoxon_stats[unit] = wilcoxon(unit_averages[unit][0], unit_averages[unit][1], method = 'approx')
+    
+    wilcoxon_df = pd.DataFrame.from_dict(wilcoxon_stats)
+    return wilcoxon_df
