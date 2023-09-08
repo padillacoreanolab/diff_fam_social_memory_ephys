@@ -81,7 +81,7 @@ def trim_event(event, max_event):
     """
     if event[1] - event[0] > (max_event*1000):
         event[1] = event[0]+(max_event*1000)
-        event[0] = event[0] 
+        event[0] = event[0]
     return np.array(event)
 
 
@@ -290,7 +290,7 @@ class EventTriggeredAverages:
         wilcox_baseline_v_event_plots:
     """
     def __init__(self, event, events, recording, smoothing_window=250,
-                 timebin=1, ignore_freq=0):
+                 timebin=1, ignore_freq=0.01):
 
         self.recording = recording
         self.event = event
@@ -298,7 +298,10 @@ class EventTriggeredAverages:
         self.smoothing_window = smoothing_window
         self.timebin = timebin
         self.ignore_freq = ignore_freq
-        self.longest_event, self.event_lengths, self.mean_event_length = get_event_lengths(events)
+        le, els, ael = get_event_lengths(events)
+        self.longest_event = le
+        self.event_lengths = els
+        self.avg_event_length = ael
         self.get_whole_spiketrain()
         self.get_unit_spiketrains()
         self.get_unit_firing_rates()
@@ -343,8 +346,11 @@ class EventTriggeredAverages:
                 no_spikes = len(unit_timestamps[unit])
                 unit_freq = no_spikes/last_spike*sampling_rate
                 if unit_freq > self.ignore_freq:
-                    unit_spiketrains[unit] = get_spiketrain(unit_timestamps[unit],
-                                                            sampling_rate, timebin)
+                    unit_spiketrains[unit] = get_spiketrain(
+                        unit_timestamps[unit],
+                        sampling_rate,
+                        timebin
+                        )
         self.unit_spiketrains = unit_spiketrains
 
     def get_unit_firing_rates(self):
@@ -363,7 +369,11 @@ class EventTriggeredAverages:
         """
         unit_firing_rates = {}
         for unit in self.unit_spiketrains.keys():
-            unit_firing_rates[unit] = get_firing_rate(self.unit_spiketrains[unit], self.smoothing_window, self.timebin)
+            unit_firing_rates[unit] = get_firing_rate(
+                self.unit_spiketrains[unit],
+                self.smoothing_window,
+                self.timebin
+                )
         self.unit_firing_rates = unit_firing_rates
 
     def get_event_snippets(self, whole_recording, pre_window=0, post_window=0,
@@ -402,11 +412,12 @@ class EventTriggeredAverages:
             if equalize == 'max':
                 event_diff = int((self.longest_event - self.event_lengths[i]))
             if equalize == 'average':
-                event_diff = int(self.mean_event_length - self.event_lengths[i])
+                event_diff = int(self.avg_event_length - self.event_lengths[i])
             else:
                 event_diff = 0
             pre_event = int((events[i][0] - pre_window)/self.timebin)
-            post_event = int((events[i][1] + post_window + event_diff)/self.timebin)
+            post_event_num = (events[i][1] + post_window + event_diff)
+            post_event = int(post_event_num/self.timebin)
             event_snippet = whole_recording[pre_event:post_event]
             event_snippets.append(event_snippet)
         return event_snippets
@@ -436,7 +447,13 @@ class EventTriggeredAverages:
         """
         unit_event_firing_rates = {}
         for unit in self.unit_spiketrains.keys():
-            unit_event_firing_rates[unit] = self.get_event_snippets(self.unit_firing_rates[unit], pre_window, post_window, equalize, events)
+            unit_event_firing_rates[unit] = self.get_event_snippets(
+                self.unit_firing_rates[unit],
+                pre_window,
+                post_window,
+                equalize,
+                events
+                )
         return unit_event_firing_rates
 
     def wilcox_baseline_v_event_stats(self, baseline_window, max_event=None,
@@ -465,18 +482,23 @@ class EventTriggeredAverages:
         unit_preevent_firing_rates = self.get_unit_event_firing_rates(0, 0, False, preevent_baselines)
         unit_event_firing_rates = self.get_unit_event_firing_rates(0, 0, equalize)
         if equalize == 'average':
-            self.wilcox_xstop = self.mean_event_length
+            self.wilcox_xstop = self.avg_event_length
         if equalize == 'max':
             self.wilcox_xstop = self.longest_event
         if max_event is not None:
-            unit_event_firing_rates = max_events(unit_event_firing_rates, max_event, 0, self.timebin)
+            unit_event_firing_rates = max_events(
+                unit_event_firing_rates,
+                max_event,
+                0,
+                self.timebin
+                )
         unit_averages = {}
         for unit in unit_event_firing_rates:
             try:
                 event_averages = [mean(event) for event in unit_event_firing_rates[unit]]
                 preevent_averages = [mean(event) for event in unit_preevent_firing_rates[unit]]
                 unit_averages[unit] = [event_averages, preevent_averages]
-            except:
+            except StatisticsError:
                 print(f'Unit {unit} has {len(self.recording.unit_timestamps[unit])} spikes')
         wilcoxon_stats = {}
         for unit in unit_averages.keys(): 
@@ -498,7 +520,7 @@ class EventTriggeredAverages:
 
         Returns:
             none
-        """ 
+        """
         units_to_plot = []
         if p_value is not None:
             for unit in self.wilcoxon_df.columns.tolist():
