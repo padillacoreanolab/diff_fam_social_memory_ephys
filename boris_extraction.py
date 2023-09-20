@@ -45,7 +45,8 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
 
     Args (5 total, 3 required):
         boris_df: pandas dataframe of a boris file (aggregated event table)
-        subject: list of strings, desired subject(s) (as written in boris_df)
+        subject: list of strings or ints, desired subject(s) 
+                as written in boris_df, i.e. 'novel' or 1.1
         behavior: list of strings, desired behavior(s) (as written in boris_df)
         min_iti: float, default=0, bouts w/ itis(s) < min_iti will be combined
         min_bout: float, default=0, bouts < min_bout(s) will be deleted
@@ -61,7 +62,7 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
             start_stop_array = behavior_df[['Start (s)',
                                             'Stop (s)']].to_numpy()
             start_stop_arrays.append(threshold_bouts(start_stop_array,
-                                                     min_bout, min_iti))
+                                                     min_iti, min_bout))
     start_stop_array = np.concatenate(start_stop_arrays)
     organizer = np.argsort(start_stop_array[:, 0])
     start_stop_array = start_stop_array[organizer]
@@ -69,8 +70,8 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
     return start_stop_array * 1000
 
 
-def save_behavior_bouts(directory, boris_df, subject, behavior, min_bout=0,
-                        min_iti=0, filename=None):
+def save_behavior_bouts(directory, boris_df, subject, behavior, min_iti=0, 
+                        min_bout=0, filename=None):
     """
     saves a numpy array of start&stop times (ms)
     as filename: subject_behavior_bouts.npy
@@ -89,7 +90,7 @@ def save_behavior_bouts(directory, boris_df, subject, behavior, min_bout=0,
         none
     """
     bouts_array = get_behavior_bouts(boris_df, subject,
-                                     behavior, min_bout, min_iti)
+                                     behavior, min_iti, min_bout)
     if filename is None:
         if type(subject) == list:
             subject = '_'.join(subject)
