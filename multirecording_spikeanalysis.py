@@ -250,12 +250,21 @@ class EphysRecording:
         timestamps_var = np.load(os.path.join(self.path, timestamps))
         unit_array = np.load(os.path.join(self.path, unit))
         spikes_to_delete = []
+        unsorted_clusters = {}
         for spike in range(len(timestamps_var)):
             try: 
                 if self.labels_dict[unit_array[spike].astype(str)] == 'noise':
                     spikes_to_delete.append(spike)
             except KeyError:
-                print(f'unit {unit_array[spike]} does not exist')
+                spikes_to_delete.append(spike)
+                if self.unit_array[spike] in unsorted_clusters.keys():
+                    total_spikes = unsorted_clusters[unit_array[spike]] 
+                    total_spikes = total_spikes + 1
+                    unsorted_clusters[unit_array[spike]] = total_spikes
+            else:
+                unsorted_clusters[unit_array[spike]] = 1
+        for unit, no_spike in unsorted_clusters.items():
+            print(f'{unit} is unsorted & has {no_spike} spikes that will be deleted')
         self.timestamps_var = np.delete(timestamps_var, spikes_to_delete)
         self.unit_array = np.delete(unit_array, spikes_to_delete)
 
@@ -282,6 +291,7 @@ class EphysRecording:
                 unit_timestamps[self.unit_array[spike]] = self.timestamps_var[spike]
         
         self.unit_timestamps = unit_timestamps
+
 
 class EphysRecordingCollection:
     """
@@ -647,7 +657,7 @@ class SpikeAnalysis_MultiRecording:
                 preevent_averages = preevent_averages[:min_length]
                 event_averages = event_averages[:min_length]
                 unit_averages[unit] = [event_averages, preevent_averages]
-            except StatisticsError as e:
+            except StatisticsError:
                 print(f'Unit {unit} has {len(recording.unit_timestamps[unit])} spikes')
         wilcoxon_stats = {}
         for unit in unit_averages.keys(): 
@@ -1061,7 +1071,8 @@ class SpikeAnalysis_MultiRecording:
         plt.show()
 
     def PCA_trajectories(self, equalize, pre_window, 
-                         post_window=0, plot=True, save=False, events=None):
+                         post_window=0, plot=True,save=False, events=None, 
+                         d=2, azim=30, elev=20):
         """
         calculates a PCA matrix where each data point represents a timebin.
         PCA space is calculated from a matrix of all units and all timebins 
@@ -1087,7 +1098,6 @@ class SpikeAnalysis_MultiRecording:
         PCA_matrix_dict = {}
         PCA_key = {}
         for recording_name, recording in self.ephyscollection.collection.items():
-            is_first_unit = True
             for unit in recording.unit_firing_rates.keys():
                 is_first = True
                 if events is None:
@@ -1123,7 +1133,10 @@ class SpikeAnalysis_MultiRecording:
             else:
                 self.ephyscollection.PCA_dfs[PCA_dict_key]  = PCA_df
         if plot:
-            self.__PCA_EDA_plot__(transformed_matrix, PCA_key, equalize, pre_window, post_window)
+            if d == 2:
+                self.__PCA_EDA_plot__(transformed_matrix, PCA_key, equalize, pre_window, post_window)
+            if d == 3:
+                self.__PCA_EDA_plot_3D__(transformed_matrix, PCA_key, equalize, pre_window, post_window, azim, elev)
         
     def __PCA_EDA_plot__(self, PCA_matrix, PCA_key, equalize, pre_window, post_window):
         """
@@ -1170,6 +1183,61 @@ class SpikeAnalysis_MultiRecording:
             plt.title('Preevent = square, Onset = triangle, End of event = circle, Post event = Diamond')
         else:
             plt.title('Preevent = square, Onset = triangle, End of event = circle')
+        plt.show()
+    
+    
+    def __PCA_EDA_plot_3D__(self, PCA_matrix, PCA_key, equalize, pre_window, post_window, azim, elev):
+        """
+        Plots PCA trajectories calculated in PCA_trajectories using the same
+        pre window, post window, and equalize parameters. Each event type is
+        a different color. Preevent start is signified by a square, onset of behavior 
+        signified by a triangle, and the end of the event is signified by a circle. 
+        If post-event time is included that end of post event time is signified by a diamond. 
+
+        Args:
+            none
+        
+        Returns:
+            none
+        """
+        event_lengths = int((equalize + pre_window + post_window) * 1000 / self.timebin)
+        event_end = int((equalize +pre_window) * 1000 / self.timebin)
+        pre_window = pre_window * 1000 / self.timebin
+        post_window = post_window * 1000 / self.timebin
+        colors_dict = plt.cm.colors.CSS4_COLORS
+        colors = list(colors_dict.values())
+        col_counter = 10
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        for i in range(0,len(PCA_key),event_lengths):
+            event_label = PCA_key[i]
+            onset = int(i+pre_window -1)
+            end = int(i + event_end -1)
+            post = int(i+event_lengths - 1 )
+            ax.scatter(PCA_matrix[i:i+event_lengths, 0], 
+                        PCA_matrix[i:i+event_lengths, 1],
+                        PCA_matrix[i:i+event_lengths, 2],
+                        label = event_label,
+                        s = 5, c=colors[col_counter])
+            ax.scatter(PCA_matrix[i,0], PCA_matrix[i,1], PCA_matrix[i,2],
+                        marker = 's', s = 100, c = 'w', edgecolors=colors[col_counter])
+            ax.scatter(PCA_matrix[onset, 0], PCA_matrix[onset, 1], PCA_matrix[onset, 2],
+                        marker = '^', s = 150, c = 'w', edgecolors=colors[col_counter])
+            ax.scatter(PCA_matrix[end,0], PCA_matrix[end,1], PCA_matrix[end,2],
+                        marker = 'o', s = 100, c = 'w', edgecolors=colors[col_counter])
+            if post_window != 0:
+                ax.scatter(PCA_matrix[post,0], PCA_matrix[post,1], PCA_matrix[post,2],
+                        marker = 'D', s = 100, c = 'w', edgecolors=colors[col_counter])
+            col_counter +=1
+        ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+        ax.set_xlabel('PC1')
+        ax.set_ylabel('PC2')
+        ax.set_zlabel('PC3')
+        ax.view_init(azim, elev)
+        if post_window !=0:    
+            ax.set_title('Preevent = square, Onset = triangle, End of event = circle, Post event = Diamond')
+        else:
+            ax.set_title('Preevent = square, Onset = triangle, End of event = circle')
         plt.show()
 
     def export(self, directory=None):
