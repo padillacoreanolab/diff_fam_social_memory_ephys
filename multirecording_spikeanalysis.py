@@ -12,7 +12,8 @@ from statistics import mean, StatisticsError
 from sklearn.decomposition import PCA
 
 
-def get_spiketrain(timestamp_array, timebin=1, sampling_rate=20000):
+def get_spiketrain(timestamp_array, last_timestamp, timebin=1,
+                   sampling_rate=20000):
     """
     creates a spiketrain of ms time bins 
     each array element is the number of spikes recorded per ms
@@ -22,7 +23,7 @@ def get_spiketrain(timestamp_array, timebin=1, sampling_rate=20000):
         timebin: int, default=1, timebin (ms) of resulting spiketrain
         sampling_rate: int, default=20000, sampling rate
         in Hz of the ephys recording   
- 
+
     Returns (1):
         spiketrain: numpy array, array elements are number
         of spikes per timebin
@@ -30,8 +31,8 @@ def get_spiketrain(timestamp_array, timebin=1, sampling_rate=20000):
     hz_to_timebin = int(sampling_rate*.001*timebin)
     spiketrain = np.histogram(timestamp_array, bins=np.arange(
         0,
-        timestamp_array[-1],
-        hz_to_timebin))[0]  
+        last_timestamp,
+        hz_to_timebin))[0]
     return spiketrain
 
 
@@ -506,9 +507,12 @@ class SpikeAnalysis_MultiRecording:
          
         """
         for recording in self.ephyscollection.collection.values():
-            recording.spiketrain = get_spiketrain(recording.timestamps_var, recording.sampling_rate, self.timebin)
+            recording.spiketrain = get_spiketrain(recording.timestamps_var,
+                                                  recording.timestamps_var[-1],
+                                                  self.timebin,
+                                                  recording.sampling_rate)
     
-    def __get_unit_spiketrains__(self):  
+    def __get_unit_spiketrains__(self):
         """
         Creates a dictionary and assigns it as recording.unit_spiketrains
         for each recording in the collection
@@ -525,18 +529,21 @@ class SpikeAnalysis_MultiRecording:
         """
         sampling_rate = self.ephyscollection.sampling_rate
         for recording in self.ephyscollection.collection.values():
+            last_timestamp = recording.timestamps_var[-1]
             unit_spiketrains = {}
             freq_dict = {}
             for unit in recording.unit_timestamps.keys():
                 if recording.labels_dict[str(unit)] == 'good':
                     no_spikes = len(recording.unit_timestamps[unit])
-                    unit_freq = no_spikes/recording.timestamps_var[-1]*sampling_rate
+                    unit_freq = no_spikes/last_timestamp*sampling_rate
                     freq_dict[unit] = unit_freq
                     if unit_freq > self.ignore_freq:
-                        unit_spiketrains[unit] = get_spiketrain(recording.unit_timestamps[unit], 
-                                                                sampling_rate, 
-                                                                self.timebin)
-                recording.unit_spiketrains = unit_spiketrains    
+                        unit_spiketrains[unit] = get_spiketrain(
+                            recording.unit_timestamps[unit],
+                            last_timestamp, 
+                            self.timebin,
+                            sampling_rate)
+                recording.unit_spiketrains = unit_spiketrains   
                 recording.freq_dict = freq_dict
     
     def __get_unit_firing_rates__(self):  
@@ -556,13 +563,18 @@ class SpikeAnalysis_MultiRecording:
         for recording in self.ephyscollection.collection.values():
             unit_firing_rates = {}
             for unit in recording.unit_spiketrains.keys():
-                unit_firing_rates[unit] = get_firing_rate(recording.unit_spiketrains[unit],
-                                                        self.smoothing_window, 
-                                                        self.timebin)
+                unit_firing_rates[unit] = get_firing_rate(
+                    recording.unit_spiketrains[unit],
+                    self.smoothing_window,
+                    self.timebin)
             recording.unit_firing_rates = unit_firing_rates
-    
-    def __get_event_snippets__(self, recording, event, whole_recording, equalize, pre_window=0, post_window=0):
+            recording.unit_firing_rate_array = np.array(
+                [unit_firing_rates[key] for key in unit_firing_rates])
+ 
+    def __get_event_snippets__(self, recording, event, whole_recording,
+                               equalize, pre_window=0, post_window=0):
         """
+        EDIT DOC STRING
         takes snippets of spiketrains or firing rates for events
         optional pre-event and post-event windows (s) may be included
         all events can also be of equal length by extending 
@@ -591,16 +603,23 @@ class SpikeAnalysis_MultiRecording:
         pre_window = math.ceil(pre_window*1000)
         post_window = math.ceil(post_window*1000)
         equalize = equalize*1000
+        e_length = equalize + post_window + pre_window
         for i in range(events.shape[0]):
             pre_event = math.ceil((events[i][0] - pre_window)/self.timebin)
             post_event = math.ceil((events[i][0] + post_window + equalize)/self.timebin)
-            event_snippet = whole_recording[pre_event:post_event]
-            if len(event_snippet) == (equalize + post_window + pre_window)/self.timebin:
+            if len(whole_recording.shape) == 1:
+                event_snippet = whole_recording[pre_event:post_event]
+                if len(event_snippet) == e_length/self.timebin:
                 #cutting events at end of recording
-                event_snippets.append(event_snippet)
+                    event_snippets.append(event_snippet)
+            else:
+                event_snippet = whole_recording[:, pre_event:post_event]
+                if event_snippet.shape[1] == e_length/self.timebin:
+                    event_snippets.append(event_snippet)
         return event_snippets
     
-    def __get_unit_event_firing_rates__(self, recording, event, equalize, pre_window = 0, post_window = 0):
+    def __get_unit_event_firing_rates__(self, recording, event, equalize,
+                                        pre_window=0, post_window=0):
         """
         returns firing rates for events per unit
     
@@ -618,17 +637,39 @@ class SpikeAnalysis_MultiRecording:
         """
         unit_event_firing_rates = {}
         for unit in recording.unit_firing_rates.keys():
-            unit_event_firing_rates[unit] = self.__get_event_snippets__(recording, event, recording.unit_firing_rates[unit], equalize, pre_window, post_window)
+            unit_event_firing_rates[unit] = self.__get_event_snippets__(
+                recording,
+                event,
+                recording.unit_firing_rates[unit],
+                equalize,
+                pre_window,
+                post_window)
         return unit_event_firing_rates
     
-    def __wilcox_baseline_v_event_stats__(self, recording, event, equalize, baseline_window, save):
+    def __get_event_firing_rates__(self, recording, event, equalize,
+                                    pre_window = 0, post_window = 0):
         """
-        calculates wilcoxon signed-rank test for average firing rates of two windows: event vs baseline
+        ADD DOC STRINGS
+        """
+        event_firing_rates = self.__get_event_snippets__(recording,
+                                                         event,
+                                                         recording.unit_firing_rate_array,
+                                                         equalize,
+                                                         pre_window,
+                                                         post_window)
+        return event_firing_rates
+    
+    def __wilcox_baseline_v_event_stats__(self, recording, event, equalize, 
+                                          baseline_window, save):
+        """
+        calculates wilcoxon signed-rank test for average firing rates of two 
+        windows: event vs baseline
         baseline used is an amount of time immediately prior to the event
         the resulting dataframe of wilcoxon stats and p values for every unit 
         is added to a dictionary of dataframes for that recording. 
 
-        Key for this dictionary item is '{event} vs {baselinewindow}second baseline' 
+        Key for this dictionary item is 
+        '{event} vs {baselinewindow}second baseline' 
         and the value is the dataframe. 
         
         Args (4 total, 4 required):
@@ -945,7 +986,6 @@ class SpikeAnalysis_MultiRecording:
             plt.suptitle(f'{recording_name}: '+ f'{event1} vs {event2} ({equalize}s)')
             plt.show()
     
-
     def __zscore_event__(self, recording, event, baseline_window, equalize, save):
         """
         Calculates zscored event average firing rates per unit including a baseline window (s).
@@ -1070,8 +1110,61 @@ class SpikeAnalysis_MultiRecording:
         plt.suptitle(f'{equalize}s {event} vs {baseline_window}s baseline: Z-scored average')
         plt.show()
 
+    def PCA_matrix_generation(self, equalize, pre_window, 
+                              post_window=0, events=None):
+        """
+        WRItE DOC STRING
+
+        Args (5 total, 2 required):
+            equalize: int, length (s) of event transformed by PCA 
+            pre_window: int, length (s) of time prior to event onset included in PCA
+            post_window: int, default=0, length(s) of time after equalize (s) included in PCA
+            save: Boolean, default=False, if True, saves dataframe to collection attribute PCA_matrices
+            events: list of str, default=None, event types for PCA to be applied on their firing 
+                rate averages, if no list given, PCA is applied on all event types in event_dict
+        
+        Returns:
+            none
+
+        """
+        is_first_recording = True
+        for recording_name, recording in self.ephyscollection.collection.items():
+            if events is None:
+                events = list(recording.event_dict.keys())
+                PCA_dict_key = None
+            else:
+                for i in range(len(events)):
+                    if i ==0:
+                        PCA_dict_key = events[i]
+                    else:
+                        PCA_dict_key = PCA_dict_key + events[i]
+            is_first_event = True
+            for event in events:
+                event_firing_rates = self.__get_event_firing_rates__(recording, event, equalize, pre_window, post_window)
+                event_firing_rates = np.array(event_firing_rates)
+                event_averages = np.mean(event_firing_rates, axis = 0) 
+                if is_first_event:
+                    PCA_matrix = event_averages
+                    PCA_event_key = [event] * int((equalize + pre_window + post_window) * 1000 / self.timebin)                       
+                    is_first_event = False
+                else:
+                    PCA_matrix = np.concatenate((PCA_matrix, event_averages), axis = 1)
+                    next_key = [event] * int((equalize + pre_window + post_window) * 1000 / self.timebin)
+                    PCA_event_key = np.concatenate((PCA_event_key, next_key), axis = 0)
+            if is_first_recording:
+                PCA_master_matrix = PCA_matrix
+                PCA_recording_key = [recording_name] * PCA_matrix.shape[0]
+                is_first_recording = False
+            else:
+                PCA_master_matrix = np.concatenate((PCA_master_matrix, PCA_matrix), axis = 0)
+                next_recording_key = [recording_name] * PCA_matrix.shape[0]
+                PCA_recording_key = np.concatenate((PCA_recording_key, next_recording_key), axis = 0)
+        PCA_matrix = np.transpose(PCA_master_matrix)
+        PCA_matrix_df = pd.DataFrame(data = PCA_matrix, columns = PCA_recording_key, index = PCA_event_key)
+        return PCA_matrix_df
+    
     def PCA_trajectories(self, equalize, pre_window, 
-                         post_window=0, plot=True,save=False, events=None, 
+                         post_window=0, plot=True, save=False, events=None, 
                          d=2, azim=30, elev=20):
         """
         calculates a PCA matrix where each data point represents a timebin.
@@ -1095,48 +1188,34 @@ class SpikeAnalysis_MultiRecording:
             none
 
         """
-        PCA_matrix_dict = {}
-        PCA_key = {}
-        for recording_name, recording in self.ephyscollection.collection.items():
-            for unit in recording.unit_firing_rates.keys():
-                is_first = True
-                if events is None:
-                    events = list(recording.event_dict.keys())
-                    PCA_dict_key = None
+        PCA_matrix = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
+        if events is None:
+            events = list(recording.event_dict.keys())
+            PCA_dict_key = None
+        else:
+            for i in range(len(events)):
+                if i ==0:
+                    PCA_dict_key = events[i]
                 else:
-                    for i in range(len(events)):
-                        if i ==0:
-                            PCA_dict_key = events[i]
-                        else:
-                            PCA_dict_key = PCA_dict_key + events[i]
-                for event in events: 
-                    unit_event_firing_rates = self.__get_unit_event_firing_rates__(recording, event, equalize, pre_window, post_window)
-                    unit_event_average = get_unit_average_events(unit_event_firing_rates) 
-                    if is_first:
-                        PCA_matrix_dict[unit] = unit_event_average[unit]
-                        PCA_key[unit] = [event] * int((equalize + pre_window + post_window) * 1000 / self.timebin)                       
-                        is_first = False
-                    else:
-                        PCA_matrix_dict[unit] = np.concatenate((PCA_matrix_dict[unit], unit_event_average[unit]), axis = 0)
-                        next_key = [event] * int((equalize + pre_window + post_window) * 1000 / self.timebin)
-                        PCA_key[unit] = np.concatenate((PCA_key[unit], next_key), axis = 0)
-        PCA_matrix = np.array([v for v in PCA_matrix_dict.values()])
-        PCA_matrix = np.transpose(PCA_matrix)
-        PCA_key = np.array([v for v in PCA_key.values()])
-        PCA_key = PCA_key[0]
+                    PCA_dict_key = PCA_dict_key + events[i]
+        PCA_event_key = PCA_matrix.index
         pca = PCA()
         transformed_matrix = pca.fit_transform(PCA_matrix)
-        PCA_df = pd.DataFrame(data = transformed_matrix, index=PCA_key)
+        PCA_df = pd.DataFrame(data = transformed_matrix, index=PCA_event_key)
+        PCA_coefficients = pca.components_
         if save:
             if PCA_dict_key is None:
                 self.ephyscollection.PCA_dfs['all'] = PCA_df
             else:
                 self.ephyscollection.PCA_dfs[PCA_dict_key]  = PCA_df
         if plot:
-            if d == 2:
-                self.__PCA_EDA_plot__(transformed_matrix, PCA_key, equalize, pre_window, post_window)
+            if d == 2 :
+                self.__PCA_EDA_plot__(transformed_matrix, PCA_event_key, equalize, pre_window, post_window)
             if d == 3:
-                self.__PCA_EDA_plot_3D__(transformed_matrix, PCA_key, equalize, pre_window, post_window, azim, elev)
+                self.__PCA_EDA_plot_3D__(transformed_matrix, PCA_event_key, equalize, pre_window, post_window)
+        return PCA_df, PCA_coefficients
+            
+      
         
     def __PCA_EDA_plot__(self, PCA_matrix, PCA_key, equalize, pre_window, post_window):
         """
