@@ -1189,10 +1189,7 @@ class SpikeAnalysis_MultiRecording:
 
         """
         PCA_matrix = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
-        if events is None:
-            events = list(recording.event_dict.keys())
-            PCA_dict_key = None
-        else:
+        if events is not None:
             for i in range(len(events)):
                 if i ==0:
                     PCA_dict_key = events[i]
@@ -1265,7 +1262,7 @@ class SpikeAnalysis_MultiRecording:
         plt.show()
     
     
-    def __PCA_EDA_plot_3D__(self, PCA_matrix, PCA_key, equalize, pre_window, post_window, azim, elev):
+    def __PCA_EDA_plot_3D__(self, PCA_matrix, PCA_key, equalize, pre_window, post_window, azim=30, elev=50):
         """
         Plots PCA trajectories calculated in PCA_trajectories using the same
         pre window, post window, and equalize parameters. Each event type is
