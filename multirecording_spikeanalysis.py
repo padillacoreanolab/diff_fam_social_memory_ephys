@@ -1207,7 +1207,7 @@ class SpikeAnalysis_MultiRecording:
             if event_baseline is None:
                 recording.zscored_events[f'{equalize}s {event} vs {baseline_window}s baseline'] = zscored_events
             else:
-                recording.zscored_events[f'{equalize}s {event} vs {event_baseline} baseline (w/ pre{baseline_window}s)']    
+                recording.zscored_events[f'{equalize}s {event} vs {event_baseline} baseline (w/ pre{baseline_window}s)'] = zscored_events    
         return zscored_events
 
     def zscore_collection(
