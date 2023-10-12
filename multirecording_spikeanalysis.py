@@ -1240,7 +1240,7 @@ class SpikeAnalysis_MultiRecording:
             recording,
         ) in self.ephyscollection.collection.items():
             zscored_events = self.__zscore_event__(
-                recording, event, baseline_window, equalize, save
+                recording, event, baseline_window, equalize, event_baseline, save
             )
             zscored_dict[recording_name] = zscored_events
             zscored_events_df = pd.DataFrame.from_dict(
