@@ -266,12 +266,12 @@ class EphysRecording:
                     spikes_to_delete.append(spike)
             except KeyError:
                 spikes_to_delete.append(spike)
-                if self.unit_array[spike] in unsorted_clusters.keys():
+                if unit_array[spike] in unsorted_clusters.keys():
                     total_spikes = unsorted_clusters[unit_array[spike]]
                     total_spikes = total_spikes + 1
                     unsorted_clusters[unit_array[spike]] = total_spikes
-            else:
-                unsorted_clusters[unit_array[spike]] = 1
+                else:
+                    unsorted_clusters[unit_array[spike]] = 1
         for unit, no_spike in unsorted_clusters.items():
             print(
                 f"{unit} is unsorted & has {no_spike} spikes that will be deleted"
@@ -332,6 +332,7 @@ class EphysRecordingCollection:
         self.PCA_dfs = {}
         self.fishers_exact = {}
         self.make_collection()
+        seld.measure_recordings()
         print(
             "Please assign event dictionaries to each recording as recording.event_dict"
         )
@@ -352,6 +353,12 @@ class EphysRecordingCollection:
                     print(directory)
                     collection[directory] = tempobject
         self.collection = collection
+
+    def measure_recordings(self):
+        recording_lengths = []
+        for recording in self.collection.values():
+            recording_lengths.append(recording.timestamps_var[-1])
+        self.recording_lengths = recording_lengths
 
     def get_by_name(self, name):
         return self.collection[name]
@@ -1149,7 +1156,7 @@ class SpikeAnalysis_MultiRecording:
             plt.show()
 
     def __zscore_event__(
-        self, recording, event, baseline_window, equalize, save
+        self, recording, event, baseline_window, equalize, event_baseline, save
     ):
         """
         Calculates zscored event average firing rates per unit including a baseline window (s).
@@ -1172,41 +1179,39 @@ class SpikeAnalysis_MultiRecording:
                             keys: str, unit ids
                             values: np.array, average z scared firing rates
         """
-        preevent_baselines = np.array(
-            [
-                pre_event_window(event, baseline_window)
-                for event in recording.event_dict[event]
-            ]
-        )
+       
         unit_event_firing_rates = self.__get_unit_event_firing_rates__(
             recording, event, equalize, baseline_window, 0
         )
-        unit_preevent_firing_rates = self.__get_unit_event_firing_rates__(
-            recording, preevent_baselines, baseline_window, 0, 0
-        )
+        if event_baseline is None:
+            preevent_baselines = np.array([pre_event_window(event, baseline_window) for event in recording.event_dict[event]])
+            unit_baseline_firing_rates = self.__get_unit_event_firing_rates__(recording, preevent_baselines, baseline_window, 0, 0)
+        else:
+            unit_baseline_firing_rates = self.__get_unit_event_firing_rates__(recording, event_baseline, equalize, baseline_window)
         zscored_events = {}
         for unit in unit_event_firing_rates:
             # calculate average event across all events per unit
             event_average = np.mean(unit_event_firing_rates[unit], axis=0)
             # one average for all preevents
-            preevent_average = np.mean(
-                unit_preevent_firing_rates[unit], axis=0
+            baseline_average = np.mean(
+                unit_baseline_firing_rates[unit], axis=0
             )
-            mew = np.mean(preevent_average)
-            sigma = np.std(preevent_average)
+            mew = np.mean(baseline_average)
+            sigma = np.std(baseline_average)
             if sigma != 0:
                 zscored_event = [
                     (event_bin - mew) / sigma for event_bin in event_average
                 ]
                 zscored_events[unit] = zscored_event
         if save:
-            recording.zscored_events[
-                f"{equalize}s {event} vs {baseline_window}s baseline"
-            ] = zscored_events
+            if event_baseline is None:
+                recording.zscored_events[f'{equalize}s {event} vs {baseline_window}s baseline'] = zscored_events
+            else:
+                recording.zscored_events[f'{equalize}s {event} vs {event_baseline} baseline (w/ pre{baseline_window}s)']    
         return zscored_events
 
     def zscore_collection(
-        self, event, baseline_window, equalize, plot=True, save=False
+        self, event, baseline_window, equalize, event_baseline = None, plot=True, save=False
     ):
         """
         calculates z-scored event average firing rates for all recordings in the collection.
@@ -1245,11 +1250,12 @@ class SpikeAnalysis_MultiRecording:
                 columns={"index": "original unit id"}
             )
             zscored_events_df.insert(0, "Subject", recording.subject)
-            zscored_events_df.insert(
-                0,
-                "Event",
-                f"{equalize}s {event} vs {baseline_window}s baseline",
-            )
+            if event_baseline is None:
+                event_name = f'{equalize}s {event} vs {baseline_window}s baseline'
+            else:
+                event_name = f'{equalize}s {event} vs {event_baseline} baseline (w/ pre{baseline_window}s)'
+            zscored_events_df.insert(0, 'Event', event_name)
+            zscored_events_df.insert(0,'Recording' , recording_name)
             zscored_events_df.insert(0, "Recording", recording_name)
             if is_first:
                 master_df = zscored_events_df
@@ -1258,9 +1264,8 @@ class SpikeAnalysis_MultiRecording:
                 master_df = pd.concat(
                     [master_df, zscored_events_df], axis=0
                 ).reset_index(drop=True)
-        zscore_key = f"{equalize}s {event} vs {baseline_window}s baseline"
         if save:
-            self.ephyscollection.zscored_events[zscore_key] = master_df
+            self.ephyscollection.zscored_events[event_name] = master_df
         if plot:
             self.__zscore_plot__(
                 zscored_dict, event, equalize, baseline_window
