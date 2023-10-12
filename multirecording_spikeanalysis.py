@@ -1255,7 +1255,6 @@ class SpikeAnalysis_MultiRecording:
             else:
                 event_name = f'{equalize}s {event} vs {event_baseline} baseline (w/ pre{baseline_window}s)'
             zscored_events_df.insert(0, 'Event', event_name)
-            zscored_events_df.insert(0,'Recording' , recording_name)
             zscored_events_df.insert(0, "Recording", recording_name)
             if is_first:
                 master_df = zscored_events_df
