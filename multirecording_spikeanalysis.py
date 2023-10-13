@@ -964,7 +964,7 @@ class SpikeAnalysis_MultiRecording:
             self.ephyscollection.wilcox_dfs[wilcox_key] = master_df
         if plot:
             self.__wilcox_baseline_v_event_plots__(
-                master_df, event, equalize, baseline_window
+                master_df, event, equalize, baseline_window, offset
             )
         return master_df
 
