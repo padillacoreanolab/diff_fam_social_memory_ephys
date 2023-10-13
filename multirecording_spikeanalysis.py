@@ -195,6 +195,7 @@ def get_indices(repeated_items_list):
                 
     return item_indices
 
+
 def PCs_needed(explained_variance_ratios, percent_explained=.9):
     """
     Calculates number of principle compoenents needed given a percent 
@@ -212,6 +213,7 @@ def PCs_needed(explained_variance_ratios, percent_explained=.9):
         if explained_variance_ratios[0:i].sum() > percent_explained:
             return i
         
+
 def event_slice(transformed_subsets, key, no_PCs):
     """
     Takes in a matrix T (session x timebins x pcs) and an event key 
@@ -239,6 +241,7 @@ def event_slice(transformed_subsets, key, no_PCs):
         trajectories[event] = event_trajectory
     return trajectories 
 
+
 def geodesic_distances(event_trajectories):
     pair_distances = {}
     for pair in list(combinations(event_trajectories.keys(), 2)):
@@ -246,6 +249,7 @@ def geodesic_distances(event_trajectories):
         event2 = event_trajectories[pair[1]] 
         pair_distances[pair] = distance_bw_trajectories(event1, event2)
     return pair_distances
+
 
 def distance_bw_trajectories(trajectory1, trajectory2):
     geodesic_distances = []
@@ -256,7 +260,22 @@ def distance_bw_trajectories(trajectory1, trajectory2):
         geodesic_distances.append(dist_bw_tb)
     return geodesic_distances
    
+
 def chunk_array(array, new_bin, old_bin):
+    """
+    Takes in a 1D array, desired timebin (ms) and current timebin (ms), 
+    and returns a 2D numpy array of the original data in arrays 
+    such that each array is of size new_bin/old_bin such that each array
+    covers new_bin ms in time.
+    
+    Args (3 total):
+        array: numpy array, 1D 
+        new_bin: int, desired timebin (ms)
+        old_bin: int, timebin of analysis (ms)
+    
+    Returns (1):
+        converted_array: 2D numpy, array of in new_bin lengthed arrays
+    """
     chunk_size = new_bin / old_bin
     new_shape = (int(array.size // chunk_size), int(chunk_size))
     slice_size = int(new_shape[0] * chunk_size)
@@ -687,6 +706,8 @@ class SpikeAnalysis_MultiRecording:
         the keys are unit ids (int) and values are firing rates for the
         unit (numpy array) in timebin sized bins
         calculated using smoothing_window for averaging
+        creates a multi dimensional array as recording.unit_firing_rate_array
+        of units x timebins 
 
         Args:
             none
@@ -717,7 +738,6 @@ class SpikeAnalysis_MultiRecording:
         post_window=0,
     ):
         """
-        EDIT DOC STRING
         takes snippets of spiketrains or firing rates for events
         optional pre-event and post-event windows (s) may be included
         all events can also be of equal length by extending
@@ -728,15 +748,16 @@ class SpikeAnalysis_MultiRecording:
             event: str, event type of which ehpys snippets happen during
             whole_recording: numpy array, spiketrain or firing rates
                 for the whole recording, for population or for a single unit
-            pre_window: int, default=0, seconds prior to start of event returned
-            post_window: int, default=0, seconds after end of event returned
             equalize: float, length (s) of events used by padding with post event time
                 or trimming events all to equalize (s) long
-
+            pre_window: int, default=0, seconds prior to start of event returned
+            post_window: int, default=0, seconds after end of event returned
+            
         Returns (1):
             event_snippets: a list of lists, where each list is a list of firing rates
                 or spiketrains during an event including pre_window&post_windows,
-                accounting for equalize and timebins
+                accounting for equalize and timebins for a single unit 
+                or for the population returning a list of numpy arrays 
         """
         if type(event) == str:
             events = recording.event_dict[event]
@@ -797,7 +818,20 @@ class SpikeAnalysis_MultiRecording:
         self, recording, event, equalize, pre_window=0, post_window=0
     ):
         """
-        ADD DOC STRINGS
+        Grabs event firing rates from a whole recording through the recordings
+        unit firing rate array (units by time bins)
+
+        Args (5 total, 3 required):
+            recording: EphysRecording instance, which recording the snippets come from
+            event: str, event type of which ehpys snippets happen during
+            equalize: float, length (s) of events used by padding with post event time
+                or trimming events all to equalize (s) long
+            pre_window: int, default=0, seconds prior to start of event returned
+            post_window: int, default=0, seconds after end of event returned
+
+        Returns (1):
+            event_firing_rates: list of arrays, where each array is units x timebins
+                and list is len(no of events)
         """
         event_firing_rates = self.__get_event_snippets__(
             recording,
@@ -829,6 +863,10 @@ class SpikeAnalysis_MultiRecording:
             equalize: float, length (s) of events used by padding with post event time
                 or trimming events all to equalize (s) long used in stat
             baseline_window: int, default=0, seconds prior to start of event used in stat
+            offset: int, time in (s) from onset of behavior that separates baseline from event
+                calculations such that offset=2 adds the first two seconds of event into baseline
+                and removes them from event averages while -2 adds the 2seconds prior to onset
+                to event averages and removes them from baseline averages
             save: Boolean, True saves df as a value in the wilcox_df attribute of the recording
 
         Return (1):
@@ -886,6 +924,11 @@ class SpikeAnalysis_MultiRecording:
             equalize: float, length (s) of events used by padding with post event time
                 or trimming events all to equalize (s) long used in stat
             baseline_window: int, default=0, seconds prior to start of event used in stat
+            offset: int, default=0, time in (s) from onset of behavior that separates baseline from event
+                calculations such that offset=2 adds the first two seconds of event into baseline
+                and removes them from event averages while -2 adds the 2seconds prior to onset
+                to event averages and removes them from baseline averages
+            plot: Boolean, default=True, if True, plots, if false, does not plot.
             save: Boolean, default=False, if True, saves results to wilcox_dfs attribute
                   of the collection for export
 
@@ -931,12 +974,18 @@ class SpikeAnalysis_MultiRecording:
         significant units (from wilcoxon signed rank test of baseline_window vs event) vs non-significant
         units for event1 and event12. Option to save output stats for export.
 
-        Args(5 total, 4 required):
+        Args(7 total, 3 required):
             event1: str, event type for sig vs non sig units to be compared
             event2: str, event type for sig vs non sig units to be compared
+            event3: str, default=None, if not none, event type to be used as baseline in 
+                wilcoxon signed rank sum test
             equalize: int, length (s) of event that wilcoxon signed rank test was calculated on
-            baselin_window: int, length (s) of baseline window that wilcoxon signed rank test
-                    was calculated on
+            baselin_window: int, default=None, if not None, length (s) of baseline window
+                 that wilcoxon signed rank test was calculated on
+            offset: int, default=0, time in (s) from onset of behavior that separates baseline from event
+                calculations such that offset=2 adds the first two seconds of event into baseline
+                and removes them from event averages while -2 adds the 2seconds prior to onset
+                to event averages and removes them from baseline averages
             save: Boolean, default=False, saves stats as an item in fishers exact dict
                     where the key is: f'{equalize}s {event1} vs {baseline_window}s baseline'
                     and values are: odds ratio, p value, and number of units
@@ -979,7 +1028,7 @@ class SpikeAnalysis_MultiRecording:
         return odds_ratio, p_value, contingency_matrix
 
     def __wilcox_baseline_v_event_plots__(
-        self, master_df, event, equalize, baseline_window, offset,
+        self, master_df, event, equalize, baseline_window, offset
     ):
         """
         plots event triggered average firing rates for units with significant wilcoxon
@@ -990,7 +1039,10 @@ class SpikeAnalysis_MultiRecording:
             equalize: float, length (s) of events used by padding with post event time
                 or trimming events all to equalize (s) long used in stat
             baseline_window: int, default=0, seconds prior to start of event used in stat
-            title: str, title of figure
+            offset: int, default=0, time in (s) from onset of behavior that separates baseline from event
+                calculations such that offset=2 adds the first two seconds of event into baseline
+                and removes them from event averages while -2 adds the 2seconds prior to onset
+                to event averages and removes them from baseline averages
 
         Returns:
             none
@@ -1122,6 +1174,10 @@ class SpikeAnalysis_MultiRecording:
             event2: str, second event type firing rates for stats to be run on
             equalize: float, length (s) of events used by padding with post event time
                 or trimming events all to equalize (s) long used in stat
+            pre_window: time prior to event onset to be included in plot
+            plot: Boolean, default=True, if True, plots, if false, does not plot.
+            save: Boolean, default=False, if True, saves results to wilcox_dfs attribute
+                  of the collection for export
 
         Returns (1):
             master_df: df, rows for each unit and columns representing
@@ -1165,12 +1221,11 @@ class SpikeAnalysis_MultiRecording:
         signed rank sums (p value < 0.05) for event1 vs event2
 
          Args(5 total, 5 required):
-            event1: str, first event type firing rates for stats to be run on
-            event2: str, second event type firing rates for stats to be run on
-            equalize: float, length (s) of events used by padding with post event time
-                or trimming events all to equalize (s) long used in stat
-            pre_window: int, length(s) of time prior to event to be plotted
-            title: str, title of figure
+            master_df: dataframe, return of event_v_event_collection function
+            event1: str, event type 1
+            event2: str, event type 2
+            equalize: int, length (s) of events
+            pre_window: int, time (s) prior to event onset to be plotted
 
         Returns:
             none
@@ -1233,6 +1288,23 @@ class SpikeAnalysis_MultiRecording:
             plt.show()
 
     def __global_baseline__(self, recording, event, equalize, pre_window, global_timebin):
+        """
+        calculates baseline firing rate dicitionaries of size global_timebin across entire recording
+        for each unit and creates a unique caching name for zscore_dict for the collection
+        and the recording
+
+        Args (5 total):
+            recordng: ephysrecording instance
+            event: str, event type
+            equalize: int, length (s) of event
+            pre_window: int, time (s) before onset of event
+            global_timebin: length (ms) of timebins to calculate mew and sigma for zscore
+        
+        Returns (2):
+            unit_baseline_firing_rates: dict; key, str, unit id
+                value: numpy array, 2d numpy array of global time bin chunks of firing rates 
+            event_name: str, event name for caching 
+        """
         unit_firing_rates = recording.unit_firing_rates 
         unit_baseline_firing_rates = {
             key: chunk_array(value, global_timebin, self.timebin) for key, value in unit_firing_rates.items()
@@ -1241,11 +1313,44 @@ class SpikeAnalysis_MultiRecording:
         return unit_baseline_firing_rates, event_name 
     
     def __event_baseline__(self, recording, event, baseline, equalize, pre_window):
+        """
+        calculates baseline firing rate dicitionaries of baseline events
+        for each unit and creates a unique caching name for zscore_dict for
+        the collection and the recording
+
+        Args (5 total):
+            recordng: ephysrecording instance
+            event: str, event type
+            baseline: str, event type to be used as baseline for z score
+            equalize: int, length (s) of event
+            pre_window: int, time (s) before onset of event
+        
+        Returns (2):
+            unit_baseline_firing_rates: dict; key, str, unit id
+                value: numpy array, 2d numpy array of baseline event firing rates 
+            event_name: str, event name for caching 
+        """
         unit_baseline_firing_rates = self.__get_unit_event_firing_rates__(recording, baseline, equalize, pre_window)
         event_name = f'{equalize}s {event} vs {baseline} baseline (w/ pre {pre_window}s)'
         return unit_baseline_firing_rates, event_name 
 
     def __calc_preevent_baseline__(self, recording, baseline, equalize, event):
+        """
+        calculates baseline firing rate dicitionaries of pre-event baseline windows
+        for each unit and creates a unique caching name for zscore_dict for
+        the collection and the recording
+
+        Args (4 total):
+            recordng: ephysrecording instance
+            event: str, event type
+            baseline: int, time (s) before onset of event
+            equalize: int, length (s) of event
+        
+        Returns (2):
+            unit_baseline_firing_rates: dict; key, str, unit id
+                value: numpy array, 2d numpy array of baseline pre-event firing rates 
+            event_name: str, event name for caching 
+        """
         preevent_baselines = np.array([pre_event_window(event, baseline) for event in recording.event_dict[event]])
         unit_baseline_firing_rates = self.__get_unit_event_firing_rates__(recording, preevent_baselines, baseline, 0, 0)
         event_name = f'{equalize}s {event} vs {baseline}s baseline'
@@ -1260,18 +1365,23 @@ class SpikeAnalysis_MultiRecording:
         Such that the key is {equalize}s {event} vs {baseline_window}s baseline'
         and the value is {unit id: np.array(zscored average event firing rates)}
 
-        Args(4 total, 4 required):
+        Args(4 total, 3 required):
             recording: EphysRecording instance, recording that is being zscored
-            event: str, event type whose average firing rates are being z-scored
-            baseline_window: int, length (s) of time prior to event onset to be included in 
-                    calculations
-            equalize: float, length (s) of events used by padding with post event time
-                    or trimming events all to equalize (s) long used in z scoring
+            unit_event_firing_rates: numpy array, event firing rates to be z scored
+            unit_baseline_firing_rates: numpy array, baseling firing rates to be z scored to
+                whic mew and sigma will be calculated from
+            SD: int, deault=None, number of standard deviations away from the mean for a global
+                zscored event to be considered significant 
 
-        Returns(1):
+        Returns(1, 2 optional):
             zscored_events: dict, of units to z scored average event firing rates
-                            keys: str, unit ids
-                            values: np.array, average z scared firing rates
+                keys: str, unit ids
+                values: np.array, average z scared firing rates
+            significance_dict: dict, if SD is not none, units to significance
+                keys: str, unit ids,
+                values: 'inhibitory' if average zscored event is under SD * sigma ;
+                    'excitatory' if average zscored event firing is over SD * sigma
+                    'not significant' if none of the above
         """
         zscored_events = {}
         significance_dict = {}
@@ -1303,6 +1413,20 @@ class SpikeAnalysis_MultiRecording:
             return zscored_events
     
     def __make_zscore_df__(self, zscored_events, recording, recording_name, event_name, master_df =None, sig_dict = None):
+        """
+        Args(4 required, 6 total):
+            zscored_events: dict, unit ids as keys, z scored firing rates of values (numpy arrays)
+            recording: ephys recording instance
+            recording_name: str, name of the recording
+            event_name: str, cached event name with parameters
+            master_df: dataframe, curent z scored df, none if first event calculated
+            sig_dict: dict, significance of each unit based on event average compared to sigma 
+
+        Returns:
+            master_df: dataframe containing z scored events, subject, event name, recording name,
+                and optional significance status (all columns) per unit (rows)
+
+        """
         zscored_events_df = pd.DataFrame.from_dict(zscored_events, orient='index')
         if sig_dict is not None: 
             zscored_events_df.insert(0,'Significance', [sig_dict[i] for i in zscored_events_df.index])
@@ -1318,20 +1442,20 @@ class SpikeAnalysis_MultiRecording:
 
     def zscore_global(self, event, equalize, pre_window = 0, global_timebin = 1000, SD = None, plot = True, save = False):
         """
-        calculates z-scored event average firing rates for all recordings in the collection. 
+        calculates z-scored event average firing rates for all recordings in the collection
+        compared to a global baseline firing rate in global_timebin (ms) chunks 
         assigns a dataframe of all zscored event firing rates with columns for original unit id,
         recording name, and subject as a value in zscored_event dictionary attribute of the colleciton
-        such that: collection the key is '{event} vs {baseline_window}s baseline' and the value is the 
-        dataframe
 
-        Args (7 total, 3 required):
+        Args (7 total, 2 required):
             event: str, event type whose average firing rates are being z-scored
             equalize: float, length (s) of events used by padding with post event time
                     or trimming events all to equalize (s) long used in z scoring
-            pre_window: float, default=0, if baseline is float, baseline will be used instead of pre_window
-                    pre event time included in zscored event firing rates and plotting
-            global_timebin: float, default=1000, timebin with which mew and sigma will be calculated
+            pre_window: float, default=0, firing rates prior to event to be zscored. 
+            global_timebin: float, default=1000, timebin (ms) with which mew and sigma will be calculated
                     for 'global' normalization against whole recording
+            SD: int, default=None, number of standard of deviations away from the mean of the global z score
+                it takes for a units average firing rate per event to be considered signifcant
             plot: Boolean, default=True, if true, function will plot, if false, function will not plot
                     z scored event over time (pre_window to equalize)
             save: Boolean, default=False, if False, will not cache results for export, if True, will 
@@ -1364,6 +1488,29 @@ class SpikeAnalysis_MultiRecording:
         return master_df
         
     def zscore_baseline_event(self, event, baseline, equalize, pre_window = 0, plot = True, save = False):
+        """
+        calculates z-scored event average firing rates for all recordings in the collection
+        compared to a baseline event 
+        assigns a dataframe of all zscored event firing rates with columns for original unit id,
+        recording name, and subject as a value in zscored_event dictionary attribute of the colleciton
+
+        Args (6 total, 3 required):
+            event: str, event type whose average firing rates are being z-scored
+            baseline: str, baseline event to which other events will be normalized to
+            equalize: float, length (s) of events used by padding with post event time
+                    or trimming events all to equalize (s) long used in z scoring
+            pre_window: float, default=0, firing rates prior to event to be normalized
+            plot: Boolean, default=True, if true, function will plot, if false, function will not plot
+                    z scored event over time (pre_window to equalize)
+            save: Boolean, default=False, if False, will not cache results for export, if True, will 
+                  will save results in collection.zscored_events dict for export
+        
+        Returns:
+            master_df: assigns a dataframe of all zscored event firing rates with columns for original unit id,
+                   recording name, and subject as a value in zscored_event dictionary attribute of the colleciton
+                   such that: collection the key is '{event} vs {baseline_window}s baseline' and the value is the 
+                   dataframe
+        """
         is_first = True 
         zscored_dict = {}
         for recording_name, recording in self.ephyscollection.collection.items():
@@ -1384,6 +1531,28 @@ class SpikeAnalysis_MultiRecording:
             self.__zscore_plot__(zscored_dict, event, equalize, pre_window)
 
     def zscore_pre_event(self, event, equalize, baseline_window, plot = True, save = False):
+        """
+        calculates z-scored event average firing rates for all recordings in the collection
+        compared to a baseline window immediately prior to event onset. 
+        assigns a dataframe of all zscored event firing rates with columns for original unit id,
+        recording name, and subject as a value in zscored_event dictionary attribute of the colleciton
+
+        Args (5 total, 3 required):
+            event: str, event type whose average firing rates are being z-scored
+            baseline_window: str, baseline event to which other events will be normalized to
+            equalize: float, length (s) of events used by padding with post event time
+                    or trimming events all to equalize (s) long used in z scoring
+            plot: Boolean, default=True, if true, function will plot, if false, function will not plot
+                    z scored event over time (pre_window to equalize)
+            save: Boolean, default=False, if False, will not cache results for export, if True, will 
+                  will save results in collection.zscored_events dict for export
+        
+        Returns:
+            master_df: assigns a dataframe of all zscored event firing rates with columns for original unit id,
+                   recording name, and subject as a value in zscored_event dictionary attribute of the colleciton
+                   such that: collection the key is '{event} vs {baseline_window}s baseline' and the value is the 
+                   dataframe
+        """
         is_first = True 
         zscored_dict = {}
         for recording_name, recording in self.ephyscollection.collection.items():
@@ -1441,7 +1610,7 @@ class SpikeAnalysis_MultiRecording:
             i +=2
         plt.suptitle(f'{equalize}s {event} vs {baseline_window}s baseline: Z-scored average')
         plt.show() 
-          
+
     def PCA_matrix_generation(
         self, equalize, pre_window, post_window=0, events=None
     ):
