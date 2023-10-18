@@ -9,7 +9,13 @@ import matplotlib.pyplot as plt
 from scipy.stats import sem, ranksums, fisher_exact, wilcoxon
 from statistics import mean, StatisticsError
 from sklearn.decomposition import PCA
-
+from mpl_toolkits.mplot3d import Axes3D
+from scipy.spatial.distance import euclidean
+from itertools import combinations
+from sklearn.metrics import roc_auc_score
+from sklearn.ensemble import BaggingClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
 
 def get_spiketrain(
     timestamp_array, last_timestamp, timebin=1, sampling_rate=20000
@@ -759,7 +765,7 @@ class SpikeAnalysis_MultiRecording:
                 accounting for equalize and timebins for a single unit 
                 or for the population returning a list of numpy arrays 
         """
-        if type(event) == str:
+        if type(event) is str:
             events = recording.event_dict[event]
         else:
             events = event
@@ -1630,63 +1636,47 @@ class SpikeAnalysis_MultiRecording:
 
         """
         is_first_recording = True
-        for (
-            recording_name,
-            recording,
-        ) in self.ephyscollection.collection.items():
+        for recording_name, recording in self.ephyscollection.collection.items():
             if events is None:
                 events = list(recording.event_dict.keys())
                 PCA_dict_key = None
             else:
                 for i in range(len(events)):
-                    if i == 0:
+                    if i ==0:
                         PCA_dict_key = events[i]
                     else:
                         PCA_dict_key = PCA_dict_key + events[i]
             is_first_event = True
             for event in events:
-                event_firing_rates = self.__get_event_firing_rates__(
-                    recording, event, equalize, pre_window, post_window
-                )
+                event_firing_rates = self.__get_event_firing_rates__(recording, event, equalize, pre_window, post_window)
                 event_firing_rates = np.array(event_firing_rates)
-                event_averages = np.mean(event_firing_rates, axis=0)
+                event_averages = np.mean(event_firing_rates, axis = 0) 
                 if is_first_event:
                     PCA_matrix = event_averages
-                    PCA_event_key = [event] * int(
-                        (equalize + pre_window + post_window)
-                        * 1000
-                        / self.timebin
-                    )
+                    PCA_event_key = [event] * int((equalize + pre_window + post_window) * 1000 / self.timebin)                       
                     is_first_event = False
                 else:
-                    PCA_matrix = np.concatenate(
-                        (PCA_matrix, event_averages), axis=1
-                    )
-                    next_key = [event] * int(
-                        (equalize + pre_window + post_window)
-                        * 1000
-                        / self.timebin
-                    )
-                    PCA_event_key = np.concatenate(
-                        (PCA_event_key, next_key), axis=0
-                    )
+                    PCA_matrix = np.concatenate((PCA_matrix, event_averages), axis = 1)
+                    next_key = [event] * int((equalize + pre_window + post_window) * 1000 / self.timebin)
+                    PCA_event_key = np.concatenate((PCA_event_key, next_key), axis = 0)
             if is_first_recording:
                 PCA_master_matrix = PCA_matrix
                 PCA_recording_key = [recording_name] * PCA_matrix.shape[0]
                 is_first_recording = False
             else:
-                PCA_master_matrix = np.concatenate(
-                    (PCA_master_matrix, PCA_matrix), axis=0
-                )
+                PCA_master_matrix = np.concatenate((PCA_master_matrix, PCA_matrix), axis = 0)
                 next_recording_key = [recording_name] * PCA_matrix.shape[0]
-                PCA_recording_key = np.concatenate(
-                    (PCA_recording_key, next_recording_key), axis=0
-                )
-        PCA_matrix = np.transpose(PCA_master_matrix)
-        PCA_matrix_df = pd.DataFrame(
-            data=PCA_matrix, columns=PCA_recording_key, index=PCA_event_key
-        )
-        return PCA_matrix_df
+                PCA_recording_key = np.concatenate((PCA_recording_key, next_recording_key), axis = 0)
+        matrix = np.transpose(PCA_master_matrix)
+        matrix_df = pd.DataFrame(data = matrix, columns = PCA_recording_key, index = PCA_event_key)
+        key = np.array(matrix_df.index.to_list())
+        pca = PCA()
+        pca.fit(matrix_df)
+        transformed_matrix = pca.transform(matrix_df)
+        coefficients = pca.components_
+        explained_variance_ratios = pca.explained_variance_ratio_
+        return matrix_df, transformed_matrix, key, coefficients, explained_variance_ratios
+
 
     def PCA_trajectories(
         self,
@@ -1722,25 +1712,19 @@ class SpikeAnalysis_MultiRecording:
             none
 
         """
-        PCA_matrix = self.PCA_matrix_generation(
-            equalize, pre_window, post_window, events
-        )
+        PCA_matrix, transformed_matrix, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
         if events is not None:
             for i in range(len(events)):
                 if i == 0:
                     PCA_dict_key = events[i]
                 else:
                     PCA_dict_key = PCA_dict_key + events[i]
-        PCA_event_key = PCA_matrix.index
-        pca = PCA()
-        transformed_matrix = pca.fit_transform(PCA_matrix)
-        PCA_df = pd.DataFrame(data=transformed_matrix, index=PCA_event_key)
-        PCA_coefficients = pca.components_
+        PCA_event_key = key
         if save:
             if PCA_dict_key is None:
-                self.ephyscollection.PCA_dfs["all"] = PCA_df
+                self.ephyscollection.PCA_dfs["all"] = transformed_matrix
             else:
-                self.ephyscollection.PCA_dfs[PCA_dict_key] = PCA_df
+                self.ephyscollection.PCA_dfs[PCA_dict_key] = transformed_matrix
         if plot:
             if d == 2:
                 self.__PCA_EDA_plot__(
@@ -1758,7 +1742,7 @@ class SpikeAnalysis_MultiRecording:
                     pre_window,
                     post_window,
                 )
-        return PCA_df, PCA_coefficients
+        return transformed_matrix, coefficients
 
     def __PCA_EDA_plot__(
         self, PCA_matrix, PCA_key, equalize, pre_window, post_window
@@ -1941,6 +1925,172 @@ class SpikeAnalysis_MultiRecording:
                 "Preevent = square, Onset = triangle, End of event = circle"
             )
         plt.show()
+
+    def LOO_PCA(self, equalize, pre_window, percent_var, post_window = 0, events = None):
+        full_PCA_matrix, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
+        transformed_subsets = []
+        i = 0
+        recording_indices = get_indices(full_PCA_matrix.columns.to_list())
+        for i in range(len(recording_indices)):
+            start = recording_indices[i][0]
+            stop = recording_indices[i][1]
+            subset_df = full_PCA_matrix.drop(full_PCA_matrix.columns[start:stop], axis = 1)
+            subset_array = subset_df.values
+            subset_coeff = np.delete(coefficients, np.s_[start:stop+1], axis = 0)
+            transformed_subset = np.dot(subset_array, subset_coeff)
+            transformed_subsets.append(transformed_subset)
+        transformed_subsets = np.stack(transformed_subsets, axis = 0)
+        no_PCs = PCs_needed(explained_variance_ratios, percent_var)
+        event_trajectories = event_slice(transformed_subsets, key, no_PCs)
+        pairwise_distances = geodesic_distances(event_trajectories)
+        return pairwise_distances
+    
+    def __PCA_for_decoding__(self, equalize, pre_window, post_window, no_PCs, events):
+        full_PCA_matrix, t_df, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events = None)
+        recordings = full_PCA_matrix.columns.to_list()
+        recording_list = np.unique(recordings)
+        coefficients = coefficients[:, :no_PCs]
+        recording_indices = get_indices(recordings)
+        decoder_data = {}
+        #decoder data dict: events for keys, values is a list of len(events)
+        #each element in the list is the transformed matrix
+        for i in range(len(recording_indices)):
+            #iterate through recordings
+            recording = recording_list[i]
+            start = recording_indices[i][0]
+            stop = recording_indices[i][1]
+            #trim weight matrix for only those neurons in the current recording
+            subset_coeff = coefficients[start:stop+1, :]
+            for event in events:
+                recording_instance = self.ephyscollection.get_by_name(recording)
+                #grab all event firing rates for current event in current recording
+                event_firing_rates = self.__get_event_firing_rates__(recording_instance, event,
+                                                                equalize, pre_window, post_window)
+                for trial in range(len(event_firing_rates)):
+                    #iterate through each event
+                    trial_data = np.transpose(event_firing_rates[trial])
+                    #transpoe event firing rates from neurons x timebins to timebins x neurons
+                    transformed_trial = np.dot(trial_data, subset_coeff)
+                    #transform each trial with original weight matrix
+                    #T (timebins x pcs) = D (timebins x neurons). W (pcs x neurons) 
+                    if event in decoder_data.keys():
+                        #append transformed matrix to decoder_data dict
+                        decoder_data[event].append(transformed_trial)
+                    else: 
+                        decoder_data[event] = []
+                        decoder_data[event].append(transformed_trial)
+        return decoder_data
+
+    def trial_decoder(self, equalize, pre_window, post_window, num_fold, num_shuffle, no_PCs, events, plot = True):
+        decoder_data = self.__PCA_for_decoding__(equalize, pre_window, post_window, no_PCs, events = events)
+        #decoder data = list(timebins x pcs)
+        ex_trial_matrix = decoder_data[events[0]][0]
+        T = ex_trial_matrix.shape[0]
+        auc = {}
+        for event in events:
+            data_neg = []
+            data_pos = []
+            for trial in decoder_data[event]:
+                data_pos.append(trial)
+            for neg_event in np.setdiff1d(events, event):
+                for trial in decoder_data[neg_event]:
+                    data_neg.append(trial)
+            data_pos = np.stack(data_pos, axis=2)
+            data_neg = np.stack(data_neg, axis = 2)
+            num_pos = data_pos.shape[2]
+            num_neg = data_neg.shape[2]
+            data_pos = data_pos[:, :, np.random.permutation(num_pos)]
+            data_neg = data_neg[:, :, np.random.permutation(num_neg)]
+            auc[event] = {'glm': [], 'rf': [], 'glm_shuffle': [], 'rf_shuffle': []}
+            for fold in range(num_fold):
+                auc_glm = []
+                auc_rf = []
+                auc_glm_shuffle = []
+                auc_rf_shuffle = []
+                pos_fold = num_pos // num_fold
+                neg_fold = num_neg // num_fold
+                data_test = np.concatenate((data_pos[:, :, fold * pos_fold:(fold + 1) * pos_fold],
+                                            data_neg[:, :, fold * neg_fold:(fold + 1) * neg_fold]), axis=2)
+                label_test = np.concatenate((np.ones((fold + 1) * pos_fold - fold * pos_fold),
+                                            np.zeros((fold + 1) * neg_fold - fold * neg_fold)))
+                data_train = np.concatenate((
+                    data_pos[:, :, np.setdiff1d(np.arange(num_pos), 
+                    np.arange(fold * pos_fold, (fold + 1) * pos_fold))],
+                    data_neg[:, :, np.setdiff1d(np.arange(num_neg), 
+                    np.arange(fold * neg_fold, (fold + 1) * neg_fold))]),
+                    axis=2)
+                label_train = np.concatenate((np.ones(num_pos - (fold + 1) * pos_fold + fold * pos_fold),
+                                            np.zeros(num_neg - (fold + 1) * neg_fold + fold * neg_fold)))
+                for timebin in range(T):
+                    model_glm = LogisticRegression(class_weight='balanced') 
+                    model_glm.fit(data_train[timebin, :, :].T, label_train)
+                    pred_glm = model_glm.predict_proba(data_test[timebin, :, :].T)
+                    auc_glm.append(roc_auc_score(label_test, pred_glm[:, 1]))
+                 
+                    model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(), n_estimators=50, random_state=0)
+                    model_rf.fit(data_train[timebin, :, :].T, label_train)
+                    pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
+                    auc_rf.append(roc_auc_score(label_test, pred_rf[:, 1]))
+                auc[event]['glm'].append(auc_glm)
+                auc[event]['rf'].append(auc_rf)
+                for shuffle in range(num_shuffle):
+                    temp_glm_shuffle = []
+                    temp_rf_shuffle = []
+                    label_train = np.random.permutation(label_train)
+                    for timebin in range(T):
+                        model_glm = LogisticRegression()
+                        model_glm.fit(data_train[timebin, :, :].T, label_train)
+                        pred_glm = model_glm.predict_proba(data_test[timebin, :, :].T)
+                        temp_glm_shuffle.append(roc_auc_score(label_test, pred_glm[:, 1]))
+
+                        model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(), n_estimators=50, random_state=0)
+                        model_rf.fit(data_train[timebin, :, :].T, label_train)
+                        pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
+                        temp_rf_shuffle.append(roc_auc_score(label_test, pred_rf[:, 1]))
+                    auc_glm_shuffle.append(temp_glm_shuffle)
+                    auc_rf_shuffle.append(temp_rf_shuffle)
+                auc[event]['glm_shuffle'].append(auc_glm_shuffle)
+                auc[event]['rf_shuffle'].append(auc_rf_shuffle)
+        if plot:
+            self.__plot_auc__(auc, equalize, pre_window)
+        return auc
+    
+                
+    def __plot_auc__(self, auc_dict, equalize, pre_window):
+        avg_auc = {}
+        no_plots = len(auc_dict.keys())
+        height_fig = math.ceil(no_plots/2)
+        i = 1
+        plt.figure(figsize=(12,4*height_fig))
+        for key in auc_dict.keys():
+            glm_avg = np.mean(auc_dict[key]['glm'], axis = 0)
+            glm_sem = sem(auc_dict[key]['glm'], axis = 0)
+            x =np.linspace(-pre_window, equalize, len(glm_avg))
+            rf_avg = np.mean(auc_dict[key]['rf'], axis = 0)
+            rf_sem = sem(auc_dict[key]['rf'], axis = 0)
+            glm_shuffle_avg = np.mean(np.mean(auc_dict[key]['glm_shuffle'], axis = 1), axis = 0)
+            glm_shuffle_sem = sem(np.mean(auc_dict[key]['glm_shuffle'], axis = 1), axis = 0)
+            rf_shuffle_avg = np.mean(np.mean(auc_dict[key]['rf_shuffle'], axis = 1), axis = 0)
+            rf_shuffle_sem = sem(np.mean(auc_dict[key]['rf_shuffle'], axis = 1), axis = 0)
+            avg_auc[key] = [glm_avg, rf_avg, glm_shuffle_avg, rf_shuffle_avg]
+            plt.subplot(height_fig,2,i)
+            plt.plot(x, glm_avg, label ='glm')
+            plt.fill_between(x, glm_avg-glm_sem, glm_avg+glm_sem, alpha = 0.2)
+            plt.plot(x, rf_avg, label =  'rf')
+            plt.fill_between(x, rf_avg-rf_sem, rf_avg+rf_sem, alpha = 0.2)
+            plt.plot(x, glm_shuffle_avg, label = 'glm shuffle')
+            plt.fill_between(x, glm_shuffle_avg-glm_shuffle_sem, glm_shuffle_avg+glm_shuffle_sem, alpha = 0.2)
+            plt.plot(x, rf_shuffle_avg, label = 'rf shuffle')
+            plt.fill_between(x, rf_shuffle_avg-rf_shuffle_sem, rf_shuffle_avg+rf_shuffle_sem, alpha = 0.2)
+            plt.title(f'{key}')
+            plt.ylim(.4, 1)
+            plt.axvline(x=0, color='k', linestyle='--')
+            if i == 2:
+                plt.legend(bbox_to_anchor=(1,1))
+            i += 1
+        plt.suptitle('Decoder Accuracy')
+        plt.show()
+
 
     def export(self, directory=None):
         """
