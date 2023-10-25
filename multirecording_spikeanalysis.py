@@ -17,6 +17,10 @@ from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LogisticRegression
 
+def hex_2_rgb(hex_color): # Orange color
+    rgb_color = tuple(int(hex_color[i:i+2], 16) / 255.0 for i in (1, 3, 5))
+    return rgb_color
+
 def get_spiketrain(
     timestamp_array, last_timestamp, timebin=1, sampling_rate=20000
 ):
@@ -1340,7 +1344,7 @@ class SpikeAnalysis_MultiRecording:
         event_name = f'{equalize}s {event} vs {baseline} baseline (w/ pre {pre_window}s)'
         return unit_baseline_firing_rates, event_name 
 
-    def __calc_preevent_baseline__(self, recording, baseline, equalize, event):
+    def __calc_preevent_baseline__(self, recording, baseline, offset, equalize, event):
         """
         calculates baseline firing rate dicitionaries of pre-event baseline windows
         for each unit and creates a unique caching name for zscore_dict for
@@ -1357,7 +1361,7 @@ class SpikeAnalysis_MultiRecording:
                 value: numpy array, 2d numpy array of baseline pre-event firing rates 
             event_name: str, event name for caching 
         """
-        preevent_baselines = np.array([pre_event_window(event, baseline) for event in recording.event_dict[event]])
+        preevent_baselines = np.array([pre_event_window(event, baseline, offset) for event in recording.event_dict[event]])
         unit_baseline_firing_rates = self.__get_unit_event_firing_rates__(recording, preevent_baselines, baseline, 0, 0)
         event_name = f'{equalize}s {event} vs {baseline}s baseline'
         return unit_baseline_firing_rates, event_name
@@ -1411,8 +1415,8 @@ class SpikeAnalysis_MultiRecording:
                             significance = 'excitatory'
                     else:
                         significance = 'not significant'
+                    significance_dict[unit] = significance
                 zscored_events[unit] = zscored_event
-                significance_dict[unit] = significance
         if SD is not None:
             return zscored_events, significance_dict
         else:
@@ -1536,7 +1540,7 @@ class SpikeAnalysis_MultiRecording:
         if plot:
             self.__zscore_plot__(zscored_dict, event, equalize, pre_window)
 
-    def zscore_pre_event(self, event, equalize, baseline_window, plot = True, save = False):
+    def zscore_pre_event(self, event, equalize, baseline_window, offset = 0, plot = True, save = False):
         """
         calculates z-scored event average firing rates for all recordings in the collection
         compared to a baseline window immediately prior to event onset. 
@@ -1563,7 +1567,7 @@ class SpikeAnalysis_MultiRecording:
         zscored_dict = {}
         for recording_name, recording in self.ephyscollection.collection.items():
             unit_event_firing_rates = self.__get_unit_event_firing_rates__(recording, event, equalize, baseline_window, 0)  
-            unit_baseline_firing_rates, event_name = self.__calc_preevent_baseline__(recording, baseline_window, equalize, event)
+            unit_baseline_firing_rates, event_name = self.__calc_preevent_baseline__(recording, baseline_window, offset, equalize, event)
             zscored_events = self.__zscore_event__(recording, unit_event_firing_rates, unit_baseline_firing_rates)
             if save:
                 recording.zscored_events[event_name] = zscored_events
@@ -1576,9 +1580,9 @@ class SpikeAnalysis_MultiRecording:
         if save:
             self.ephyscollection.zscored_events[event_name] = master_df
         if plot:
-            self.__zscore_plot__(zscored_dict, event, equalize, baseline_window)
+            self.__zscore_plot__(zscored_dict, event, equalize, baseline_window, offset)
     
-    def __zscore_plot__(self, zscored_dict, event, equalize, baseline_window):
+    def __zscore_plot__(self, zscored_dict, event, equalize, baseline_window, offset=0):
         """
         plots z-scored average event firing rate for the population of good units with SEM 
         and the z-scored average event firing rate for each good unit individually for 
@@ -1606,6 +1610,8 @@ class SpikeAnalysis_MultiRecording:
             plt.subplot(height_fig,2,i)
             plt.plot(x, mean_arr, c= 'b')
             plt.axvline(x=0, color='r', linestyle='--')
+            if offset != 0:
+                plt.axvline(x=offset, color='b', linestyle='--')
             plt.fill_between(x, mean_arr-sem_arr, mean_arr+sem_arr, alpha=0.2)
             plt.title(f'{recording_name} Population z-score')
             plt.subplot(height_fig,2,i+1)
@@ -1613,6 +1619,8 @@ class SpikeAnalysis_MultiRecording:
                 plt.plot(x, zscored_unit_event_firing_rates[unit], linewidth = .5)
                 plt.axvline(x=0, color='r', linestyle='--')
                 plt.title(f'{recording_name} Unit z-score')
+                if offset != 0:
+                    plt.axvline(x=offset, color='b', linestyle='--')
             i +=2
         plt.suptitle(f'{equalize}s {event} vs {baseline_window}s baseline: Z-scored average')
         plt.show() 
@@ -1740,7 +1748,7 @@ class SpikeAnalysis_MultiRecording:
                     PCA_event_key,
                     equalize,
                     pre_window,
-                    post_window,
+                    post_window, azim, elev
                 )
         return transformed_matrix, coefficients
 
@@ -1915,7 +1923,7 @@ class SpikeAnalysis_MultiRecording:
         ax.set_xlabel("PC1")
         ax.set_ylabel("PC2")
         ax.set_zlabel("PC3")
-        ax.view_init(azim, elev)
+        ax.view_init(azim = azim, elev = elev)
         if post_window != 0:
             ax.set_title(
                 "Preevent = square, Onset = triangle, End of event = circle, Post event = Diamond"
@@ -1927,7 +1935,7 @@ class SpikeAnalysis_MultiRecording:
         plt.show()
 
     def LOO_PCA(self, equalize, pre_window, percent_var, post_window = 0, events = None):
-        full_PCA_matrix, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
+        full_PCA_matrix, t_matrix, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
         transformed_subsets = []
         i = 0
         recording_indices = get_indices(full_PCA_matrix.columns.to_list())
@@ -2027,7 +2035,7 @@ class SpikeAnalysis_MultiRecording:
                     pred_glm = model_glm.predict_proba(data_test[timebin, :, :].T)
                     auc_glm.append(roc_auc_score(label_test, pred_glm[:, 1]))
                  
-                    model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(), n_estimators=50, random_state=0)
+                    model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(class_weight = 'balanced'), n_estimators=50, random_state=0)
                     model_rf.fit(data_train[timebin, :, :].T, label_train)
                     pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
                     auc_rf.append(roc_auc_score(label_test, pred_rf[:, 1]))
@@ -2038,12 +2046,12 @@ class SpikeAnalysis_MultiRecording:
                     temp_rf_shuffle = []
                     label_train = np.random.permutation(label_train)
                     for timebin in range(T):
-                        model_glm = LogisticRegression()
+                        model_glm = LogisticRegression(class_weight='balanced')
                         model_glm.fit(data_train[timebin, :, :].T, label_train)
                         pred_glm = model_glm.predict_proba(data_test[timebin, :, :].T)
                         temp_glm_shuffle.append(roc_auc_score(label_test, pred_glm[:, 1]))
 
-                        model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(), n_estimators=50, random_state=0)
+                        model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(class_weight = 'balanced'), n_estimators=50, random_state=0)
                         model_rf.fit(data_train[timebin, :, :].T, label_train)
                         pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
                         temp_rf_shuffle.append(roc_auc_score(label_test, pred_rf[:, 1]))
