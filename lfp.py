@@ -15,6 +15,7 @@ TONE_TIMESTAMP_DF = pd.read_excel("../../data/rce_tone_timestamp.xlsx", index_co
 EPHYS_SAMPLING_RATE = 20000
 LFP_SAMPLING_RATE = 1000
 TRIAL_DURATION = 10
+#remeber trial duration should not be a single variable but should be calculated using start and stop time input parameters
 FRAME_RATE = 22
 ECU_STREAM_ID = "ECU"
 TRODES_STREAM_ID = "trodes"
@@ -50,7 +51,7 @@ def compute_sorted_index(group, value_column='Value', index_column='SortedIndex'
 #reformatting
 
 #megans event dict = leo tone timestamp
-def reformat_df():
+def reformat_df(): #this whole function does not go into the generalized script
     all_trials_df = TONE_TIMESTAMP_DF.dropna(subset="condition").reset_index(drop=True)
     sorted(all_trials_df["recording_dir"].unique())
 
@@ -90,6 +91,8 @@ def reformat_df():
 
     #handleing time stamps
     #TODO: timestamp or frame ranges relative to LFP, ephys, and video frames.
+    #To some degree all of this below should be done by the user before input 
+    #but when writing doc strings , remember to clarify the units you are requesting i.e. ms
     all_trials_df["baseline_lfp_timestamp_range"] = all_trials_df["lfp_index"].apply(
         lambda x: (x - TRIAL_DURATION * LFP_SAMPLING_RATE, x))
     all_trials_df["trial_lfp_timestamp_range"] = all_trials_df["lfp_index"].apply(
@@ -105,7 +108,7 @@ def reformat_df():
     return all_trials_df
 
 
-def extract_lfp():
+def extract_lfp(): #generlized script starts here
     # Going through all the recording sessions
     recording_name_to_all_ch_lfp = {}
     for session_dir in ALL_SESSION_DIR:
@@ -117,7 +120,7 @@ def extract_lfp():
                 # checking to see if the recording has an ECU component
                 # if it doesn't, then the next one be extracted
                 current_recording = se.read_spikegadgets(recording_path, stream_id=ECU_STREAM_ID)
-                current_recording = se.read_spikegadgets(recording_path, stream_id=TRODES_STREAM_ID)
+                current_recording = se.read_spikegadgets(recording_path, stream_id=TRODES_STREAM_ID) #we need to confer with leo what these lines do
                 print(recording_basename)
                 # Preprocessing the LFP
                 # higher than 300 is action potential and lower than 0.5 is noise
@@ -186,15 +189,15 @@ channel_map_and_all_trials_df.to_pickle("./proc/full_baseline_and_trial_lfp_trac
 class LFPrecordingCollection:
     def __init__(self,
                  path,
-                 tone_timestamp_df,
+                 tone_timestamp_df, # this should be a dict or simplified df
                  channel_mapping_df,
                  all_sessions_path,
                  ephys_sampling_rate,
                  lfp_sampling_rate,
-                 trial_duration,
-                 frame_rate=22,
-                 pickle_path="./proc/full_baseline_and_trial_lfp_traces.pkl",
-                 recording_extention="*.rec",
+                 trial_duration, #this should be baked into the dict above i.e. tone_timestamp_df 
+                 frame_rate=22, #we should figure out if this is actually needed
+                 pickle_path="./proc/full_baseline_and_trial_lfp_traces.pkl", #let this be its own function with user input
+                 recording_extention="*.rec", # i dont think this needs to be a variable just hard code this one 
                  lfp_freq_min=0.5,
                  lfp_freq_max=300,
                  electric_noise_freq=60,
@@ -207,7 +210,7 @@ class LFPrecordingCollection:
         self.frame_rate = frame_rate
         self.trial_duration = trial_duration #GET RID OF THIS--> start & stop col
         self.recording_extention = recording_extention
-        self.path = path
+        self.path = path # i htink this is synonymous with all_sessions_path, pick path its simpler 
         self.lfp_freq_min = lfp_freq_min
         self.lfp_freq_max = lfp_freq_max
         self.electric_noise_freq = electric_noise_freq
@@ -217,16 +220,16 @@ class LFPrecordingCollection:
         #change to path
 
         # later object
-        self.tone_timestamp_df = pd.read_excel(tone_timestamp_df, index_col=0)
+        self.tone_timestamp_df = pd.read_excel(tone_timestamp_df, index_col=0) #this line will be removed - the input will not be an excel path but either a behavior df or dict 
 
         # path to excel, convert to df --> property of obj
         self.channel_mapping_df = pd.read_excel(channel_mapping_df)
 
-        self.all_trials_df = self.reformat_df()
+        self.all_trials_df = self.reformat_df() #this is a leo specific thing get rid of this 
 
-        self.recording_name_to_all_ch_lfp = self.extract_lfp()
+        self.recording_name_to_all_ch_lfp = self.extract_lfp() #this is a terrible attribute name, lets talk about what this is actaully creating 
         # replace with just path
-        self.all_sessions_dir = glob.glob(all_sessions_path)
+        self.all_sessions_dir = glob.glob(all_sessions_path) #if youve saved all_sessions path as path you dont need to save this as an attribute as well
 
         self.channel_map_and_all_trials_df = self.add_lfp_trace()
 
@@ -244,7 +247,7 @@ class LFPrecordingCollection:
 
     #helper
 
-    def reformat_df(self):
+    def reformat_df(self): # i dont want this is i nteh class= remove it outside of the class
         #behavior stuff
         all_trials_df = self.tone_timestamp_df.dropna(subset="condition").reset_index(drop=True)
         sorted(all_trials_df["recording_dir"].unique())
@@ -345,10 +348,11 @@ class LFPrecordingCollection:
                     print("An exception occurred:", error)  # An exception occurred: division by zero
         return recording_name_to_all_ch_lfp
 
-    def add_lfp_trace(self):
+    def add_lfp_trace(self): #please investigate what each line does, i feel like we do not need to this many things but rather just create a new 
+        #attribute instead of manipulating a df in these very precise ways , stop pruning and only take what you need
         self.channel_mapping_df["Subject"] = self.channel_mapping_df["Subject"].astype(str)
         channel_map_and_all_trials_df = all_trials_df.merge(self.channel_mapping_df, left_on="current_subject",
-                                                            right_on="Subject", how="left")
+                                                            right_on="Subject", how="left") 
         channel_map_and_all_trials_df = channel_map_and_all_trials_df.drop(
             columns=[col for col in channel_map_and_all_trials_df.columns if "eib" in col], errors="ignore")
         channel_map_and_all_trials_df = channel_map_and_all_trials_df.drop(columns=["Subject"], errors="ignore")
