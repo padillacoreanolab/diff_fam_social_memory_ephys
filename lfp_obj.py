@@ -66,4 +66,4 @@ class LFPrecordingCollection:
             #add the recording object to the list of all recordings
         parse_all_trials(self, self.path)
 
-testData = LFPrecordingCollection("rce_tone_timestamp.xlsx")
+testData = LFPrecordingCollection("test.xlsx")
