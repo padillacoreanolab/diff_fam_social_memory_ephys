@@ -17,9 +17,11 @@ from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LogisticRegression
 
-def hex_2_rgb(hex_color): # Orange color
+
+def hex_2_rgb(hex_color):
     rgb_color = tuple(int(hex_color[i:i+2], 16) / 255.0 for i in (1, 3, 5))
     return rgb_color
+
 
 def get_spiketrain(
     timestamp_array, last_timestamp, timebin=1, sampling_rate=20000
@@ -110,9 +112,11 @@ def pre_event_window(event, baseline_window, offset):
         baseline_window: int, seconds prior to an event
 
     Returns (1):
-        preevent: np.array, [start(ms),stop(ms)] baseline_window (s) before event
+        preevent: np.array, [start(ms),stop(ms)] baseline_window(s)
+            before event
     """
-    preevent = [event[0] - ((baseline_window + offset) * 1000) - 1, event[0] - 1]
+    preevent = [event[0] - (baseline_window * 1000) - 1,
+                event[0] + (offset*1000) - 1]
     return np.array(preevent)
 
 
@@ -140,7 +144,7 @@ def max_events(unit_dict, max_event, pre_window, timebin=1):
         events = unit_dict[unit]
         try:
             events = [
-                event[0 : int((pre_window + max_event) * 1000 / timebin)]
+                event[0: int((pre_window + max_event) * 1000 / timebin)]
                 for event in events
             ]
         except IndexError:
@@ -173,18 +177,19 @@ def w_assessment(p_value, w):
     else:
         return "not significant"
 
+
 def get_indices(repeated_items_list):
     """
-    Takes in an indexed key or a list of repeated items, 
-    creates a list of indices that correspond to each unique item. 
-    
+    Takes in an indexed key or a list of repeated items,
+    creates a list of indices that correspond to each unique item.
+
     Args (1):
-        repeated_items_list: list, list of repeated items 
-    
+        repeated_items_list: list, list of repeated items
+
     Returns:
-        item_indices: list of tuples, where the first element is the first index 
-                      of an item, and the second element is the last index of that 
-                      item 
+        item_indices: list of tuples, where the first element
+            is the first index of an item, and the second
+            element is the last index of that item
     """
     is_first = True
     item_indices = []
@@ -197,46 +202,52 @@ def get_indices(repeated_items_list):
             if repeated_items_list[i] == current_item:
                 end_index = i
                 if i == (len(repeated_items_list)-1):
-                    item_indices.append([start_index,end_index])
+                    item_indices.append([start_index, end_index])
             else:
-                item_indices.append([start_index,end_index])
+                item_indices.append([start_index, end_index])
                 start_index = i
                 current_item = repeated_items_list[i]
-                
     return item_indices
 
 
 def PCs_needed(explained_variance_ratios, percent_explained=.9):
     """
-    Calculates number of principle compoenents needed given a percent 
-    variance explained threshold. 
+    Calculates number of principle compoenents needed given a percent
+    variance explained threshold.
 
     Args(2 total, 1 required):
-        explained_variance_ratios: np.array, output of pca.explained_variance_ratio_
-        percent_explained: float, default=0.9, percent variance explained threshold 
-    
+        explained_variance_ratios: np.array,
+            output of pca.explained_variance_ratio_
+        percent_explained: float, default=0.9, percent
+        variance explained threshold
+
     Return:
-        i: int, number of principle components needed to 
-           explain percent_explained variance 
+        i: int, number of principle components needed to
+           explain percent_explained variance
     """
     for i in range(len(explained_variance_ratios)):
         if explained_variance_ratios[0:i].sum() > percent_explained:
             return i
-        
 
-def event_slice(transformed_subsets, key, no_PCs):
+
+def event_slice(transformed_subsets, key, no_PCs, mode):
     """
-    Takes in a matrix T (session x timebins x pcs) and an event key 
-    to split the matrix by event and trim it to no_PCs. 
+    Takes in a matrix T (session x timebins x pcs) (mode = 'multisession')
+    or (timebins x pcs) (mode = 'single')
+    and an event key to split the matrix by event and trim it to no_PCs.
 
     Args (3):
         transformed_subsets: np.array, d(session X timebin X PCS)
-        key: list of str, each element is an event type and corresponds to the timebin
-             dimension indices of the transformed_subsets matrix
-        no_PCs: int, number of PCs required to explain a variance threshold 
-
+        key: list of str, each element is an event type and
+            corresponds to the timebin dimension indices of
+            the transformed_subsets matrix
+        no_PCs: int, number of PCs required to explain a variance threshold
+        mode: {'multisession', 'single'}; multisession calculates event slices
+            for many transformed subsets, single calculates event slices for a
+            single session
     Returns:
-        trajectories: dict, events to trajectories across each LOO PCA embedding 
+        trajectories: dict, events to trajectories across
+            each LOO PCA embedding
             keys: str, event types
             values: np.array, d=(session x timebins x no_PCs)
     """
@@ -247,42 +258,55 @@ def event_slice(transformed_subsets, key, no_PCs):
         event = events[i]
         start = event_indices[i][0]
         stop = event_indices[i][1]
-        event_trajectory = transformed_subsets[:, start:stop+1, :no_PCs]
+        if mode == 'multisession':
+            event_trajectory = transformed_subsets[:, start:stop+1, :no_PCs]
+        if mode == 'single':
+            event_trajectory = transformed_subsets[start:stop+1, :no_PCs]
         trajectories[event] = event_trajectory
-    return trajectories 
+    return trajectories
 
 
-def geodesic_distances(event_trajectories):
+def geodesic_distances(event_trajectories, mode):
     pair_distances = {}
     for pair in list(combinations(event_trajectories.keys(), 2)):
-        event1 = event_trajectories[pair[0]] 
-        event2 = event_trajectories[pair[1]] 
-        pair_distances[pair] = distance_bw_trajectories(event1, event2)
+        event1 = event_trajectories[pair[0]]
+        event2 = event_trajectories[pair[1]]
+        pair_distances[pair] = distance_bw_trajectories(event1, event2, mode)
     return pair_distances
 
 
-def distance_bw_trajectories(trajectory1, trajectory2):
+def distance_bw_trajectories(trajectory1, trajectory2, mode):
     geodesic_distances = []
-    for session in range(trajectory1.shape[0]):
+    if mode == 'multisession':
+        for session in range(trajectory1.shape[0]):
+            dist_bw_tb = 0
+            for i in range(trajectory1.shape[1]):
+                dist_bw_tb = dist_bw_tb + euclidean(
+                    trajectory1[session, i, :],
+                    trajectory2[session, i, :])
+            geodesic_distances.append(dist_bw_tb)
+    if mode == 'single':
         dist_bw_tb = 0
-        for i in range(trajectory1.shape[1]):
-            dist_bw_tb = euclidean(trajectory1[session,i,:], trajectory2[session,i,:]) + dist_bw_tb
+        for i in range(trajectory1.shape[0]):
+            dist_bw_tb = dist_bw_tb + euclidean(
+                trajectory1[i, :],
+                trajectory2[i, :])
         geodesic_distances.append(dist_bw_tb)
     return geodesic_distances
-   
+
 
 def chunk_array(array, new_bin, old_bin):
     """
-    Takes in a 1D array, desired timebin (ms) and current timebin (ms), 
-    and returns a 2D numpy array of the original data in arrays 
+    Takes in a 1D array, desired timebin (ms) and current timebin (ms),
+    and returns a 2D numpy array of the original data in arrays
     such that each array is of size new_bin/old_bin such that each array
     covers new_bin ms in time.
-    
+
     Args (3 total):
-        array: numpy array, 1D 
+        array: numpy array, 1D
         new_bin: int, desired timebin (ms)
         old_bin: int, timebin of analysis (ms)
-    
+
     Returns (1):
         converted_array: 2D numpy, array of in new_bin lengthed arrays
     """
@@ -291,6 +315,7 @@ def chunk_array(array, new_bin, old_bin):
     slice_size = int(new_shape[0] * chunk_size)
     converted_array = array[:slice_size].reshape(new_shape)
     return converted_array
+
 
 class EphysRecording:
     """
@@ -312,7 +337,8 @@ class EphysRecording:
         unit_timestamps: dict, keys are unit ids (int), and
             values are numpy arrays of timestamps for all spikes
             from "good" units only
-        spiketrain: np.array, spiketrain of number of spikes in a specified timebin
+        spiketrain: np.array, spiketrain of number of spikes
+            in a specified timebin
         unit_spiketrains: dict, spiketrains for each unit
             keys: str, unit ids
             values: np.array, number of spikes per specified timebin
@@ -402,7 +428,10 @@ class EphysRecording:
                     unsorted_clusters[unit_array[spike]] = 1
         for unit, no_spike in unsorted_clusters.items():
             print(
-                f"{unit} is unsorted & has {no_spike} spikes that will be deleted"
+                f"Unit {unit} is unsorted & has {no_spike} spikes"
+            )
+            print(
+                f"Unit {unit} will be deleted"
             )
         self.timestamps_var = np.delete(timestamps_var, spikes_to_delete)
         self.unit_array = np.delete(unit_array, spikes_to_delete)
@@ -410,8 +439,8 @@ class EphysRecording:
     def get_unit_timestamps(self):
         """
         creates a dictionary of units to spike timestamps
-        keys are unit ids (int) and values are spike timestamps for that unit (numpy arrays)
-        and assigns dictionary to self.unit_timestamps
+        keys are unit ids (int) and values are spike timestamps for
+        that unit (numpy arrays)and assigns dictionary to self.unit_timestamps
 
         Args:
             None
@@ -438,14 +467,18 @@ class EphysRecording:
 
 class EphysRecordingCollection:
     """
-    This class initializes and reads in phy folders as EphysRecording instances.
+    This class initializes and reads in phy folders as EphysRecording
+    instances.
 
     Attributes:
-        path: str, relative path to the folder of merged.rec files for each reacording
+        path: str, relative path to the folder of merged.rec files
+            for each reacording
         sampling_rate: int, default=20000 sampling rate of ephys device in Hz
         wilcox_dfs: dict
-            keys: str, '{event1 } vs {event2} ({equalize}s)' or '{equalize}s {event} vs {baseline_window}s baseline'
-            values: df, of wilcoxon stats, p values, recording name, subject, and event type
+            keys: str, '{event1 } vs {event2} ({equalize}s)' or
+            '{equalize}s {event} vs {baseline_window}s baseline'
+            values: df, of wilcoxon stats, p values, recording name, subject,
+            and event type
         zscored_events: dict
         PCA_dfs:
         fishers_exact: dict
@@ -461,8 +494,8 @@ class EphysRecordingCollection:
         self.fishers_exact = {}
         self.make_collection()
         print(
-            "Please assign event dictionaries to each recording as recording.event_dict"
-        )
+            "Please assign event dictionaries to each recording")
+        print("as recording.event_dict")
         print(
             "event_dict = {event name(str): np.array[[start(ms), stop(ms)]...]"
         )
@@ -487,26 +520,31 @@ class EphysRecordingCollection:
 
 class SpikeAnalysis_MultiRecording:
     """
-    A class for ephys statistics done on multiple event types for multiple recordings
-    Each recording needs a subject (recording.subject) and event_dict (recording.event_dict)
-    attribute assigned to it before analysis.
+    A class for ephys statistics done on multiple event types for multiple
+    recordings. Each recording needs a subject (recording.subject) and
+    event_dict (recording.event_dict) attribute assigned to it before analysis.
     event_dict is such that the keys are event type names (str)
-    and values are np.arrays [[start (ms), stop(ms)]..] of start and stop times for each event.
+    and values are np.arrays [[start (ms), stop(ms)]..]
+    of start and stop times for each event.
 
-    This class can do 3 main statistics calculations on average firing rates for event types:
+    This class can do statistics calculations on firing rates for events:
     1a) wilcoxon signed rank tests for baseline vs event
-    1b) fishers exact tests on units that have significant wilcoxon signed rank results
-        for baseline vs event1 and baseline vs event2
+    1b) fishers exact tests on units that have significant wilcoxon
+        signed rank results for baseline vs event1 and baseline vs event2
     1c) wilcoxon signed rank sum tests for event1 vs event2
     2) zscored average even firing rates
     3) PCA embeddings on any number of event types
 
-    All stats can be exported as excel sheets in the parent directory of the colection.
+    All stats can be exported as excel sheets in the parent
+    directory of the collection.
 
     Attributes:
-        smoothing_window: int, default=250, window length in ms used to calculate firing rates
-        timebin: int, default=1, bin size (in ms) for spike train and firing rate arrays
-        ignore_freq: int, default=0, frequency in Hz that a good unit needs to fire at to be included in analysis
+        smoothing_window: int, default=250, window length (ms) used
+            to calculate firing rates
+        timebin: int, default=1, bin size (in ms) for spike train
+            and firing rate arrays
+        ignore_freq: int, default=0, frequency in Hz that a good unit needs
+            to fire at to be included in analysis
         longest_event: int, length of longest event (ms)
         event_lengths: lst, length of all events (ms)
 
@@ -598,13 +636,15 @@ class SpikeAnalysis_MultiRecording:
 
     def __all_set__(self):
         """
-        double checks that all EphysRecordings in the collection have the attributes:
-        subject & event_dict assigned to them and that each event_dict
-        has the same keys.
+        double checks that all EphysRecordings in the collection have 
+        the attributes: subject & event_dict assigned to them and that
+        each event_dict has the same keys.
 
-        Prints statements telling user which recordings are missing subjects or event_dicts.
+        Prints statements telling user which recordings are missing subjects
+        or event_dicts.
         Prints event_dict.keys() if they are not the same.
-        Prints "All set to analyze" and calculates spiketrains and firing rates if all set.
+        Prints "All set to analyze" and calculates spiketrains
+        and firing rates if all set.
         """
         is_first = True
         is_good = True
@@ -628,13 +668,13 @@ class SpikeAnalysis_MultiRecording:
                 missing_subject.append(recording_name)
         if len(missing_events) > 0:
             print(
-                f"These recordings are missing event dictionaries: {missing_events}"
-            )
+                "These recordings are missing event dictionaries:")
+            print(f"{missing_events}")
             is_good = False
         else:
             if not event_dicts_same:
                 print(
-                    "Your event dictionary keys are not the same across recordings."
+                 "Your event dictionary keys are different across recordings."
                 )
                 print("Please double check them:")
                 for (
@@ -754,20 +794,21 @@ class SpikeAnalysis_MultiRecording:
         snippet lengths to the longest event
 
         Args (6 total, 4 required):
-            recording: EphysRecording instance, which recording the snippets come from
+            recording: EphysRecording instance, recording to get snippets
             event: str, event type of which ehpys snippets happen during
             whole_recording: numpy array, spiketrain or firing rates
                 for the whole recording, for population or for a single unit
-            equalize: float, length (s) of events used by padding with post event time
-                or trimming events all to equalize (s) long
-            pre_window: int, default=0, seconds prior to start of event returned
-            post_window: int, default=0, seconds after end of event returned
+            equalize: float, length (s) of events used by padding with post
+                event time or trimming events all to equalize (s) long
+            pre_window: int, default=0, seconds prior to start of event
+            post_window: int, default=0, seconds after end of event
             
         Returns (1):
-            event_snippets: a list of lists, where each list is a list of firing rates
-                or spiketrains during an event including pre_window&post_windows,
-                accounting for equalize and timebins for a single unit 
-                or for the population returning a list of numpy arrays 
+            event_snippets: a list of lists, where each list is a list of
+                firing rates or spiketrains during an event including 
+                pre_window & post_windows, accounting for equalize and 
+                timebins for a single unit or for the population returning
+                a list of numpy arrays
         """
         if type(event) is str:
             events = recording.event_dict[event]
@@ -801,12 +842,12 @@ class SpikeAnalysis_MultiRecording:
         returns firing rates for events per unit
 
         Args (5 total, 3 required):
-            recording: EphysRecording instance, which recording the snippets come from
+            recording: EphysRecording instance, recording for firing rates
             event: str, event type of which ehpys snippets happen during
-            equalize: float, length (s) of events used by padding with post event time
-                or trimming events all to equalize (s) long
-            pre_window: int, default=0, seconds prior to start of event returned
-            post_window: int, default=0, seconds after end of event returned
+            equalize: float, length (s) of events used by padding with
+                post event time or trimming events all to equalize (s) long
+            pre_window: int, default=0, seconds prior to start of event
+            post_window: int, default=0, seconds after end of event
 
         Return (1):
             unit_event_firing_rates: dict, keys are unit ids (???),
@@ -832,16 +873,16 @@ class SpikeAnalysis_MultiRecording:
         unit firing rate array (units by time bins)
 
         Args (5 total, 3 required):
-            recording: EphysRecording instance, which recording the snippets come from
+            recording: EphysRecording instance, recording for firing rates
             event: str, event type of which ehpys snippets happen during
-            equalize: float, length (s) of events used by padding with post event time
-                or trimming events all to equalize (s) long
-            pre_window: int, default=0, seconds prior to start of event returned
-            post_window: int, default=0, seconds after end of event returned
+            equalize: float, length (s) of events used by padding with
+                post event time or trimming events all to equalize (s) long
+            pre_window: int, default=0, seconds prior to start of event
+            post_window: int, default=0, seconds after end of event
 
         Returns (1):
-            event_firing_rates: list of arrays, where each array is units x timebins
-                and list is len(no of events)
+            event_firing_rates: list of arrays, where each array
+            is units x timebins and list is len(no of events)
         """
         event_firing_rates = self.__get_event_snippets__(
             recording,
@@ -854,8 +895,9 @@ class SpikeAnalysis_MultiRecording:
         return event_firing_rates
 
     def __wilcox_baseline_v_event_stats__(
-        self, recording, event, equalize, baseline_window, offset, save
-    ):
+        self, recording, event, equalize, baseline_window, offset,
+        exclude_offset, save
+         ):
         """
         calculates wilcoxon signed-rank test for average firing rates of two
         windows: event vs baseline
@@ -868,16 +910,23 @@ class SpikeAnalysis_MultiRecording:
         and the value is the dataframe.
 
         Args (4 total, 4 required):
-            recording: EphysRecording instance, which recording the snippets come from
+            recording: EphysRecording instance, which recording the snippets
+                come from
             event: str, event type of which ehpys snippets happen during
-            equalize: float, length (s) of events used by padding with post event time
+            equalize: float, length (s) of events used by padding with post
+                event time
                 or trimming events all to equalize (s) long used in stat
-            baseline_window: int, default=0, seconds prior to start of event used in stat
-            offset: int, time in (s) from onset of behavior that separates baseline from event
-                calculations such that offset=2 adds the first two seconds of event into baseline
-                and removes them from event averages while -2 adds the 2seconds prior to onset
-                to event averages and removes them from baseline averages
-            save: Boolean, True saves df as a value in the wilcox_df attribute of the recording
+            baseline_window: int, default=0, seconds prior to start of event
+                used in stat
+            offset: int, adjusts end of baseline by offset(s) from onset of
+                behavior such that offset=2 adds the first two seconds of event
+                data into baseline while offest=-2 removes them from baseline
+                averages
+            exclude_offset: Boolean, default=False, if true excludes time
+                prior to onset and before offset in event averages, if false,
+                time between onset and offset are included in event averages
+            save: Boolean, True saves df as a value in the wilcox_df attribute
+                of the recording
 
         Return (1):
             wilcoxon_df: pandas dataframe, columns are unit ids,
@@ -886,7 +935,10 @@ class SpikeAnalysis_MultiRecording:
         """
         preevent_baselines = np.array([pre_event_window(event, baseline_window, offset) for event in recording.event_dict[event]])
         unit_baseline_firing_rates = self.__get_unit_event_firing_rates__(recording, preevent_baselines, equalize = (baseline_window + offset), pre_window = 0, post_window= 0)
-        unit_event_firing_rates = self.__get_unit_event_firing_rates__(recording, event, equalize, -(offset), 0)
+        if exclude_offset:
+            unit_event_firing_rates = self.__get_unit_event_firing_rates__(recording, event, equalize, 0, 0)
+        else:
+            unit_event_firing_rates = self.__get_unit_event_firing_rates__(recording, event, equalize, -(offset), 0)
         unit_averages = {}
         for unit in unit_event_firing_rates.keys():
             try:
@@ -914,7 +966,8 @@ class SpikeAnalysis_MultiRecording:
         return wilcoxon_df
 
     def wilcox_baseline_v_event_collection(
-        self, event, equalize, baseline_window, offset=0, plot=True, save=False
+        self, event, equalize, baseline_window, offset=0,
+        exclude_offset=False, plot=True, save=False
     ):
         """
         Runs a wilcoxon signed rank test on all good units of
@@ -925,26 +978,32 @@ class SpikeAnalysis_MultiRecording:
 
         Creates a dataframe with rows for each unit and columns representing
         Wilcoxon stats, p values, orginal unit ids, recording,
-        subject and the event + baselien given. Dataframe is saved if save mode is True
-        in the collections attribute wilcox_dfs dictionary, key is '{event} vs {baseline_window}second baseline'
+        subject and the event + baselien given. Dataframe is saved if save
+        mode is True in the collections attribute wilcox_dfs dictionary,
+        key is '{event} vs {baseline_window}second baseline'
         Option to save this dataframe for export
 
         Args(4 total, 3 required):
             event: str, event firing rates for stats to be run on
-            equalize: float, length (s) of events used by padding with post event time
-                or trimming events all to equalize (s) long used in stat
-            baseline_window: int, default=0, seconds prior to start of event used in stat
-            offset: int, default=0, time in (s) from onset of behavior that separates baseline from event
-                calculations such that offset=2 adds the first two seconds of event into baseline
-                and removes them from event averages while -2 adds the 2seconds prior to onset
-                to event averages and removes them from baseline averages
-            plot: Boolean, default=True, if True, plots, if false, does not plot.
-            save: Boolean, default=False, if True, saves results to wilcox_dfs attribute
-                  of the collection for export
+            equalize: float, length (s) of events used by padding with post
+                event time or trimming events all to equalize (s)
+            baseline_window: int, default=0, seconds prior to start of event
+                used in stat
+           offset: int, adjusts end of baseline by offset(s) from onset of
+                behavior such that offset=2 adds the first two seconds of event
+                data into baseline while offest=-2 removes them from baseline
+                averages
+            exclude_offset: Boolean, default=False, if true excludes time
+                prior to onset and before offset in event averages, if false,
+                time between onset and offset are included in event averages
+            plot: Boolean, default=True, if True, plots,
+                if False, does not plot.
+            save: Boolean, default=False, if True, saves results to wilcox_dfs
+                attribute of the collection for export
 
         Returns(1):
             master_df: df, rows for each unit and columns representing
-                       Wilcoxon stats, p values, orginal unit ids, recording
+                Wilcoxon stats, p values, orginal unit ids, recording
         """
         is_first = True
         for (
@@ -952,7 +1011,8 @@ class SpikeAnalysis_MultiRecording:
             recording,
         ) in self.ephyscollection.collection.items():
             recording_df = self.__wilcox_baseline_v_event_stats__(
-                recording, event, equalize, baseline_window, offset, save
+                recording, event, equalize, baseline_window, offset, 
+                exclude_offset, save
             )
             recording_df = recording_df.reset_index().rename(
                 columns={"index": "original unit id"}
@@ -978,35 +1038,43 @@ class SpikeAnalysis_MultiRecording:
             )
         return master_df
 
-    def fishers_exact_wilcox(self, event1, event2, equalize, event3=None, baseline_window=None, offset = 0, save = False):
+    def fishers_exact_wilcox(self, event1, event2, equalize, event3=None, 
+                             baseline_window=None, offset=0,
+                             exclude_offset=False, save=False):
         """
-        Calculates fisher's exact test where the contigency matrix is made up of number of
-        significant units (from wilcoxon signed rank test of baseline_window vs event) vs non-significant
+        Calculates fisher's exact test where the contigency matrix is made up
+        of number of significant units (from wilcoxon signed rank test of
+        baseline_window vs event) vs non-significant
         units for event1 and event12. Option to save output stats for export.
 
         Args(7 total, 3 required):
             event1: str, event type for sig vs non sig units to be compared
             event2: str, event type for sig vs non sig units to be compared
-            event3: str, default=None, if not none, event type to be used as baseline in 
-                wilcoxon signed rank sum test
-            equalize: int, length (s) of event that wilcoxon signed rank test was calculated on
-            baselin_window: int, default=None, if not None, length (s) of baseline window
-                 that wilcoxon signed rank test was calculated on
-            offset: int, default=0, time in (s) from onset of behavior that separates baseline from event
-                calculations such that offset=2 adds the first two seconds of event into baseline
-                and removes them from event averages while -2 adds the 2seconds prior to onset
-                to event averages and removes them from baseline averages
-            save: Boolean, default=False, saves stats as an item in fishers exact dict
-                    where the key is: f'{equalize}s {event1} vs {baseline_window}s baseline'
-                    and values are: odds ratio, p value, and number of units
-                    (sig and non sig) for both events, for export
+            event3: str, default=None, if not none, event type to be used as
+                baseline in wilcoxon signed rank sum test
+            equalize: int, length (s) of event that wilcoxon signed rank test
+                was calculated on
+            baselin_window: int, default=None, if not None, length (s) of
+                baseline window that wilcoxon signed rank test was calculated
+            offset: int, adjusts end of baseline by offset(s) from onset of
+                behavior such that offset=2 adds the first two seconds of event
+                data into baseline while offest=-2 removes them from baseline
+                averages
+            exclude_offset: Boolean, default=False, if true excludes time
+                prior to onset and before offset in event averages, if false,
+                time between onset and offset are included in event averages
+            save: Boolean, default=False, saves stats as an item in fishers
+                exact dict where the key is:
+                f'{equalize}s {event1} vs {baseline_window}s baseline'
+                and values are: odds ratio, p value, and number of units
+                (sig and non sig) for both events, for export
 
         Returns (3):
             odds_ratio: float, fisher's exact test results
             p_value: float, p value associated with results
-            contingency_matrix: np.array (d=2x2) such that [[significant units for event1,
-                    non-significnat units for event1], [significant units event 2, non-significant
-                    units for event2]]
+            contingency_matrix: np.array (d=2x2) such that [[significant units
+            for event1, non-significnat units for event1], [significant units
+            event 2, non-significant units for event2]]
         """
         if (event3 is None) & (baseline_window is None):
             print('Function needs a baseline event or window')
@@ -1015,15 +1083,27 @@ class SpikeAnalysis_MultiRecording:
             print('Function can only handle one baseline for comparison.')
             print('baseline_window OR event3 must equal None')
         if event3 is None:
-            df1 = self.wilcox_baseline_v_event_collection(event1, equalize, baseline_window, offset,
-                                                           plot = False, save = False)
-            df2 = self.wilcox_baseline_v_event_collection(event2, equalize, baseline_window, offset, 
-                                                            plot= False, save = False)
+            df1 = self.wilcox_baseline_v_event_collection(event1, equalize,
+                                                          baseline_window,
+                                                          offset,
+                                                          exclude_offset,
+                                                          plot=False,
+                                                          save=False)
+            df2 = self.wilcox_baseline_v_event_collection(event2, equalize,
+                                                          baseline_window,
+                                                          offset,
+                                                          exclude_offset, 
+                                                          plot=False,
+                                                          save=False)
         else:
-            df1 = self.wilcox_event_v_event_collection(event1, event3, equalize,
-                                                       plot = False, save = False)
-            df2 = self.wilcox_event_v_event_collection(event2, event3, equalize,
-                                                          plot = False, save = False)
+            df1 = self.wilcox_event_v_event_collection(event1, event3,
+                                                       equalize,
+                                                       plot=False,
+                                                       save=False)
+            df2 = self.wilcox_event_v_event_collection(event2, event3,
+                                                       equalize,
+                                                       plot=False,
+                                                       save=False)
         sig1 = (df1['p value'] < 0.05).sum()
         not_sig1 = (df1['p value'] > 0.05).sum()
         sig2 = (df2['p value'] < 0.05).sum()
@@ -1041,18 +1121,18 @@ class SpikeAnalysis_MultiRecording:
         self, master_df, event, equalize, baseline_window, offset
     ):
         """
-        plots event triggered average firing rates for units with significant wilcoxon
-        signed rank tests (p value < 0.05) for event vs base line window.
+        plots event triggered average firing rates for units with significant
+        wilcoxon signed rank tests (p value <0.05) for event v baseline window.
 
         Args(4 total, 4 required):
             event: str, event type of which ehpys snippets happen during
-            equalize: float, length (s) of events used by padding with post event time
-                or trimming events all to equalize (s) long used in stat
-            baseline_window: int, default=0, seconds prior to start of event used in stat
-            offset: int, default=0, time in (s) from onset of behavior that separates baseline from event
-                calculations such that offset=2 adds the first two seconds of event into baseline
-                and removes them from event averages while -2 adds the 2seconds prior to onset
-                to event averages and removes them from baseline averages
+            equalize: float, length (s) of events used by padding with post
+                event time or trimming events all to equalize (s) long used
+            baseline_window: int, default=0, seconds prior to start of event
+            offset: int, adjusts end of baseline by offset(s) from onset of
+                behavior such that offset=2 adds the first two seconds of event
+                data into baseline while offest=-2 removes them from baseline
+                averages
 
         Returns:
             none
@@ -1068,7 +1148,7 @@ class SpikeAnalysis_MultiRecording:
                     wilcoxon_df.loc[
                         wilcoxon_df["original unit id"] == unit, "p value"
                     ].values[0]
-                    < 0.05
+                    < 0.07
                 ):
                     units_to_plot.append(unit)
             no_plots = len(units_to_plot)
@@ -1102,6 +1182,73 @@ class SpikeAnalysis_MultiRecording:
                 + f"{equalize}s {event} vs {baseline_window}s baseline"
             )
             plt.show()
+
+    def wilcox_baseline_v_event_unit(
+        self, recording_name, unit_id, events,
+        equalize, baseline_window, offset, exclude_offset=False
+    ):
+        """
+        plots event triggered average firing rates for units with significant
+        wilcoxon signed rank tests (p value <0.05) for event v baseline window.
+
+        Args(4 total, 4 required):
+            events: list of str, event types of which ehpys snippets happen during
+            equalize: float, length (s) of events used by padding with post
+                event time or trimming events all to equalize (s) long used
+            baseline_window: int, default=0, seconds prior to start of event
+            offset: int, adjusts end of baseline by offset(s) from onset of
+                behavior such that offset=2 adds the first two seconds of event
+                data into baseline while offest=-2 removes them from baseline
+                averages
+
+        Returns:
+            none
+        """
+        no_plots = len(events)
+        height_fig = math.ceil(no_plots / 2)
+        i = 1
+        plt.figure(figsize=(15, 4 * height_fig))
+        recording = self.ephyscollection.get_by_name(recording_name)
+        for event in events:
+            temp_master_df = self.wilcox_baseline_v_event_collection(
+                event,
+                equalize,
+                baseline_window,
+                offset,
+                exclude_offset,
+                plot=False,
+                save=False)
+            master_df = temp_master_df[(temp_master_df['Recording'] ==
+                                        recording_name) & (
+                                            temp_master_df['original unit id']
+                                            == unit_id)]
+            master_df = master_df.reset_index()
+            unit_event_firing_rates = self.__get_unit_event_firing_rates__(
+                recording,
+                event,
+                equalize,
+                baseline_window,
+                0)
+            mean_arr = np.mean(unit_event_firing_rates[unit_id], axis=0)
+            sem_arr = sem(unit_event_firing_rates[unit_id], axis=0)
+            p_value = master_df["p value"].values[0]
+            x = np.linspace(
+                start=-baseline_window, stop=equalize, num=len(mean_arr)
+            )
+            plt.subplot(height_fig, 2, i)
+            plt.plot(x, mean_arr, c="b")
+            if offset != 0:
+                plt.axvline(x=offset, color='b', linestyle='--')
+            plt.axvline(x=0, color="r", linestyle="--")
+            plt.fill_between(
+                x, mean_arr - sem_arr, mean_arr + sem_arr, alpha=0.2
+            )
+            plt.title(f"{event}: p={p_value}")
+            i += 1
+        plt.suptitle(
+            f"{recording_name}: {unit_id}"
+        )
+        plt.show()
 
     def __wilcoxon_event_v_event_stats__(
         self, recording, event1, event2, equalize, save=False
@@ -1626,7 +1773,7 @@ class SpikeAnalysis_MultiRecording:
         plt.show() 
 
     def PCA_matrix_generation(
-        self, equalize, pre_window, post_window=0, events=None
+        self, equalize, pre_window, post_window=0, events=None, recordings=None
     ):
         """
         WRItE DOC STRING
@@ -1644,13 +1791,20 @@ class SpikeAnalysis_MultiRecording:
 
         """
         is_first_recording = True
-        for recording_name, recording in self.ephyscollection.collection.items():
+        if recordings is None:
+            recordings = self.ephyscollection.collection.items()
+        else:
+            temp_dict = {}
+            for recording in recordings: 
+                temp_dict[recording] = self.ephyscollection.get_by_name(recording)
+            recordings = temp_dict.items()
+        for recording_name, recording in recordings:
             if events is None:
                 events = list(recording.event_dict.keys())
                 PCA_dict_key = None
             else:
                 for i in range(len(events)):
-                    if i ==0:
+                    if i == 0:
                         PCA_dict_key = events[i]
                     else:
                         PCA_dict_key = PCA_dict_key + events[i]
@@ -1676,6 +1830,11 @@ class SpikeAnalysis_MultiRecording:
                 next_recording_key = [recording_name] * PCA_matrix.shape[0]
                 PCA_recording_key = np.concatenate((PCA_recording_key, next_recording_key), axis = 0)
         matrix = np.transpose(PCA_master_matrix)
+        if matrix.shape[0] < matrix.shape[1]:
+            print('you have more features (neurons) than samples (time bins)')
+            print('this is bad.')
+            print('please choose a larger time window for analysis')
+            print('or a subsample of data (less neurons)')
         matrix_df = pd.DataFrame(data = matrix, columns = PCA_recording_key, index = PCA_event_key)
         key = np.array(matrix_df.index.to_list())
         pca = PCA()
@@ -1685,7 +1844,6 @@ class SpikeAnalysis_MultiRecording:
         explained_variance_ratios = pca.explained_variance_ratio_
         return matrix_df, transformed_matrix, key, coefficients, explained_variance_ratios
 
-
     def PCA_trajectories(
         self,
         equalize,
@@ -1694,6 +1852,7 @@ class SpikeAnalysis_MultiRecording:
         plot=True,
         save=False,
         events=None,
+        recordings=None,
         d=2,
         azim=30,
         elev=20,
@@ -1720,7 +1879,7 @@ class SpikeAnalysis_MultiRecording:
             none
 
         """
-        PCA_matrix, transformed_matrix, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
+        PCA_matrix, transformed_matrix, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events, recordings)
         if events is not None:
             for i in range(len(events)):
                 if i == 0:
@@ -1729,10 +1888,11 @@ class SpikeAnalysis_MultiRecording:
                     PCA_dict_key = PCA_dict_key + events[i]
         PCA_event_key = key
         if save:
-            if PCA_dict_key is None:
-                self.ephyscollection.PCA_dfs["all"] = transformed_matrix
-            else:
-                self.ephyscollection.PCA_dfs[PCA_dict_key] = transformed_matrix
+            if recordings is None:
+                if PCA_dict_key is None:
+                    self.ephyscollection.PCA_dfs["all"] = transformed_matrix
+                else:
+                    self.ephyscollection.PCA_dfs[PCA_dict_key] = transformed_matrix
         if plot:
             if d == 2:
                 self.__PCA_EDA_plot__(
@@ -1750,7 +1910,7 @@ class SpikeAnalysis_MultiRecording:
                     pre_window,
                     post_window, azim, elev
                 )
-        return transformed_matrix, coefficients
+        return transformed_matrix, coefficients, explained_variance_ratios
 
     def __PCA_EDA_plot__(
         self, PCA_matrix, PCA_key, equalize, pre_window, post_window
@@ -1949,12 +2109,39 @@ class SpikeAnalysis_MultiRecording:
             transformed_subsets.append(transformed_subset)
         transformed_subsets = np.stack(transformed_subsets, axis = 0)
         no_PCs = PCs_needed(explained_variance_ratios, percent_var)
-        event_trajectories = event_slice(transformed_subsets, key, no_PCs)
-        pairwise_distances = geodesic_distances(event_trajectories)
+        event_trajectories = event_slice(transformed_subsets, key, no_PCs, mode = 'multisession')
+        pairwise_distances = geodesic_distances(event_trajectories, mode = 'multisession')
+        return pairwise_distances
+    
+    def avg_geo_dist(self, equalize,
+                     pre_window,
+                     percent_var,
+                     post_window=0,
+                     events=None):
+        temp_pairwise_distances = {}
+        is_first = True
+        for record_name, recording in self.ephyscollection.collection.items():
+            d_mat, t_mat, key, coef, ex_var = self.PCA_matrix_generation(
+                equalize,
+                pre_window,
+                post_window,
+                events,
+                [record_name])
+            no_pcs = PCs_needed(ex_var, percent_var)
+            event_trajectories = event_slice(t_mat, key, no_pcs, mode='single')
+            temp_pairwise_distances = geodesic_distances(event_trajectories, mode='single')
+            if is_first:
+                pairwise_distances = temp_pairwise_distances
+                is_first = False
+            else:
+                for pair, distance in temp_pairwise_distances.items():
+                    temp_distances = pairwise_distances[pair]
+                    temp_distances.append(temp_pairwise_distances[pair][0])
+                    pairwise_distances[pair] = temp_distances                
         return pairwise_distances
     
     def __PCA_for_decoding__(self, equalize, pre_window, post_window, no_PCs, events):
-        full_PCA_matrix, t_df, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events = None)
+        full_PCA_matrix, t_df, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events = events)
         recordings = full_PCA_matrix.columns.to_list()
         recording_list = np.unique(recordings)
         coefficients = coefficients[:, :no_PCs]
@@ -2004,7 +2191,7 @@ class SpikeAnalysis_MultiRecording:
                 for trial in decoder_data[neg_event]:
                     data_neg.append(trial)
             data_pos = np.stack(data_pos, axis=2)
-            data_neg = np.stack(data_neg, axis = 2)
+            data_neg = np.stack(data_neg, axis=2)
             num_pos = data_pos.shape[2]
             num_neg = data_neg.shape[2]
             data_pos = data_pos[:, :, np.random.permutation(num_pos)]
@@ -2030,7 +2217,7 @@ class SpikeAnalysis_MultiRecording:
                 label_train = np.concatenate((np.ones(num_pos - (fold + 1) * pos_fold + fold * pos_fold),
                                             np.zeros(num_neg - (fold + 1) * neg_fold + fold * neg_fold)))
                 for timebin in range(T):
-                    model_glm = LogisticRegression(class_weight='balanced') 
+                    model_glm = LogisticRegression(class_weight='balanced')
                     model_glm.fit(data_train[timebin, :, :].T, label_train)
                     pred_glm = model_glm.predict_proba(data_test[timebin, :, :].T)
                     auc_glm.append(roc_auc_score(label_test, pred_glm[:, 1]))
