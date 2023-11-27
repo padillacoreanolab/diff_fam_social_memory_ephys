@@ -45,7 +45,7 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
 
     Args (5 total, 3 required):
         boris_df: pandas dataframe of a boris file (aggregated event table)
-        subject: list of strings or ints, desired subject(s) 
+        subject: list of strings or ints, desired subject(s)
                 as written in boris_df, i.e. 'novel' or 1.1
         behavior: list of strings, desired behavior(s) (as written in boris_df)
         min_iti: float, default=0, bouts w/ itis(s) < min_iti will be combined
@@ -57,12 +57,17 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
     start_stop_arrays = []
     for mouse in subject:
         subject_df = boris_df[boris_df['Subject'] == mouse]
+        behavior_arrays = []
         for act in behavior:
             behavior_df = subject_df[subject_df['Behavior'] == act]
             start_stop_array = behavior_df[['Start (s)',
                                             'Stop (s)']].to_numpy()
-            start_stop_arrays.append(threshold_bouts(start_stop_array,
-                                                     min_iti, min_bout))
+            behavior_arrays.append(start_stop_array)
+        start_stop_array = np.concatenate(behavior_arrays)
+        start_stop_arrays.append(threshold_bouts(
+            start_stop_array,
+            min_iti,
+            min_bout))
     start_stop_array = np.concatenate(start_stop_arrays)
     organizer = np.argsort(start_stop_array[:, 0])
     start_stop_array = start_stop_array[organizer]
@@ -70,7 +75,7 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
     return start_stop_array * 1000
 
 
-def save_behavior_bouts(directory, boris_df, subject, behavior, min_iti=0, 
+def save_behavior_bouts(directory, boris_df, subject, behavior, min_iti=0,
                         min_bout=0, filename=None):
     """
     saves a numpy array of start&stop times (ms)
@@ -92,9 +97,9 @@ def save_behavior_bouts(directory, boris_df, subject, behavior, min_iti=0,
     bouts_array = get_behavior_bouts(boris_df, subject,
                                      behavior, min_iti, min_bout)
     if filename is None:
-        if type(subject) == list:
+        if type(subject) is list:
             subject = '_'.join(subject)
-        if type(behavior) == list:
+        if type(behavior) is list:
             behavior = '_'.join(behavior)
         subject = subject.replace(" ", "")
         behavior = behavior.replace(" ", "")
