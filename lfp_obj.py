@@ -1,17 +1,26 @@
 import pandas as pd
+import os
 
 #assuming condition col = win/ loss --> unique --> all event types
 #assuming subject_info is the subject attributed in the individual df
 
 class LFPRecording:
-    def __init__(self, df, record):
-        #suject at that record
-        self.subject = df["subject_info"][record]
-        self.event_dict = {}
-        self.event_dict["start"] = df["time_stamp_index"][record]
-        self.event_dict["end"] = df["end_time"][record]
-        self.event_dict["condition"] = df["condition"][record]
-        self.video = df["video_file"][record]
+    def __init__(self, path, sampling_rate=20000):
+        self.path = path
+        self.sampling_rate = sampling_rate
+        self.events = {}
+
+
+
+
+class LFPrecording:
+    def __init__(self, record):
+        self.event = record["event"]
+        self.start = record["time_stamp_index"]
+        self.end = record["end_time"]
+        self.subject = record["subject_info"]
+        self.video = record["video_file"]
+        
 
 class LFPrecordingCollection:
     # test case = one recording (rewarded, omission)
@@ -41,29 +50,27 @@ class LFPrecordingCollection:
 
     """
 
-    def __init__(self, path_to_excel):
-        self.path = path_to_excel
+    def __init__(self, path, tone_times_path, channel_map_path, sampling_rate=1000):
+        self.path = path
+        self.sampling_rate = sampling_rate
+        self.tone_times_df = pd.read_excel(tone_times_path)
+        self.channel_map_df = pd.read_excel(channel_map_path)
+        self.make_collection()
 
-        #type_event: dictionary "times": [start, stop], "subject": X, "title_rec": Y
 
-        def parse_all_trials(self, path):
-            data = pd.read_excel(path)
-            # assuming the "time" column is the start time
-            # adding const to time column to get end time
-            self.data = pd.read_excel(self.path)
-            #drop all the NaN values
-            self.data = self.data.dropna()
-            #create new dataframe
-            newDF = pd.DataFrame()
-            newDF = self.data[["video_file", "condition", "time_stamp_index", "subject_info"]].copy()
-
-            newDF["end_time"] = newDF["time_stamp_index"] + 10000
-
-            #convert to dict
-            newDF = newDF.to_dict("records")
-            #print keys
-            print(newDF[0].keys())
-            #add the recording object to the list of all recordings
-        parse_all_trials(self, self.path)
-
+    def make_collection(self):
+        collection = {}
+        #read excel file
+        data = pd.read_excel(self.path)
+        #loop through test_1_merged.rec given reware_competition_extention dir
+        for root, dirs, files in os.walk(self.path):
+            for directory in dirs:
+                if directory.endswith("merged.rec"):
+                    #getting files in that directory
+                    for file in os.listdir(os.path.join(root, directory)):
+                        #call recording object
+                        recording = LFPRecording(os.path.join(root, directory, file))
+                        #add to collection
+                        collection[directory] = recording
+        self.collection = collection
 testData = LFPrecordingCollection("test.xlsx")
