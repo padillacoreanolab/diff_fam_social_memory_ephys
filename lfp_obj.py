@@ -8,18 +8,17 @@ class LFPRecording:
     def __init__(self, path, sampling_rate=20000):
         self.path = path
         self.sampling_rate = sampling_rate
-        self.events = {}
+        self.events = {} #TONE TIME STAMP DF
 
+        def __all_set__(self):
+            self.events = set(self.events)
+            #missing a channel map, check for subject
+            #brain region : channel number
+            #subject --> brain_region, brain_region --> channel number
+                #does it use eib or spike?
+            #parameter --> xlsx or csv TO DICTIONARY used as attribute for recording
 
-
-
-class LFPrecording:
-    def __init__(self, record):
-        self.event = record["event"]
-        self.start = record["time_stamp_index"]
-        self.end = record["end_time"]
-        self.subject = record["subject_info"]
-        self.video = record["video_file"]
+            return self.events
         
 
 class LFPrecordingCollection:
@@ -50,10 +49,16 @@ class LFPrecordingCollection:
 
     """
 
-    def __init__(self, path, tone_times_path, channel_map_path, sampling_rate=1000):
-        self.path = path
+
+    #tonetimes path is behavior dictionary that the user has to make
+    #index is brain region from channel map
+    #all brain regions use multi-dimensional numpy array
+    #frequency is a filter on the channel map brain region
+
+    def __init__(self, path, channel_map_path, sampling_rate=1000):
+        self.path = path #path to data folder (recording folder from trodes) --> data/omissision/test
         self.sampling_rate = sampling_rate
-        self.tone_times_df = pd.read_excel(tone_times_path)
+
         self.channel_map_df = pd.read_excel(channel_map_path)
         self.make_collection()
 
@@ -73,4 +78,19 @@ class LFPrecordingCollection:
                         #add to collection
                         collection[directory] = recording
         self.collection = collection
+
 testData = LFPrecordingCollection("test.xlsx")
+
+'''
+TEST THIS CODE:
+
+current_recording = se.read_spikegadgets(recording_path, stream_id=ECU_STREAM_ID)
+current_recording = se.read_spikegadgets(recording_path, stream_id=TRODES_STREAM_ID)
+print(recording_basename)
+# Preprocessing the LFP
+current_recording = sp.bandpass_filter(current_recording, freq_min=LFP_FREQ_MIN, freq_max=LFP_FREQ_MAX)
+current_recording = sp.notch_filter(current_recording, freq=ELECTRIC_NOISE_FREQ)
+current_recording = sp.resample(current_recording, resample_rate=LFP_SAMPLING_RATE)
+current_recording = sp.zscore(current_recording)
+
+'''
