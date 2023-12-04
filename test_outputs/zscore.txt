@@ -1,0 +1,2 @@
+ZScoreRecording: 32 channels - 1.0kHz - 1 segments - 3,280,151 samples - 3,280.15s (54.67 minutes) 
+                 float32 dtype - 400.41 MiB
