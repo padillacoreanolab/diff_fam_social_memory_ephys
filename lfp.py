@@ -368,6 +368,9 @@ class LFPrecordingCollection:
         id_cols = [col for col in channel_map_and_all_trials_df.columns if col not in brain_region_col]
         for col in brain_region_col:
             # object stuff for ecu specific
+            #for each trial, dataframe of trial rows --> comes from channel map xlsx and then (made) channel map df  
+            # 
+            #  #TODO LOOK AT NEXT
             channel_map_and_all_trials_df[col] = channel_map_and_all_trials_df[col].astype(int).astype(str)
             channel_map_and_all_trials_df["{}_baseline_lfp_trace".format(
                 col.strip("spike_interface").strip("_"))] = channel_map_and_all_trials_df.apply(lambda row: row[

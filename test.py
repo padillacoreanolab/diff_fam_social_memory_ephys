@@ -27,7 +27,9 @@ for recording_path in glob.glob(os.path.join(session_dir, RECORDING_EXTENTION)):
         recording_basename = os.path.splitext(os.path.basename(recording_path))[0]
         # checking to see if the recording has an ECU component
         # if it doesn't, then the next one be extracted
-        current_recording = se.read_spikegadgets(recording_path, stream_id=ECU_STREAM_ID)
+        #it is reading merged.rec FILE within the .rec folder
+        current_recording = se.read_spikegadgets(recording_path, stream_id=ECU_STREAM_ID) # this is a checker to see if ECU data exists,
+        #it should be moved to a different function only called when the parameter ECU is set 
         current_recording = se.read_spikegadgets(recording_path,
                                                  stream_id=TRODES_STREAM_ID)  # we need to confer with leo what these lines do
         print("~~~~~~~~~~~~~~~ORIGINAL~~~~~~~~~~~~~~~")
@@ -41,6 +43,7 @@ for recording_path in glob.glob(os.path.join(session_dir, RECORDING_EXTENTION)):
         print(type(current_recording))
         print("~~~~~~~~~~~~~~~AFTER BANDPASS~~~~~~~~~~~~~~~")
         print(current_recording)
+
         #dump output into text file and name it bandpass
         with open(files["bandpass"], "w") as f:
             f.write(str(current_recording))
