@@ -38,6 +38,7 @@ for recording_path in glob.glob(os.path.join(session_dir, RECORDING_EXTENTION)):
         # Preprocessing the LFP
         # higher than 300 is action potential and lower than 0.5 is noise
         current_recording = sp.bandpass_filter(current_recording, freq_min=LFP_FREQ_MIN, freq_max=LFP_FREQ_MAX)
+        print(type(current_recording))
         print("~~~~~~~~~~~~~~~AFTER BANDPASS~~~~~~~~~~~~~~~")
         print(current_recording)
         #dump output into text file and name it bandpass
@@ -45,16 +46,19 @@ for recording_path in glob.glob(os.path.join(session_dir, RECORDING_EXTENTION)):
             f.write(str(current_recording))
 
         current_recording = sp.notch_filter(current_recording, freq=ELECTRIC_NOISE_FREQ)
+        print(type(current_recording))
         print("~~~~~~~~~~~~~~~AFTER NOTCH~~~~~~~~~~~~~~~")
         print(current_recording)
         with open(files["notch"], "w") as f:
             f.write(str(current_recording))
         current_recording = sp.resample(current_recording, resample_rate=LFP_SAMPLING_RATE)
+        print(type(current_recording))
         print("~~~~~~~~~~~~~~~AFTER RESAMPLE~~~~~~~~~~~~~~~")
         print(current_recording)
         with open(files["resample"], "w") as f:
             f.write(str(current_recording))
         current_recording = sp.zscore(current_recording)# zscore single because avg across animals is in same scale
+        print(type(current_recording))
         print("~~~~~~~~~~~~~~~AFTER ZSCORE~~~~~~~~~~~~~~~")
         print(current_recording)
         with open(files["zscore"], "w") as f:
