@@ -65,40 +65,32 @@ class LFPRecording:
         # offset is ONLY needed for ECU data
         # trial index and add 10,000 and every spike index that falls in that range is used
 
-
-
     def make_events(self):
         # read channel map
         # read events
         temp_events_df = pd.read_excel(self.events_path)
-        print(temp_events_df.columns)
         # lower case all column names
         temp_events_df.columns = map(str.lower, temp_events_df.columns)
         # choose only required columns --> event, subject, time_start, time_stop
         temp_events_df = temp_events_df[["event", "subject", "time_start", "time_stop"]]
-        # convert to dictionary with key as subject name and value as dictionary of events
-        # dictionary of events = key as event name and value as list of times
+        #convert subject to string
+        temp_events_df["subject"] = temp_events_df["subject"].astype(str)
 
-        temp_events_df = temp_events_df.set_index("subject")
-        for subject in temp_events_df.index:
-            self.events[subject] = {}
-            #only check for current subject
-            if subject != self.subject:
-                continue
-            else:
-                for event in temp_events_df.loc[subject]["event"]:
-                    self.events[subject][event] = []
-                for event, time_start, time_stop in zip(temp_events_df.loc[subject]["event"],
-                                                        temp_events_df.loc[subject]["time_start"],
-                                                        temp_events_df.loc[subject]["time_stop"]):
-                    self.events[subject][event].append((time_start, time_stop))
+        # choose only rows with current subject
+        temp_events_df = temp_events_df[temp_events_df["subject"] == self.subject]
+
+        for index, row in temp_events_df.iterrows():
+            #use tuple to store start and stop times
+            if row["event"] not in self.events:
+                self.events[row["event"]] = []
+            self.events[row["event"]].append((row["time_start"], row["time_stop"]))
 
     def make_recording(self):
-        if self.ecu:
+
             # change to try except, check for corrupted data and continue
             # look into making a new variable
             # calculate events from ecu data
-            current_recording = se.read_spikegadgets(self.path, stream_id=self.ecu_stream_id)
+        current_recording = se.read_spikegadgets(self.path, stream_id=self.ecu_stream_id)
         current_recording = se.read_spikegadgets(self.path, stream_id=self.trodes_stream_id)
         current_recording = sp.bandpass_filter(current_recording, freq_min=self.lfp_freq_min, freq_max=self.lfp_freq_max)
         current_recording = sp.notch_filter(current_recording, freq=self.electric_noise_freq)
@@ -111,9 +103,10 @@ class LFPRecording:
         channel_map_df = pd.read_excel(self.channel_map_path)
         # lowercase all column names
         channel_map_df.columns = map(str.lower, channel_map_df.columns)
+        channel_map_df["subject"] = channel_map_df["subject"].astype(str)
 
         channel_map_df = channel_map_df[channel_map_df["subject"] == self.subject]
-        self.channel_map = channel_map_df.to_dict()
+        self.channel_map = channel_map_df
 
 
 class LFPrecordingCollection:
