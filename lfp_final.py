@@ -9,6 +9,7 @@ class LFPRecording:
                  path,
                  channel_map_path,
                  events_path,
+                 subject,
                  sampling_rate=20000,
                  ecu_stream_id="ECU",
                  trodes_stream_id="trodes",
@@ -17,10 +18,18 @@ class LFPRecording:
                  electric_noise_freq=60,
                  lfp_sampling_rate=1000,
                  frame_rate=22):
+
         self.path = path
+        self.channel_map_path = channel_map_path
+        self.events_path = events_path
+
+        self.events = {}
+        self.channel_map = {}
+        self.recording = None
+
+        self.subject = subject
+
         self.sampling_rate = sampling_rate
-        self.events = {} #create from channel map df
-        self.channel_map_df = pd.read_excel(channel_map_path)
         self.ecu_stream_id = ecu_stream_id
         self.trodes_stream_id = trodes_stream_id
         self.lfp_freq_min = lfp_freq_min
@@ -29,9 +38,21 @@ class LFPRecording:
         self.lfp_sampling_rate = lfp_sampling_rate
         self.frame_rate = frame_rate
 
+        self.make_recording()
+        self.make_events()
+        self.make_channel_map()
+
+        print(self.recording)
+        print(self.events)
+        print(self.channel_map)
+
+    def make_events(self):
         # read channel map
         # read events
-        temp_events_df = pd.read_excel(events_path)
+        temp_events_df = pd.read_excel(self.events_path)
+        print(temp_events_df.columns)
+        # lower case all column names
+        temp_events_df.columns = map(str.lower, temp_events_df.columns)
         # choose only required columns --> event, subject, time_start, time_stop
         temp_events_df = temp_events_df[["event", "subject", "time_start", "time_stop"]]
         # convert to dictionary with key as subject name and value as dictionary of events
@@ -40,49 +61,58 @@ class LFPRecording:
         temp_events_df = temp_events_df.set_index("subject")
         for subject in temp_events_df.index:
             self.events[subject] = {}
-            for event in temp_events_df.loc[subject]["event"]:
-                self.events[subject][event] = []
-            for event, time_start, time_stop in zip(temp_events_df.loc[subject]["event"],
-                                                    temp_events_df.loc[subject]["time_start"],
-                                                    temp_events_df.loc[subject]["time_stop"]):
-                self.events[subject][event].append((time_start, time_stop))
+            #only check for current subject
+            if subject != self.subject:
+                continue
+            else:
+                for event in temp_events_df.loc[subject]["event"]:
+                    self.events[subject][event] = []
+                for event, time_start, time_stop in zip(temp_events_df.loc[subject]["event"],
+                                                        temp_events_df.loc[subject]["time_start"],
+                                                        temp_events_df.loc[subject]["time_stop"]):
+                    self.events[subject][event].append((time_start, time_stop))
 
-        for file in os.listdir(self.path):
-            print("file is " + file)
-            if file.endswith(".rec"):
-                print("file ends with .rec")
-                print("reading for recording name " + file)
-                absolute_path = os.path.join(self.path, file)
-                current_recording = se.read_spikegadgets(absolute_path, stream_id=ecu_stream_id)
-                current_recording = se.read_spikegadgets(absolute_path, stream_id=trodes_stream_id)
-                current_recording = sp.bandpass_filter(current_recording, freq_min=lfp_freq_min, freq_max=lfp_freq_max)
-                current_recording = sp.notch_filter(current_recording, freq=electric_noise_freq)
-                current_recording = sp.resample(current_recording, resample_rate=lfp_sampling_rate)
-                current_recording = sp.zscore(current_recording)
-                print("after z score")
-                print(current_recording)
+    def make_recording(self):
+        current_recording = se.read_spikegadgets(self.path, stream_id=self.ecu_stream_id)
+        current_recording = se.read_spikegadgets(self.path, stream_id=self.trodes_stream_id)
+        current_recording = sp.bandpass_filter(current_recording, freq_min=self.lfp_freq_min, freq_max=self.lfp_freq_max)
+        current_recording = sp.notch_filter(current_recording, freq=self.electric_noise_freq)
+        current_recording = sp.resample(current_recording, resample_rate=self.lfp_sampling_rate)
+        current_recording = sp.zscore(current_recording)
+        self.recording = current_recording
+
+    def make_channel_map(self):
+        #only get info for current subject
+        channel_map_df = pd.read_excel(self.channel_map_path)
+        #lowercase all column names
+        channel_map_df.columns = map(str.lower, channel_map_df.columns)
+
+        channel_map_df = channel_map_df[channel_map_df["subject"] == self.subject]
+        self.channel_map = channel_map_df.to_dict()
 
 
 class LFPrecordingCollection:
-    def __init__(self, path, channel_map_path, sampling_rate=1000):
+    def __init__(self, path, channel_map_path, events_path, sampling_rate=1000):
         self.path = path
+        self.channel_map_path = channel_map_path
         self.sampling_rate = sampling_rate
-
-        self.channel_map_df = pd.read_excel(channel_map_path)
+        self.events_path = events_path
+        self.collection = {}
         self.make_collection()
 
     def make_collection(self):
         collection = {}
-        data = pd.read_excel(self.path)
         for root, dirs, files in os.walk(self.path):
             for directory in dirs:
                 if directory.endswith("merged.rec"):
                     for file in os.listdir(os.path.join(root, directory)):
                         #handle channel map before recording
                         collection[directory] = {}
-                        recording = LFPRecording(os.path.join(root, directory, file))
-                        collection[directory]["recording"] = recording
-                        collection[directory]["channel_map"] = LFPRecording
+                        recording_path = os.path.join(root, directory, file)
+                        subject = "1.4" #TODO: TEMP FIX FOR SUBJECT
+                        recording = LFPRecording(recording_path, self.channel_map_path, self.events_path, subject)
+                        #add to collection at subject
+                        collection[directory][subject] = recording
         self.collection = collection
 
-testData = LFPRecording("reward_competition_extention/data/omission/test/test_1_merged.rec", "channel_mapping.xlsx", "test.xlsx")
+testData = LFPrecordingCollection("reward_competition_extention/data/omission/test/","channel_mapping.xlsx", "test.xlsx")

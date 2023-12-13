@@ -300,7 +300,7 @@ class EphysRecording:
     Attributes:
         path: str, relative path to the phy folder
             formatted as: './folder/folder/phy'
-        subject: str, subject id who was being recorded
+        subject: str, subject id who was being recorded #TODO: NOT HERE
         sampling_rate: int, sampling rate of the ephys device
             in Hz, standard in the PC lab is 20,000Hz
         timestamps_var: numpy array, all spike timestamps
