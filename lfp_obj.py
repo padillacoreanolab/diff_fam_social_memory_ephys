@@ -10,7 +10,7 @@ class LFPRecording:
         self.sampling_rate = sampling_rate
         self.events = {} #TONE TIME STAMP DF
 
-        def __all_set__(self):
+        def __all_set__():
             self.events = set(self.events)
             #missing a channel map, check for subject
             #brain region : channel number
