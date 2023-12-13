@@ -10,6 +10,7 @@ class LFPRecording:
                  channel_map_path,
                  events_path,
                  subject,
+                 ecu=False,
                  sampling_rate=20000,
                  ecu_stream_id="ECU",
                  trodes_stream_id="trodes",
@@ -41,10 +42,30 @@ class LFPRecording:
         self.make_recording()
         self.make_events()
         self.make_channel_map()
+        self.ecu = ecu
 
         print(self.recording)
         print(self.events)
         print(self.channel_map)
+
+        # input needs to be zeroed to stream
+        # spike gadgets takes time start & stop but output is indexed on the index column
+
+        # time vs time_stamp_index --> spike gadgets takes time start & stop but output is indexed on the index column
+        # everything in output is shifted (by time_stamp_index)
+        # off_setting start stop when you hit record
+        # offset is in merge.rec folder --> avoid user calculation
+            # zero on recording
+        # lfp indexed to stream
+
+        # if ecu: zeroed on stream
+        # if not ecu: it is zeroed on recording
+            # MINUS offset on start and stop times
+
+        # offset is ONLY needed for ECU data
+        # trial index and add 10,000 and every spike index that falls in that range is used
+
+
 
     def make_events(self):
         # read channel map
@@ -73,7 +94,11 @@ class LFPRecording:
                     self.events[subject][event].append((time_start, time_stop))
 
     def make_recording(self):
-        current_recording = se.read_spikegadgets(self.path, stream_id=self.ecu_stream_id)
+        if self.ecu:
+            # change to try except, check for corrupted data and continue
+            # look into making a new variable
+            # calculate events from ecu data
+            current_recording = se.read_spikegadgets(self.path, stream_id=self.ecu_stream_id)
         current_recording = se.read_spikegadgets(self.path, stream_id=self.trodes_stream_id)
         current_recording = sp.bandpass_filter(current_recording, freq_min=self.lfp_freq_min, freq_max=self.lfp_freq_max)
         current_recording = sp.notch_filter(current_recording, freq=self.electric_noise_freq)
@@ -82,9 +107,9 @@ class LFPRecording:
         self.recording = current_recording
 
     def make_channel_map(self):
-        #only get info for current subject
+        # only get info for current subject
         channel_map_df = pd.read_excel(self.channel_map_path)
-        #lowercase all column names
+        # lowercase all column names
         channel_map_df.columns = map(str.lower, channel_map_df.columns)
 
         channel_map_df = channel_map_df[channel_map_df["subject"] == self.subject]
@@ -100,6 +125,8 @@ class LFPrecordingCollection:
         self.collection = {}
         self.make_collection()
 
+        # boolean ecu true or false
+            # if ecu: scrapped & calculated from recording (rather than excel)
     def make_collection(self):
         collection = {}
         for root, dirs, files in os.walk(self.path):
@@ -110,6 +137,8 @@ class LFPrecordingCollection:
                         collection[directory] = {}
                         recording_path = os.path.join(root, directory, file)
                         subject = "1.4" #TODO: TEMP FIX FOR SUBJECT
+                        #TODO: user input for subject name per recording in list
+                        #do not extract name from recording or others
                         recording = LFPRecording(recording_path, self.channel_map_path, self.events_path, subject)
                         #add to collection at subject
                         collection[directory][subject] = recording
