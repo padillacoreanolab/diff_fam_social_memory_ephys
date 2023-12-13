@@ -8,6 +8,7 @@ class LFPRecording:
     def __init__(self,
                  path,
                  channel_map_path,
+                 events_path,
                  sampling_rate=20000,
                  ecu_stream_id="ECU",
                  trodes_stream_id="trodes",
@@ -27,8 +28,24 @@ class LFPRecording:
         self.electric_noise_freq = electric_noise_freq
         self.lfp_sampling_rate = lfp_sampling_rate
         self.frame_rate = frame_rate
-        def channel_map(path):
-            return []
+
+        # read channel map
+        # read events
+        temp_events_df = pd.read_excel(events_path)
+        # choose only required columns --> event, subject, time_start, time_stop
+        temp_events_df = temp_events_df[["event", "subject", "time_start", "time_stop"]]
+        # convert to dictionary with key as subject name and value as dictionary of events
+        # dictionary of events = key as event name and value as list of times
+
+        temp_events_df = temp_events_df.set_index("subject")
+        for subject in temp_events_df.index:
+            self.events[subject] = {}
+            for event in temp_events_df.loc[subject]["event"]:
+                self.events[subject][event] = []
+            for event, time_start, time_stop in zip(temp_events_df.loc[subject]["event"],
+                                                    temp_events_df.loc[subject]["time_start"],
+                                                    temp_events_df.loc[subject]["time_stop"]):
+                self.events[subject][event].append((time_start, time_stop))
 
         for file in os.listdir(self.path):
             print("file is " + file)
@@ -44,11 +61,6 @@ class LFPRecording:
                 current_recording = sp.zscore(current_recording)
                 print("after z score")
                 print(current_recording)
-
-
-
-        #read channel map
-        #create events dictionary
 
 
 class LFPrecordingCollection:
@@ -73,4 +85,4 @@ class LFPrecordingCollection:
                         collection[directory]["channel_map"] = LFPRecording
         self.collection = collection
 
-testData = LFPRecording("reward_competition_extention/data/omission/test/test_1_merged.rec", "test.xlsx")
+testData = LFPRecording("reward_competition_extention/data/omission/test/test_1_merged.rec", "channel_mapping.xlsx", "test.xlsx")
