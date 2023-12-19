@@ -44,9 +44,30 @@ class LFPRecording:
         self.make_channel_map()
         self.ecu = ecu
 
+        brain_region = []
+        for col in self.channel_map.columns:
+            if "spike_interface" in col:
+                brain_region.append(col)
+        print(brain_region)
+        for col in brain_region:
+            self.channel_map[col] = self.channel_map[col].astype(int).astype(str)
+            """
+            channel_map_and_all_trials_df["{}_baseline_lfp_trace".format(col.strip("spike_interface").strip("_"))] = channel_map_and_all_trials_df.apply(lambda row: row["all_ch_lfp"].get_traces(channel_ids=[row[col]], start_frame=row["baseline_lfp_timestamp_range"][0], end_frame=row["baseline_lfp_timestamp_range"][1]).T[0], axis=1)
+
+            channel_map_and_all_trials_df["{}_trial_lfp_trace".format(col.strip("spike_interface").strip("_"))] = channel_map_and_all_trials_df.apply(lambda row: row["all_ch_lfp"].get_traces(channel_ids=[row[col]], start_frame=row["trial_lfp_timestamp_range"][0], end_frame=row["trial_lfp_timestamp_range"][1]).T[0], axis=1)
+            """
+            #get from spike recording
+            self.channel_map["{}_baseline_lfp_trace".format(col.strip("spike_interface").strip("_"))] = self.channel_map.apply(lambda row: self.recording.get_traces(channel_ids=[row[col]], start_frame=row["baseline_lfp_timestamp_range"][0], end_frame=row["baseline_lfp_timestamp_range"][1]).T[0], axis=1)
+            self.channel_map["{}_trial_lfp_trace".format(col.strip("spike_interface").strip("_"))] = self.channel_map.apply(lambda row: self.recording.get_traces(channel_ids=[row[col]], start_frame=row["trial_lfp_timestamp_range"][0], end_frame=row["trial_lfp_timestamp_range"][1]).T[0], axis=1)
+        print(self.channel_map)
+
+        #making a function to calculate power at each frequency
+
+
         print(self.recording)
         print(self.events)
-        print(self.channel_map)
+        print(self.channel_map.columns)
+        print(self.subject)
 
         # input needs to be zeroed to stream
         # spike gadgets takes time start & stop but output is indexed on the index column
