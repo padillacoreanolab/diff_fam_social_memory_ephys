@@ -42,24 +42,8 @@ class LFPRecording:
         self.make_recording()
         self.make_events()
         self.make_channel_map()
+        self.get_lfp_traces()
         self.ecu = ecu
-
-        brain_region = []
-        for col in self.channel_map.columns:
-            if "spike_interface" in col:
-                brain_region.append(col)
-        print(brain_region)
-        for col in brain_region:
-            self.channel_map[col] = self.channel_map[col].astype(int).astype(str)
-            """
-            channel_map_and_all_trials_df["{}_baseline_lfp_trace".format(col.strip("spike_interface").strip("_"))] = channel_map_and_all_trials_df.apply(lambda row: row["all_ch_lfp"].get_traces(channel_ids=[row[col]], start_frame=row["baseline_lfp_timestamp_range"][0], end_frame=row["baseline_lfp_timestamp_range"][1]).T[0], axis=1)
-
-            channel_map_and_all_trials_df["{}_trial_lfp_trace".format(col.strip("spike_interface").strip("_"))] = channel_map_and_all_trials_df.apply(lambda row: row["all_ch_lfp"].get_traces(channel_ids=[row[col]], start_frame=row["trial_lfp_timestamp_range"][0], end_frame=row["trial_lfp_timestamp_range"][1]).T[0], axis=1)
-            """
-            #get from spike recording
-            self.channel_map["{}_baseline_lfp_trace".format(col.strip("spike_interface").strip("_"))] = self.channel_map.apply(lambda row: self.recording.get_traces(channel_ids=[row[col]], start_frame=row["baseline_lfp_timestamp_range"][0], end_frame=row["baseline_lfp_timestamp_range"][1]).T[0], axis=1)
-            self.channel_map["{}_trial_lfp_trace".format(col.strip("spike_interface").strip("_"))] = self.channel_map.apply(lambda row: self.recording.get_traces(channel_ids=[row[col]], start_frame=row["trial_lfp_timestamp_range"][0], end_frame=row["trial_lfp_timestamp_range"][1]).T[0], axis=1)
-        print(self.channel_map)
 
         #making a function to calculate power at each frequency
 
@@ -107,7 +91,6 @@ class LFPRecording:
             self.events[row["event"]].append((row["time_start"], row["time_stop"]))
 
     def make_recording(self):
-
             # change to try except, check for corrupted data and continue
             # look into making a new variable
             # calculate events from ecu data
@@ -128,6 +111,34 @@ class LFPRecording:
 
         channel_map_df = channel_map_df[channel_map_df["subject"] == self.subject]
         self.channel_map = channel_map_df
+
+
+
+    def get_lfp_traces(self):
+        brain_region = []
+        for col in self.channel_map.columns:
+            if "spike_interface" in col:
+                brain_region.append(col)
+        print(brain_region)
+        for col in brain_region:
+            self.channel_map[col] = self.channel_map[col].astype(int).astype(str)
+            """
+            channel_map_and_all_trials_df["{}_baseline_lfp_trace".format(col.strip("spike_interface").strip("_"))] = channel_map_and_all_trials_df.apply(lambda row: row["all_ch_lfp"].get_traces(channel_ids=[row[col]], start_frame=row["baseline_lfp_timestamp_range"][0], end_frame=row["baseline_lfp_timestamp_range"][1]).T[0], axis=1)
+
+            channel_map_and_all_trials_df["{}_trial_lfp_trace".format(col.strip("spike_interface").strip("_"))] = channel_map_and_all_trials_df.apply(lambda row: row["all_ch_lfp"].get_traces(channel_ids=[row[col]], start_frame=row["trial_lfp_timestamp_range"][0], end_frame=row["trial_lfp_timestamp_range"][1]).T[0], axis=1)
+            """
+            # get from spike recording
+            self.channel_map[
+                "{}_baseline_lfp_trace".format(col.strip("spike_interface").strip("_"))] = self.channel_map.apply(
+                lambda row:
+                self.recording.get_traces(channel_ids=[row[col]], start_frame=row["baseline_lfp_timestamp_range"][0],
+                                          end_frame=row["baseline_lfp_timestamp_range"][1]).T[0], axis=1)
+            self.channel_map[
+                "{}_trial_lfp_trace".format(col.strip("spike_interface").strip("_"))] = self.channel_map.apply(
+                lambda row:
+                self.recording.get_traces(channel_ids=[row[col]], start_frame=row["trial_lfp_timestamp_range"][0],
+                                          end_frame=row["trial_lfp_timestamp_range"][1]).T[0], axis=1)
+        print(self.channel_map)
 
 
 class LFPrecordingCollection:
