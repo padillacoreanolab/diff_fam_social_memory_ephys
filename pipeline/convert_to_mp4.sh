@@ -69,29 +69,29 @@ reencode_mp4() {
 
 
 # Loop over all .h264 files in the video directory and its subdirectories
-for full_path in ${video_directory}/**/*.h264; do
+find "${video_directory}" -type f -name '*.h264' | while read -r full_path; do
     # Print the name of the file currently being processed
     echo "Currently starting: ${full_path}"
 
     # Get the directory name, file name, and base name of the file
-    dir_name=$(dirname ${full_path})
-    file_name=${full_path##*/}
+    dir_name=$(dirname "${full_path}")
+    file_name=$(basename "${full_path}")
     base_name="${file_name%.h264}"
     recording_name=${base_name%%.*}
-    
+
     # Create a directory for the output files
-    recording_dir=${output_directory}/${recording_name}
-    mkdir -p ${recording_dir}
+    recording_dir="${output_directory}/${recording_name}"
+    mkdir -p "${recording_dir}"
 
     # Form the output file name for the converted .mp4 file
-    converted_mp4_path=${recording_dir}/${base_name}.original.mp4
+    converted_mp4_path="${recording_dir}/${base_name}.original.mp4"
     # Convert the .h264 file to .mp4
-    convert_h264_to_mp4 ${full_path} ${converted_mp4_path}
+    convert_h264_to_mp4 "${full_path}" "${converted_mp4_path}"
 
     # Form the output file name for the re-encoded .mp4 file
-    reencoded_mp4_path=${recording_dir}/${base_name}.fixed.mp4
+    reencoded_mp4_path="${recording_dir}/${base_name}.fixed.mp4"
     # Re-encode the .mp4 file
-    reencode_mp4 ${converted_mp4_path} ${reencoded_mp4_path} 
+    reencode_mp4 "${converted_mp4_path}" "${reencoded_mp4_path}"
 
 done
 
