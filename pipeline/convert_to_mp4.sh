@@ -4,6 +4,9 @@ project_dir=$1
 #${project_dir}
 experiment_dir=$2
 
+echo "Project directory: ${project_dir}"
+echo "Experiment directory: ${experiment_dir}"
+
 cd ${experiment_dir}
 
 video_directory=${experiment_dir}/data
@@ -14,7 +17,7 @@ convert_h264_to_mp4() {
     input_file=$1
     output_file=$2
 
-    echo Currently working on: ${input_file}
+    echo "Currently working on in convert: ${input_file}"
 
     # Check if output file already exists
     if [ -f "${output_file}" ]; then
@@ -37,7 +40,7 @@ reencode_mp4() {
     input_file=$1
     output_file=$2
 
-    echo Currently working on: ${input_file}
+    echo "Currently working on in reencode_mp4: ${input_file}"
 
     # Check if output file already exists
     if [ -f "${output_file}" ]; then
