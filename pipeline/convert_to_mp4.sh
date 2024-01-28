@@ -14,9 +14,6 @@ cd ${project_dir}
 video_directory=${project_dir}/data
 output_directory=${project_dir}/proc/reencoded_videos
 
-# Enable globstar option to use ** for matching files in nested directories
-shopt -s globstar
-
 # Function to convert .h264 video files to .mp4
 convert_h264_to_mp4() {
     input_file=$1
@@ -65,34 +62,43 @@ reencode_mp4() {
     fi
 }
 
+# Function to find all .h264 files recursively in a directory
+find_h264_files() {
+    find "$1" -type f -name '*.h264'
+}
 
+# Find all unique directories containing .h264 files within the video directory
+video_directories=$(find_h264_files "${video_directory}" | xargs -n1 dirname | sort -u)
 
+for dir_path in ${video_directories}; do
+    echo "Processing directory: ${dir_path}"
 
-# Loop over all .h264 files in the video directory and its subdirectories
-find "${video_directory}" -type f -name '*.h264' | while read -r full_path; do
-    # Print the name of the file currently being processed
-    echo "Currently starting: ${full_path}"
+    # Loop over all .h264 files in the current directory
+    find "${dir_path}" -type f -name '*.h264' | while read -r full_path; do
+        # Print the name of the file currently being processed
+        echo "Currently starting: ${full_path}"
 
-    # Get the directory name, file name, and base name of the file
-    dir_name=$(dirname "${full_path}")
-    file_name=$(basename "${full_path}")
-    base_name="${file_name%.h264}"
-    recording_name=${base_name%%.*}
+        # Get the directory name, file name, and base name of the file
+        dir_name=$(dirname "${full_path}")
+        file_name=$(basename "${full_path}")
+        base_name="${file_name%.h264}"
+        recording_name=${base_name%%.*}
 
-    # Create a directory for the output files
-    recording_dir="${output_directory}/${recording_name}"
-    mkdir -p "${recording_dir}"
+        # Create a directory for the output files
+        recording_dir="${output_directory}/${recording_name}"
+        mkdir -p "${recording_dir}"
 
-    # Form the output file name for the converted .mp4 file
-    converted_mp4_path="${recording_dir}/${base_name}.original.mp4"
-    # Convert the .h264 file to .mp4
-    convert_h264_to_mp4 "${full_path}" "${converted_mp4_path}"
+        # Form the output file name for the converted .mp4 file
+        converted_mp4_path="${recording_dir}/${base_name}.original.mp4"
+        # Convert the .h264 file to .mp4
+        convert_h264_to_mp4 "${full_path}" "${converted_mp4_path}"
 
-    # Form the output file name for the re-encoded .mp4 file
-    reencoded_mp4_path="${recording_dir}/${base_name}.fixed.mp4"
-    # Re-encode the .mp4 file
-    reencode_mp4 "${converted_mp4_path}" "${reencoded_mp4_path}"
+        # Form the output file name for the re-encoded .mp4 file
+        reencoded_mp4_path="${recording_dir}/${base_name}.fixed.mp4"
+        # Re-encode the .mp4 file
+        reencode_mp4 "${converted_mp4_path}" "${reencoded_mp4_path}"
 
+    done
 done
 
 # Print a message when all files have been processed
