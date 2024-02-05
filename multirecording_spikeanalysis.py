@@ -16,6 +16,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
 
 
 def hex_2_rgb(hex_color):
@@ -2182,6 +2183,7 @@ class SpikeAnalysis_MultiRecording:
         ex_trial_matrix = decoder_data[events[0]][0]
         T = ex_trial_matrix.shape[0]
         auc = {}
+        prob = {}
         for event in events:
             data_neg = []
             data_pos = []
@@ -2196,12 +2198,23 @@ class SpikeAnalysis_MultiRecording:
             num_neg = data_neg.shape[2]
             data_pos = data_pos[:, :, np.random.permutation(num_pos)]
             data_neg = data_neg[:, :, np.random.permutation(num_neg)]
-            auc[event] = {'glm': [], 'rf': [], 'glm_shuffle': [], 'rf_shuffle': []}
+            auc[event] = {'glm': [], 'rf': [], 'svm': [],
+                          'glm_shuffle': [], 'rf_shuffle': [], 'svm_shuffle': []}
+            prob[event] = {'glm': [], 'rf': [], 
+                           'glm_shuffle': [], 'rf_shuffle': [], 'svm_shuffle': []}
             for fold in range(num_fold):
                 auc_glm = []
                 auc_rf = []
                 auc_glm_shuffle = []
                 auc_rf_shuffle = []
+                auc_svm = []
+                auc_svm_shuffle = []
+                prob_glm = []
+                prob_rf = []
+                prob_svm = []
+                prob_glm_shuffle = []
+                prob_svm_shuffle = []
+                prob_rf_shuffle = []
                 pos_fold = num_pos // num_fold
                 neg_fold = num_neg // num_fold
                 data_test = np.concatenate((data_pos[:, :, fold * pos_fold:(fold + 1) * pos_fold],
@@ -2220,35 +2233,67 @@ class SpikeAnalysis_MultiRecording:
                     model_glm = LogisticRegression(class_weight='balanced')
                     model_glm.fit(data_train[timebin, :, :].T, label_train)
                     pred_glm = model_glm.predict_proba(data_test[timebin, :, :].T)
+                    prob_glm.append(pred_glm)
                     auc_glm.append(roc_auc_score(label_test, pred_glm[:, 1]))
                  
                     model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(class_weight = 'balanced'), n_estimators=50, random_state=0)
                     model_rf.fit(data_train[timebin, :, :].T, label_train)
                     pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
+                    prob_rf.append(pred_rf)
                     auc_rf.append(roc_auc_score(label_test, pred_rf[:, 1]))
+
+                    model_svm = LinearSVC(class_weight='balanced')
+                    model_svm.fit(data_train[timebin, :, :].T, label_train)
+                    pred_svm = model_svm.predict_proba(data_test[timebin, :, :].T)
+                    prob_svm.append(pred_svm)
+                    auc_svm.append(roc_auc_score(label_test, pred_svm[:, 1]))
                 auc[event]['glm'].append(auc_glm)
                 auc[event]['rf'].append(auc_rf)
+                auc[event]['svm'].append(auc_svm)
+                prob[event]['glm'].append(prob_glm)
+                prob[event]['rf'].append(prob_rf)
+                prob[event]['svm'].append(prob_svm)
                 for shuffle in range(num_shuffle):
                     temp_glm_shuffle = []
                     temp_rf_shuffle = []
+                    temp_svm_shuffle = []
+                    temp_prob_glm_shuffle = []
+                    temp_prob_rf_shuffle = [] 
+                    temp_prob_svm_shuffle = []
                     label_train = np.random.permutation(label_train)
                     for timebin in range(T):
                         model_glm = LogisticRegression(class_weight='balanced')
                         model_glm.fit(data_train[timebin, :, :].T, label_train)
                         pred_glm = model_glm.predict_proba(data_test[timebin, :, :].T)
+                        temp_prob_glm_shuffle.append(pred_glm)
                         temp_glm_shuffle.append(roc_auc_score(label_test, pred_glm[:, 1]))
 
                         model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(class_weight = 'balanced'), n_estimators=50, random_state=0)
                         model_rf.fit(data_train[timebin, :, :].T, label_train)
                         pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
+                        temp_prob_rf_shuffle.append(pred_rf)
                         temp_rf_shuffle.append(roc_auc_score(label_test, pred_rf[:, 1]))
+
+                        model_svm = LinearSVC(class_weight='balanced')
+                        model_svm.fit(data_train[timebin, :, :].T, label_train)
+                        pred_svm = model_svm.predict_proba(data_test[timebin, :, :].T)
+                        temp_prob_svm_shuffle.append(pred_svm)
+                        temp_svm_shuffle.append(roc_auc_score(label_test, pred_svm[:, 1]))
                     auc_glm_shuffle.append(temp_glm_shuffle)
                     auc_rf_shuffle.append(temp_rf_shuffle)
+                    auc_svm_shuffle.append(temp_svm_shuffle)
+                    prob_glm_shuffle.append(temp_prob_glm_shuffle)
+                    prob_rf_shuffle.append(temp_prob_rf_shuffle)
+                    prob_svm_shuffle.append(temp_prob_svm_shuffle)
                 auc[event]['glm_shuffle'].append(auc_glm_shuffle)
                 auc[event]['rf_shuffle'].append(auc_rf_shuffle)
+                auc[event]['svm_shuffle'].append(auc_svm_shuffle)
+                prob[event]['glm_shuffle'].append(prob_glm_shuffle)
+                prob[event]['rf_shuffle'].append(prob_rf_shuffle)
+                prob[event]['svm_shuffle'].append(prob_svm_shuffle)
         if plot:
             self.__plot_auc__(auc, equalize, pre_window)
-        return auc
+        return auc, prob
     
                 
     def __plot_auc__(self, auc_dict, equalize, pre_window):
