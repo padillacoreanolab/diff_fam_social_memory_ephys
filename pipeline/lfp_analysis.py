@@ -19,30 +19,36 @@ def convert_to_mp4(experiment_dir):
 
 experiment_dir = "/Volumes/chaitra/test_lfp"
 #convert_to_mp4(experiment_dir)
-
+def recursive_dict():
+    return defaultdict(recursive_dict)
 def extract_all_trodes(input_dir, output_dir, tone_din, tone_state):
-    def recursive_dict():
-        return defaultdict(recursive_dict)
 
     session_to_trodes_data = recursive_dict()
     session_to_path = {}
-    print(trodes.read_exported.organize_all_trodes_export("/Volumes/chaitra/test_lfp/data/omission_reward_competition/"))
-    """
+    file_path = "/Volumes/chaitra/20221122_164720_competition_6_1_top_3__base_3_merged.raw_group0.dat"
+    #print(os.getcwd())
+    if (os.path.exists(file_path)):
+        print("File found")
+    else:
+        print("File not found")
+    print(trodes.read_exported.read_trodes_extracted_data_file(file_path))
     for session in glob.glob(input_dir):
-        print("Processing session: ", session)
         try:
             session_basename = os.path.splitext(os.path.basename(session))[0]
             print("Processing session: ", session_basename)
+            #if directory, check for .dat files
             if os.path.isdir(session):
-                print("this session is a directory")
-                print(trodes.read_exported.organize_all_trodes_export(session))
+                for file in os.listdir(session):
+                    if file.endswith(".dat"):
+                        print("File found")
+                        full_path = os.path.join(session, file)
+                        print(trodes.read_exported.read_trodes_extracted_data_file(full_path))
             session_to_trodes_data[session_basename] = trodes.read_exported.organize_all_trodes_export(session)
             session_to_path[session_basename] = session
         except Exception as e:
             print("Error processing session: ", session_basename)
             print(e)
     print(session_to_trodes_data)
-    """
     return session_to_trodes_data
 
 # Params for 00 notebook
