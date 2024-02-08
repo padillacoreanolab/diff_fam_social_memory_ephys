@@ -83,7 +83,6 @@ def read_trodes_extracted_data_file(filename):
     Raises:
         Exception: If the settings block in the file does not start with '<Start settings>'.
     """
-    print("in read func with " + filename)
     with open(filename, 'rb') as f:
         # The first line of the file should start the settings block
         if f.readline().decode('ascii').strip() != '<Start settings>':
