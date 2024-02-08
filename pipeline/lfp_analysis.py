@@ -25,12 +25,10 @@ def extract_all_trodes(input_dir, output_dir, tone_din, tone_state):
 
     session_to_trodes_data = recursive_dict()
     session_to_path = {}
-    file_path = "/Volumes/chaitra/20221122_164720_competition_6_1_top_3__base_3_merged.raw_group0.dat"
-    #print(os.getcwd())
-    if (os.path.exists(file_path)):
-        print("File found")
-    else:
-        print("File not found")
+
+    # raw files would not be file
+    # print(trodes.read_exported.read_trodes_extracted_data_file("Downloads/20221122_164720_competition_6_1_top_3__base_3_merged.raw_group0.dat"))
+    file_path = "../../../../Downloads/20221122_164720_competition_6_1_top_3__base_3_merged.raw_group0.dat"
     print(trodes.read_exported.read_trodes_extracted_data_file(file_path))
     for session in glob.glob(input_dir):
         try:
@@ -43,7 +41,7 @@ def extract_all_trodes(input_dir, output_dir, tone_din, tone_state):
                         print("File found")
                         full_path = os.path.join(session, file)
                         print(trodes.read_exported.read_trodes_extracted_data_file(full_path))
-            session_to_trodes_data[session_basename] = trodes.read_exported.organize_all_trodes_export(session)
+            session_to_trodes_data[session_basename] = trodes.read_exported.organize_all_trodes_export(session) #
             session_to_path[session_basename] = session
         except Exception as e:
             print("Error processing session: ", session_basename)
