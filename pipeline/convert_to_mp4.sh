@@ -11,7 +11,7 @@ echo "Project directory: ${project_dir}"
 cd ${project_dir}
 
 # Set the directories for the input videos and the output videos
-video_directory=${project_dir}/data
+video_directory=${project_dir}
 output_directory=${project_dir}/proc/reencoded_videos
 
 # Function to convert .h264 video files to .mp4
