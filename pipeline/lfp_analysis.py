@@ -130,16 +130,9 @@ def create_metadata_df(session_to_trodes, session_to_path):
                             for l in session_to_trodes[i][j][k].keys()},
                             orient='index')
 
-    # Rename columns during t
-
     trodes_metadata_df = trodes_metadata_df.reset_index()
-    print(type(trodes_metadata_df))
-    print("HERE")
-    print(trodes_metadata_df.columns)
     trodes_metadata_df = trodes_metadata_df.rename(columns={'level_0': 'session_dir', 'level_1': 'recording', 'level_2': 'metadata_dir', 'level_3': 'metadata_file'}, errors="ignore")
     trodes_metadata_df["session_path"] = trodes_metadata_df["session_dir"].map(session_to_path)
-    print("After filter")
-    print(trodes_metadata_df.columns)
     return trodes_metadata_df
 
 def add_subjects_to_metadata(metadata):
@@ -227,3 +220,20 @@ session_to_trodes_temp, paths= extract_all_trodes(input_dir)
 session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
 metadata = create_metadata_df(session_to_trodes_temp, paths)
 metadata, state_df, video_df = adjust_first_timestamps(metadata)
+
+print("METADATA")
+print(metadata.head())
+print("\n\n")
+print(metadata.columns)
+
+print("\nSTATE")
+print(state_df.head())
+print("\n\n")
+print(state_df.columns)
+
+print("\nVIDEO")
+print(video_df.head())
+print("\n\n")
+print(video_df.columns)
+
+
