@@ -2207,13 +2207,9 @@ class SpikeAnalysis_MultiRecording:
                 auc_rf = []
                 auc_glm_shuffle = []
                 auc_rf_shuffle = []
-                auc_svm = []
-                auc_svm_shuffle = []
                 prob_glm = []
                 prob_rf = []
-                prob_svm = []
                 prob_glm_shuffle = []
-                prob_svm_shuffle = []
                 prob_rf_shuffle = []
                 pos_fold = num_pos // num_fold
                 neg_fold = num_neg // num_fold
@@ -2241,25 +2237,15 @@ class SpikeAnalysis_MultiRecording:
                     pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
                     prob_rf.append(pred_rf)
                     auc_rf.append(roc_auc_score(label_test, pred_rf[:, 1]))
-
-                    model_svm = LinearSVC(class_weight='balanced')
-                    model_svm.fit(data_train[timebin, :, :].T, label_train)
-                    pred_svm = model_svm.predict_proba(data_test[timebin, :, :].T)
-                    prob_svm.append(pred_svm)
-                    auc_svm.append(roc_auc_score(label_test, pred_svm[:, 1]))
                 auc[event]['glm'].append(auc_glm)
                 auc[event]['rf'].append(auc_rf)
-                auc[event]['svm'].append(auc_svm)
                 prob[event]['glm'].append(prob_glm)
                 prob[event]['rf'].append(prob_rf)
-                prob[event]['svm'].append(prob_svm)
                 for shuffle in range(num_shuffle):
                     temp_glm_shuffle = []
                     temp_rf_shuffle = []
-                    temp_svm_shuffle = []
                     temp_prob_glm_shuffle = []
                     temp_prob_rf_shuffle = [] 
-                    temp_prob_svm_shuffle = []
                     label_train = np.random.permutation(label_train)
                     for timebin in range(T):
                         model_glm = LogisticRegression(class_weight='balanced')
@@ -2273,27 +2259,17 @@ class SpikeAnalysis_MultiRecording:
                         pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
                         temp_prob_rf_shuffle.append(pred_rf)
                         temp_rf_shuffle.append(roc_auc_score(label_test, pred_rf[:, 1]))
-
-                        model_svm = LinearSVC(class_weight='balanced')
-                        model_svm.fit(data_train[timebin, :, :].T, label_train)
-                        pred_svm = model_svm.predict_proba(data_test[timebin, :, :].T)
-                        temp_prob_svm_shuffle.append(pred_svm)
-                        temp_svm_shuffle.append(roc_auc_score(label_test, pred_svm[:, 1]))
                     auc_glm_shuffle.append(temp_glm_shuffle)
                     auc_rf_shuffle.append(temp_rf_shuffle)
-                    auc_svm_shuffle.append(temp_svm_shuffle)
                     prob_glm_shuffle.append(temp_prob_glm_shuffle)
                     prob_rf_shuffle.append(temp_prob_rf_shuffle)
-                    prob_svm_shuffle.append(temp_prob_svm_shuffle)
                 auc[event]['glm_shuffle'].append(auc_glm_shuffle)
                 auc[event]['rf_shuffle'].append(auc_rf_shuffle)
-                auc[event]['svm_shuffle'].append(auc_svm_shuffle)
                 prob[event]['glm_shuffle'].append(prob_glm_shuffle)
                 prob[event]['rf_shuffle'].append(prob_rf_shuffle)
-                prob[event]['svm_shuffle'].append(prob_svm_shuffle)
         if plot:
             self.__plot_auc__(auc, equalize, pre_window)
-        return auc, prob
+        return [auc, prob]
     
                 
     def __plot_auc__(self, auc_dict, equalize, pre_window):
