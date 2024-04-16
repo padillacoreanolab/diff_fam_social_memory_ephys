@@ -102,8 +102,8 @@ def add_video_timestamps(session_to_trodes_data, directory_path):
                     session_to_trodes_data[session_basename][session_basename]["video_timestamps"] = defaultdict(dict)
 
                 session_to_trodes_data[session_basename][session_basename]["video_timestamps"][video_basename.split(".")[-3]] = timestamp_array
-                # print("Timestamp Array for {}: ".format(video_basename))
-                # print(timestamp_array)
+                print("Timestamp Array for {}: ".format(video_basename))
+                print(session_to_trodes_data[session_basename][session_basename]["video_timestamps"][video_basename.split(".")[-3]])
 
         except Exception as e:
             print("Error processing session: ", session_basename)
@@ -133,6 +133,15 @@ def create_metadata_df(session_to_trodes, session_to_path):
     trodes_metadata_df = trodes_metadata_df.reset_index()
     trodes_metadata_df = trodes_metadata_df.rename(columns={'level_0': 'session_dir', 'level_1': 'recording', 'level_2': 'metadata_dir', 'level_3': 'metadata_file'}, errors="ignore")
     trodes_metadata_df["session_path"] = trodes_metadata_df["session_dir"].map(session_to_path)
+
+    # Adjust data types
+    trodes_metadata_df["first_dtype_name"] = trodes_metadata_df["data"].apply(lambda x: x.dtype.names[0])
+    trodes_metadata_df["first_item_data"] = trodes_metadata_df["data"].apply(lambda x: x[x.dtype.names[0]])
+    trodes_metadata_df["last_dtype_name"] = trodes_metadata_df["data"].apply(lambda x: x.dtype.names[-1])
+    trodes_metadata_df["last_item_data"] = trodes_metadata_df["data"].apply(lambda x: x[x.dtype.names[-1]])
+
+    print("unique recordings ")
+    print(trodes_metadata_df["recording"].unique())
     return trodes_metadata_df
 
 def add_subjects_to_metadata(metadata):
@@ -143,6 +152,8 @@ def add_subjects_to_metadata(metadata):
         lambda x: sorted([i.strip().strip(".") for i in x]))
     metadata["current_subject"] = metadata["recording"].apply(
         lambda x: x.replace("-", "_").split("subj")[-1].split("t")[0].strip("_").replace("_", ".").split(".and.")[0])
+    print(metadata["all_subjects"])
+    print(metadata["current_subject"])
     return metadata
 
 def get_trodes_video_df(trodes_metadata_df):
@@ -152,6 +163,7 @@ def get_trodes_video_df(trodes_metadata_df):
     trodes_video_df["video_timestamps"] = trodes_video_df["first_item_data"]
     trodes_video_df = trodes_video_df[["filename", "video_timestamps", "session_dir"]].copy()
     trodes_video_df = trodes_video_df.rename(columns={"filename": "video_name"})
+    print(trodes_video_df.head())
     return trodes_video_df
 
 def get_trodes_state_df(trodes_metadata_df):
@@ -164,32 +176,48 @@ def get_trodes_state_df(trodes_metadata_df):
         lambda x: x["event_indexes"][x["event_indexes"][:, 1] <= x["first_item_data"].shape[0] - 1], axis=1)
     trodes_state_df["event_timestamps"] = trodes_state_df.apply(lambda x: x["first_item_data"][x["event_indexes"]],
                                                                 axis=1)
+    print(trodes_state_df.head())
     return trodes_state_df
 
-def adjust_first_timestamps(trodes_metadata_df):
-    trodes_metadata_df["first_dtype_name"] = trodes_metadata_df["data"].apply(lambda x: x.dtype.names[0])
-    trodes_metadata_df["first_item_data"] = trodes_metadata_df["data"].apply(lambda x: x[x.dtype.names[0]])
-    trodes_metadata_df["last_dtype_name"] = trodes_metadata_df["data"].apply(lambda x: x.dtype.names[-1])
-    trodes_metadata_df["last_item_data"] = trodes_metadata_df["data"].apply(lambda x: x[x.dtype.names[-1]])
-
-    trodes_metadata_df = add_subjects_to_metadata(trodes_metadata_df)
-
-    metadata_filtered = metadata[metadata["metadata_file"].isin(["raw", "DIO", "video_timestamps"])]
-    trodes_raw_df = metadata_filtered[
-        (metadata_filtered["metadata_dir"] == "raw") & (metadata_filtered["metadata_file"] == "timestamps")].copy()
+def get_trodes_raw_df(trodes_metadata_df):
+    trodes_raw_df = trodes_metadata_df[
+        (trodes_metadata_df["metadata_dir"] == "raw") & (trodes_metadata_df["metadata_file"] == "timestamps")].copy()
     trodes_raw_df["first_timestamp"] = trodes_raw_df["first_item_data"].apply(lambda x: x[0])
+    trodes_raw_cols = ['session_dir', 'recording', 'original_file', 'session_path', 'current_subject', 'first_item_data',
+                       'first_timestamp','all_subjects']
+    trodes_raw_df = trodes_raw_df[trodes_raw_cols].reset_index(drop=True).copy()
+    print(trodes_raw_df.head())
+    return trodes_raw_df
 
-    recording_to_first_timestamp = trodes_raw_df.set_index('session_dir')['first_timestamp'].to_dict()
-    trodes_metadata_df["first_timestamp"] = trodes_metadata_df["session_dir"].map(recording_to_first_timestamp)
 
-    trodes_state_df = get_trodes_state_df(trodes_metadata_df)
+def make_final_df(trodes_raw_df, trodes_state_df, trodes_video_df):
+    trodes_final_df = pd.merge(trodes_raw_df, trodes_state_df, on=["session_dir"], how="inner")
+    trodes_final_df = trodes_final_df.rename(columns={"first_item_data": "raw_timestamps"})
+    trodes_final_df = trodes_final_df.drop(columns=["metadata_file"], errors="ignore")
+    trodes_final_df = trodes_final_df.sort_values(["session_dir", "recording"]).reset_index(drop=True).copy()
+    sorted_columns = sorted(trodes_final_df.columns
+                            , key=lambda x: x.split("_")[-1])
+    trodes_final_df = trodes_final_df[sorted_columns].copy()
+    for col in [col for col in trodes_final_df.columns if "timestamps" in col]:
+        trodes_final_df[col] = trodes_final_df.apply(lambda x: x[col].astype(np.int32) - np.int32(x["first_timestamp"]),
+                                                     axis=1)
 
-    trodes_video_df = get_trodes_video_df(trodes_metadata_df)
+    for col in [col for col in trodes_final_df.columns if "frames" in col]:
+        trodes_final_df[col] = trodes_final_df[col].apply(lambda x: x.astype(np.int32))
 
+    print("trodes final df")
+    print(trodes_final_df.head())
+    print(trodes_final_df.columns)
+    return trodes_final_df
+
+def merge_state_video_df (trodes_state_df, trodes_video_df):
     trodes_state_df = pd.merge(trodes_state_df, trodes_video_df, on=["session_dir"], how="inner")
     trodes_state_df["event_frames"] = trodes_state_df.apply(
         lambda x: find_nearest_indices(x["event_timestamps"], x["video_timestamps"]), axis=1)
-    state_cols_to_keep = ["session_dir", "metadata_file", "event_timestamps", "event_frames", "video_name"]
+    print("HERE VIDEO TIME STAMPS")
+    print(trodes_state_df["video_timestamps"])
+    state_cols_to_keep = ['session_dir', 'metadata_file', 'event_timestamps', 'video_name', 'video_timestamps',
+                          'event_frames']
     trodes_state_df = trodes_state_df[state_cols_to_keep].drop_duplicates(
         subset=["session_dir", "metadata_file"]).sort_values(["session_dir", "metadata_file"]).reset_index(
         drop=True).copy()
@@ -205,46 +233,56 @@ def adjust_first_timestamps(trodes_metadata_df):
     trodes_state_df["tone_frames"] = trodes_state_df["event_frames"].apply(lambda x: x[0])
     trodes_state_df["port_entry_frames"] = trodes_state_df["event_frames"].apply(lambda x: x[1])
     trodes_state_df = trodes_state_df.drop(columns=["event_timestamps", "event_frames"], errors="ignore")
+    print(trodes_state_df.head())
+    return trodes_state_df
 
-    return trodes_metadata_df, trodes_state_df, trodes_video_df
+def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
+    trodes_metadata_df = add_subjects_to_metadata(trodes_metadata_df)
+    metadata_cols_to_keep = ['raw', 'DIO', 'video_timestamps']
+    trodes_metadata_df = trodes_metadata_df[trodes_metadata_df["metadata_dir"].isin(metadata_cols_to_keep)].copy()
+    trodes_metadata_df = trodes_metadata_df[~trodes_metadata_df["metadata_file"].str.contains("out")]
+    trodes_metadata_df = trodes_metadata_df[~trodes_metadata_df["metadata_file"].str.contains("coordinates")]
+    trodes_metadata_df = trodes_metadata_df.reset_index(drop=True)
+
+    trodes_raw_df = trodes_metadata_df[
+        (trodes_metadata_df["metadata_dir"] == "raw") & (trodes_metadata_df["metadata_file"] == "timestamps")].copy()
+
+    trodes_raw_df["first_timestamp"] = trodes_raw_df["first_item_data"].apply(lambda x: x[0])
+
+    recording_to_first_timestamp = trodes_raw_df.set_index('session_dir')['first_timestamp'].to_dict()
+    print(recording_to_first_timestamp)
+    trodes_metadata_df["first_timestamp"] = trodes_metadata_df["session_dir"].map(recording_to_first_timestamp)
+    print(trodes_metadata_df["first_timestamp"])
+
+    trodes_state_df = get_trodes_state_df(trodes_metadata_df)
+
+    trodes_video_df = get_trodes_video_df(trodes_metadata_df)
+
+    trodes_raw_df = get_trodes_raw_df(trodes_metadata_df)
+
+    trodes_state_df = merge_state_video_df(trodes_state_df, trodes_video_df)
+
+    trodes_final_df = make_final_df(trodes_raw_df, trodes_state_df, trodes_video_df)
+
+    # Pickle the final dataframe in the output directory with the experiment prefix.
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    # save the final dataframe in experiment path
+    trodes_final_df.to_pickle(os.path.join(output_dir, experiment_prefix + "_final_df.pkl"))
+    print("pickle saved in ", os.path.join(output_dir, experiment_prefix + "_final_df.pkl"))
+
+    return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df
 
 
 input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
-output_dir = "/Volumes/chaitra/test_lfp/proc/"
+output_dir = "/Volumes/chaitra/reward_competition_extension/data/proc/"
 TONE_DIN = "dio_ECU_Din1"
 TONE_STATE = 1
 experiment_dir = "/Volumes/chaitra/reward_competition_extension/data"
-#convert_to_mp4(experiment_dir)
+experiment_prefix = "rce_test"
+convert_to_mp4(experiment_dir)
 paths = {}
 session_to_trodes_temp, paths= extract_all_trodes(input_dir)
 session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
 metadata = create_metadata_df(session_to_trodes_temp, paths)
-metadata, state_df, video_df = adjust_first_timestamps(metadata)
-
-print("METADATA")
-print(metadata.head())
-print("\nMetadata Columns:")
-for meta_col in metadata.columns:
-    print(meta_col)
-
-print("\nSTATE")
-print(state_df.head())
-print("\nState Columns:")
-for state_col in state_df.columns:
-    print(state_col)
-
-print("\nVIDEO")
-print(video_df.head())
-print("\nVideo Columns:")
-for vid_col in video_df.columns:
-    print(vid_col)
-
-
-# TODO:
-#  Stopped at making timestamp 0-indexed
-#  Pickle
-#  Reformat the adjust_first_timestamps function to be more modular
-#  this function creates the state_df, video_df, and metadata_df
-
-
-
+metadata, state_df, video_df, final_df = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
