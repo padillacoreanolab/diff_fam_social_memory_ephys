@@ -1,0 +1,2 @@
+BandpassFilterRecording: 32 channels - 20.0kHz - 1 segments - 65,603,030 samples 
+                         3,280.15s (54.67 minutes) - int16 dtype - 3.91 GiB
