@@ -265,11 +265,11 @@ def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
     trodes_final_df = make_final_df(trodes_raw_df, trodes_state_df, trodes_video_df)
 
     # Pickle the final dataframe in the output directory with the experiment prefix.
-    experiment_path = os.path.join(output_dir, experiment_prefix)
-    if not os.path.exists(experiment_path):
-        os.makedirs(experiment_path)
-    trodes_final_df.to_pickle(os.path.join(output_dir, "{}_trodes_metadata.pkl".format(experiment_prefix)))
-    print("pickle saved in ", os.path.join(output_dir, "{}_trodes_metadata.pkl".format(experiment_prefix)))
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    # save the final dataframe in experiment path
+    trodes_final_df.to_pickle(os.path.join(output_dir, experiment_prefix + "_final_df.pkl"))
+    print("pickle saved in ", os.path.join(output_dir, experiment_prefix + "_final_df.pkl"))
 
     return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df
 
