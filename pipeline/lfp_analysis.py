@@ -6,6 +6,53 @@ import trodes.read_exported
 import pandas as pd
 import numpy as np
 
+# TODO: need to make collection object
+#  user still needs to call the convert to mp4 function
+#  need to fix pkl save path for object
+
+class LFPObject:
+    def make_object(self):
+        # call extract_all_trodes
+        session_to_trodes_temp, paths = extract_all_trodes(self.path)
+        # call add_video_timestamps
+        session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, self.path)
+        # call create_metadata_df
+        metadata = create_metadata_df(session_to_trodes_temp, paths)
+        # call adjust_first_timestamps
+        metadata, state_df, video_df, final_df = adjust_first_timestamps(metadata, self.path, self.subject)
+        # assign variables
+        self.metadata = metadata
+        self.state_df = state_df
+        self.video_df = video_df
+        self.final_df = final_df
+
+    def __init__(self,
+                 path,
+                 channel_map_path,
+                 events_path,
+                 subject,
+                 ecu=False,
+                 sampling_rate=20000,
+                 frame_rate=22):
+        self.path = path
+        self.channel_map_path = channel_map_path
+        self.events_path = events_path
+        self.events = {}
+        self.channel_map = {}
+        self.recording = None
+        self.subject = subject
+        self.sampling_rate = sampling_rate
+        self.frame_rate = frame_rate
+
+        #add varibales from make object function
+        self.metadata = None
+        self.state_df = None
+        self.video_df = None
+        self.final_df = None
+
+        self.make_object()
+
+
 def find_nearest_indices(array1, array2):
     """
     Finds the indices of the elements in array2 that are nearest to the elements in array1.
@@ -180,6 +227,14 @@ def get_trodes_state_df(trodes_metadata_df):
     return trodes_state_df
 
 def get_trodes_raw_df(trodes_metadata_df):
+    """
+    Extracts the raw data from the trodes_metadata_df and calculates the first timestamp for each session.
+    Args:
+        trodes_metadata_df (pandas dataframe): Generated from create_metadata_df.
+    Returns:
+        trodes_raw_df (pandas dataframe): A dataframe containing the raw data for each session.
+
+    """
     trodes_raw_df = trodes_metadata_df[
         (trodes_metadata_df["metadata_dir"] == "raw") & (trodes_metadata_df["metadata_file"] == "timestamps")].copy()
     trodes_raw_df["first_timestamp"] = trodes_raw_df["first_item_data"].apply(lambda x: x[0])
@@ -191,6 +246,16 @@ def get_trodes_raw_df(trodes_metadata_df):
 
 
 def make_final_df(trodes_raw_df, trodes_state_df, trodes_video_df):
+    """
+    Merges the trodes_raw_df and trodes_state_df dataframes and calculates the timestamps for each event.
+    Args:
+        trodes_raw_df (pandas dataframe): Generated from get_trodes_raw_df.
+        trodes_state_df (pandas dataframe): Generated from get_trodes_state_df.
+        trodes_video_df (pandas dataframe): Generated from get_trodes_video_df.
+    Returns:
+        trodes_final_df (pandas dataframe): A dataframe containing the final data for each session.
+
+    """
     trodes_final_df = pd.merge(trodes_raw_df, trodes_state_df, on=["session_dir"], how="inner")
     trodes_final_df = trodes_final_df.rename(columns={"first_item_data": "raw_timestamps"})
     trodes_final_df = trodes_final_df.drop(columns=["metadata_file"], errors="ignore")
@@ -211,6 +276,15 @@ def make_final_df(trodes_raw_df, trodes_state_df, trodes_video_df):
     return trodes_final_df
 
 def merge_state_video_df (trodes_state_df, trodes_video_df):
+    """
+    Cleans the trodes_state_df and trodes_video_df dataframes and merges them on the session_dir column.
+    Args:
+        trodes_state_df (pandas dataframe): Generated from get_trodes_state_df.
+        trodes_video_df (pandas dataframe): Generated from get_trodes_video_df.
+    Returns:
+        trodes_state_df (pandas dataframe): A dataframe containing the state data for each session.
+
+    """
     trodes_state_df = pd.merge(trodes_state_df, trodes_video_df, on=["session_dir"], how="inner")
     trodes_state_df["event_frames"] = trodes_state_df.apply(
         lambda x: find_nearest_indices(x["event_timestamps"], x["video_timestamps"]), axis=1)
@@ -237,6 +311,19 @@ def merge_state_video_df (trodes_state_df, trodes_video_df):
     return trodes_state_df
 
 def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
+    """
+    The function will adjust the first timestamps for each session and create a final dataframe containing the
+    metadata for each session.
+    Args:
+        trodes_metadata_df (pandas dataframe): Generated from create_metadata_df.
+        output_dir (String): Path to the output directory.
+        experiment_prefix (String): Prefix to add to the output files.
+    Returns:
+        trodes_metadata_df (pandas dataframe): A dataframe containing the metadata for each session.
+        trodes_state_df (pandas dataframe): A dataframe containing the state data for each session.
+        trodes_video_df (pandas dataframe): A dataframe containing the video data for each session.
+        trodes_final_df (pandas dataframe): A dataframe containing the final data for each session.
+    """
     trodes_metadata_df = add_subjects_to_metadata(trodes_metadata_df)
     metadata_cols_to_keep = ['raw', 'DIO', 'video_timestamps']
     trodes_metadata_df = trodes_metadata_df[trodes_metadata_df["metadata_dir"].isin(metadata_cols_to_keep)].copy()
@@ -274,15 +361,27 @@ def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
     return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df
 
 
-input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
-output_dir = "/Volumes/chaitra/reward_competition_extension/data/proc/"
-TONE_DIN = "dio_ECU_Din1"
-TONE_STATE = 1
-experiment_dir = "/Volumes/chaitra/reward_competition_extension/data"
-experiment_prefix = "rce_test"
-convert_to_mp4(experiment_dir)
-paths = {}
-session_to_trodes_temp, paths= extract_all_trodes(input_dir)
-session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
-metadata = create_metadata_df(session_to_trodes_temp, paths)
-metadata, state_df, video_df, final_df = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
+def main_test_only():
+    input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
+    output_dir = "/Volumes/chaitra/reward_competition_extension/data/proc/"
+    TONE_DIN = "dio_ECU_Din1"
+    TONE_STATE = 1
+    experiment_dir = "/Volumes/chaitra/reward_competition_extension/data"
+    experiment_prefix = "rce_test"
+    convert_to_mp4(experiment_dir)
+    paths = {}
+    session_to_trodes_temp, paths= extract_all_trodes(input_dir)
+    session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
+    metadata = create_metadata_df(session_to_trodes_temp, paths)
+    metadata, state_df, video_df, final_df = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
+
+    print("output from obj creation")
+
+    # try to create LFPObject
+    lfp = LFPObject(path=input_dir, channel_map_path="channel_mapping.xlsx", events_path="test.xlsx", subject="1.4")
+    print(lfp.metadata)
+    print(lfp.state_df)
+    print(lfp.video_df)
+    print(lfp.final_df)
+
+main_test_only()
