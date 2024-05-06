@@ -5,10 +5,14 @@ from collections import defaultdict
 import trodes.read_exported
 import pandas as pd
 import numpy as np
+from scipy import stats
+from spectral_connectivity import Multitaper, Connectivity
 
 # TODO: need to make collection object
 #  user still needs to call the convert to mp4 function
 #  need to fix pkl save path for object
+#  need to more modular, power functions (from notebook 2) are automatically called at object creation
+#  power, phase, coherence, granger functions depend on each other (add none exceptions)
 
 class LFPObject:
     def make_object(self):
@@ -19,12 +23,48 @@ class LFPObject:
         # call create_metadata_df
         metadata = create_metadata_df(session_to_trodes_temp, paths)
         # call adjust_first_timestamps
-        metadata, state_df, video_df, final_df = adjust_first_timestamps(metadata, self.path, self.subject)
+        metadata, state_df, video_df, final_df, pkl_path = adjust_first_timestamps(metadata, self.path, self.subject)
         # assign variables
         self.metadata = metadata
         self.state_df = state_df
         self.video_df = video_df
         self.final_df = final_df
+        self.pkl_path = pkl_path
+
+
+    def make_power_df(self):
+        # handle modified z score
+        if self.pkl_path is not None:
+            print("CALLED here")
+            LFP_TRACES_DF = preprocess_lfp_data(pd.read_pickle(self.pkl_path), self.VOLTAGE_SCALING_VALUE, self.zscore_threshold, self.RESAMPLE_RATE)
+            self.LFP_TRACES_DF = LFP_TRACES_DF
+            print("LFP TRACES DF")
+            print(LFP_TRACES_DF.head())
+        else:
+            print("NO PKL PATH")
+            return
+        # call get_power
+        power_df = calculate_power(self.LFP_TRACES_DF, self.RESAMPLE_RATE, self.TIME_HALFBANDWIDTH_PRODUCT, self.TIME_WINDOW_DURATION, self.TIME_WINDOW_STEP)
+        # assign variables
+        self.power_df = power_df
+
+    def make_phase_df(self):
+        # call get_phase
+        phase_df = calculate_phase(self.power_df, self.RESAMPLE_RATE)
+        # assign variables
+        self.phase_df = phase_df
+
+    def make_coherence_df(self):
+        # call get_coherence
+        coherence_df = calculate_coherence(phase_df=self.phase_df, resample_rate=self.RESAMPLE_RATE, time_halfbandwidth_product=self.TIME_HALFBANDWIDTH_PRODUCT, time_window_duration=self.TIME_WINDOW_DURATION, time_window_step=self.TIME_WINDOW_STEP)
+        # assign variables
+        self.coherence_df = coherence_df
+
+    def make_granger_df(self):
+        # call get_granger
+        granger_df = calculate_granger_causality(coherence_df=self.coherence_df, resample_rate=self.RESAMPLE_RATE, time_halfbandwidth_product=self.TIME_HALFBANDWIDTH_PRODUCT, time_window_duration=self.TIME_WINDOW_DURATION, time_window_step=self.TIME_WINDOW_STEP)
+        # assign variables
+        self.granger_df = granger_df
 
     def __init__(self,
                  path,
@@ -49,8 +89,34 @@ class LFPObject:
         self.state_df = None
         self.video_df = None
         self.final_df = None
+        self.pkl_path = None
+
+        #inputs needed for notebook 2 (power)
+        self.LFP_TRACES_DF = None
+        self.original_trace_columns = None
+
+        #hard coding these variables for power
+        self.VOLTAGE_SCALING_VALUE = 0.195
+        self.zscore_threshold = 4
+        self.RESAMPLE_RATE = 1000
+        self.TIME_HALFBANDWIDTH_PRODUCT = 2
+        self.TIME_WINDOW_DURATION = 1
+        self.TIME_WINDOW_STEP = 0.5
+        self.BAND_TO_FREQ = {"theta": (4, 12), "gamma": (30, 51)}
+
+        #power stuff
+        self.power_df = None
+        self.phase_df = None
+        self.coherence_df = None
+        self.granger_df = None
+
 
         self.make_object()
+        self.make_power_df()
+        self.make_phase_df()
+        self.make_coherence_df()
+        self.make_granger_df()
+
 
 
 def find_nearest_indices(array1, array2):
@@ -355,11 +421,354 @@ def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     # save the final dataframe in experiment path
-    trodes_final_df.to_pickle(os.path.join(output_dir, experiment_prefix + "_final_df.pkl"))
-    print("pickle saved in ", os.path.join(output_dir, experiment_prefix + "_final_df.pkl"))
+    pkl_path = os.path.join(output_dir, experiment_prefix + "_final_df.pkl")
+    trodes_final_df.to_pickle(pkl_path)
+    print("pickle saved in ", os.path.join(pkl_path))
 
-    return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df
+    return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df, pkl_path
 
+
+
+### START OF NOTEBOOK 2 ###
+
+def generate_pairs(lst):
+    """
+    Generates all unique pairs from a list.
+
+    Parameters:
+    - lst (list): The list to generate pairs from.
+
+    Returns:
+    - list: A list of tuples, each containing a unique pair from the input list.
+    """
+    n = len(lst)
+    return [(lst[i], lst[j]) for i in range(n) for j in range(i+1, n)]
+
+def update_array_by_mask(array, mask, value=np.nan):
+    """
+    Update elements of an array based on a mask and replace them with a specified value.
+
+    Parameters:
+    - array (np.array): The input numpy array whose values are to be updated.
+    - mask (np.array): A boolean array with the same shape as `array`. Elements of `array` corresponding to True in the mask are replaced.
+    - value (scalar, optional): The value to assign to elements of `array` where `mask` is True. Defaults to np.nan.
+
+    Returns:
+    - np.array: A copy of the input array with updated values where the mask is True.
+
+    Example:
+    array = np.array([1, 2, 3, 4])
+    mask = np.array([False, True, False, True])
+    update_array_by_mask(array, mask, value=0)
+    array([1, 0, 3, 0])
+    """
+    result = array.copy()
+    result[mask] = value
+    return result
+
+def nan_helper(y):
+    """Helper to handle indices and logical indices of NaNs.
+
+    Input:
+        - y, 1d numpy array with possible NaNs
+    Output:
+        - nans, logical indices of NaNs
+        - index, a function, with signature indices= index(logical_indices),
+          to convert logical indices of NaNs to 'equivalent' indices
+    Example:
+        # linear interpolation of NaNs
+        nans, x= nan_helper(y)
+        y[nans]= np.interp(x(nans), x(~nans), y[~nans])
+    """
+
+    return np.isnan(y), lambda z: z.nonzero()[0]
+
+
+def preprocess_lfp_data(lfp_traces_df, voltage_scaling_value, zscore_threshold, resample_rate):
+    original_trace_columns = [col for col in lfp_traces_df.columns if "trace" in col]
+
+    for col in original_trace_columns:
+        lfp_traces_df[col] = lfp_traces_df[col].apply(lambda x: x.astype(np.float32) * voltage_scaling_value)
+
+    for col in original_trace_columns:
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_MAD".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df[col].apply(lambda x: stats.median_abs_deviation(x))
+
+    for col in original_trace_columns:
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_modified_zscore".format(brain_region)
+        MAD_column = "{}_lfp_MAD".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df.apply(lambda x: 0.6745 * (x[col] - np.median(x[col])) / x[MAD_column], axis=1)
+
+    for col in original_trace_columns:
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_RMS".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df[col].apply(lambda x: (x / np.sqrt(np.mean(x**2))).astype(np.float32))
+
+    zscore_columns = [col for col in lfp_traces_df.columns if "zscore" in col]
+    for col in zscore_columns:
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_mask".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df[col].apply(lambda x: np.abs(x) >= zscore_threshold)
+
+    for col in original_trace_columns:
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_trace_filtered".format(brain_region)
+        mask_column = "{}_lfp_mask".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df.apply(lambda x: update_array_by_mask(x[col], x[mask_column]), axis=1)
+
+    filtered_trace_column = [col for col in lfp_traces_df if "lfp_trace_filtered" in col]
+    for col in filtered_trace_column:
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_RMS_filtered".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df[col].apply(lambda x: (x / np.sqrt(np.nanmean(x**2))).astype(np.float32))
+
+    return lfp_traces_df
+
+def modified_z_score(original_trace_columns, LFP_TRACES_DF, zscore_threshold=4):
+    for col in original_trace_columns:
+        print(col)
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_MAD".format(brain_region)
+        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF[col].apply(lambda x: stats.median_abs_deviation(x))
+
+    for col in original_trace_columns:
+        print(col)
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_modified_zscore".format(brain_region)
+        MAD_column = "{}_lfp_MAD".format(brain_region)
+
+        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF.apply(
+            lambda x: 0.6745 * (x[col] - np.median(x[col])) / x[MAD_column], axis=1)
+
+    # root-mean-square
+    for col in original_trace_columns:
+        print(col)
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_RMS".format(brain_region)
+        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF[col].apply(
+            lambda x: (x / np.sqrt(np.mean(x ** 2))).astype(np.float32))
+
+    zscore_columns = [col for col in LFP_TRACES_DF.columns if "zscore" in col]
+
+    for col in zscore_columns:
+        print(col)
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_mask".format(brain_region)
+        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF[col].apply(lambda x: np.abs(x) >= zscore_threshold)
+
+    for col in original_trace_columns:
+        print(col)
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_trace_filtered".format(brain_region)
+        mask_column = "{}_lfp_mask".format(brain_region)
+        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF.apply(lambda x: update_array_by_mask(x[col], x[mask_column]),
+                                                            axis=1)
+
+    filtered_trace_column = [col for col in LFP_TRACES_DF if "lfp_trace_filtered" in col]
+    for col in filtered_trace_column:
+        print(col)
+        brain_region = col.split("_")[0]
+        updated_column = "{}_lfp_RMS_filtered".format(brain_region)
+        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF[col].apply(
+            lambda x: (x / np.sqrt(np.nanmean(x ** 2))).astype(np.float32))
+
+    print(LFP_TRACES_DF.head())
+    print(original_trace_columns.head())
+
+    return LFP_TRACES_DF, original_trace_columns
+
+def calculate_power(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
+
+    for col in input_columns:
+        brain_region = col.replace("_lfp", "")
+
+        multitaper_col = f"{brain_region}_power_multitaper"
+        connectivity_col = f"{brain_region}_power_connectivity"
+        frequencies_col = f"{brain_region}_power_frequencies"
+        power_col = f"{brain_region}_power_all_frequencies_all_windows"
+
+        try:
+            lfp_traces_df[multitaper_col] = lfp_traces_df[col].apply(
+                lambda x: Multitaper(
+                    time_series=x,
+                    sampling_frequency=resample_rate,
+                    time_halfbandwidth_product=time_halfbandwidth_product,
+                    time_window_duration=time_window_duration,
+                    time_window_step=time_window_step
+                )
+            )
+
+            lfp_traces_df[connectivity_col] = lfp_traces_df[multitaper_col].apply(
+                lambda x: Connectivity.from_multitaper(x)
+            )
+
+            lfp_traces_df[frequencies_col] = lfp_traces_df[connectivity_col].apply(
+                lambda x: x.frequencies
+            )
+            lfp_traces_df[power_col] = lfp_traces_df[connectivity_col].apply(
+                lambda x: x.power().squeeze()
+            )
+
+            lfp_traces_df[power_col] = lfp_traces_df[power_col].apply(lambda x: x.astype(np.float16))
+
+            lfp_traces_df = lfp_traces_df.drop(columns=[multitaper_col, connectivity_col], errors="ignore")
+
+        except Exception as e:
+            print(e)
+
+    lfp_traces_df["power_timestamps"] = lfp_traces_df["lfp_timestamps"].apply(lambda x: x[(resample_rate//2):(-resample_rate//2):(resample_rate//2)])
+    lfp_traces_df["power_calculation_frequencies"] = lfp_traces_df[[col for col in lfp_traces_df.columns if "power_frequencies" in col][0]].copy()
+    lfp_traces_df = lfp_traces_df.drop(columns=[col for col in lfp_traces_df.columns if "power_frequencies" in col], errors="ignore")
+
+    return lfp_traces_df
+
+def calculate_phase(lfp_traces_df, fs):
+    from scipy.signal import butter, filtfilt, hilbert
+
+    order = 4
+    RMS_columns = [col for col in lfp_traces_df if "RMS" in col and "filtered" in col and "all" not in col]
+
+    # Filter for theta band
+    freq_band = [4, 12]
+    b, a = butter(order, freq_band, fs=fs, btype='band')
+    for col in RMS_columns:
+        brain_region = col.split("_")[0]
+        updated_column = "{}_theta_band".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df[col].apply(lambda x: filtfilt(b, a, x, padtype=None).astype(np.float32))
+
+    # Filter for gamma band
+    freq_band = [30, 50]
+    b, a = butter(order, freq_band, fs=fs, btype='band')
+    for col in RMS_columns:
+        brain_region = col.split("_")[0]
+        updated_column = "{}_gamma_band".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df[col].apply(lambda x: filtfilt(b, a, x, padtype=None).astype(np.float32))
+
+    # Calculate phase
+    band_columns = [col for col in lfp_traces_df if "band" in col]
+    for col in band_columns:
+        brain_region = col.replace("_band", "")
+        updated_column = "{}_phase".format(brain_region)
+        lfp_traces_df[updated_column] = lfp_traces_df[col].apply(lambda x: np.angle(hilbert(x), deg=False))
+
+    return lfp_traces_df
+
+def calculate_coherence(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
+    all_suffixes = set(["_".join(col.split("_")[1:]) for col in input_columns])
+    brain_region_pairs = generate_pairs(list(set([col.split("lfp")[0].strip("_") for col in input_columns])))
+
+    for first_region, second_region in brain_region_pairs:
+        for suffix in all_suffixes:
+            suffix_for_name = suffix.replace("lfp", "").strip("_")
+            region_1 = "_".join([first_region, suffix])
+            region_2 = "_".join([second_region, suffix])
+            pair_base_name = f"{region_1.split('_')[0]}_{region_2.split('_')[0]}_{suffix_for_name}"
+
+            try:
+                multitaper_col = f"{pair_base_name}_coherence_multitaper"
+                connectivity_col = f"{pair_base_name}_coherence_connectivity"
+                frequencies_col = f"{pair_base_name}_coherence_frequencies"
+                coherence_col = f"{pair_base_name}_coherence_all_frequencies_all_windows"
+
+                lfp_traces_df[multitaper_col] = lfp_traces_df.apply(
+                    lambda x: Multitaper(
+                        time_series=np.array([x[region_1], x[region_2]]).T,
+                        sampling_frequency=resample_rate,
+                        time_halfbandwidth_product=time_halfbandwidth_product,
+                        time_window_step=time_window_step,
+                        time_window_duration=time_window_duration
+                    ),
+                    axis=1
+                )
+
+                lfp_traces_df[connectivity_col] = lfp_traces_df[multitaper_col].apply(
+                    lambda x: Connectivity.from_multitaper(x)
+                )
+
+                lfp_traces_df[frequencies_col] = lfp_traces_df[connectivity_col].apply(
+                    lambda x: x.frequencies
+                )
+                lfp_traces_df[coherence_col] = lfp_traces_df[connectivity_col].apply(
+                    lambda x: x.coherence_magnitude()[:,:,0,1]
+                )
+
+                lfp_traces_df[coherence_col] = lfp_traces_df[coherence_col].apply(lambda x: x.astype(np.float16))
+
+            except Exception as e:
+                print(e)
+
+            lfp_traces_df = lfp_traces_df.drop(columns=[multitaper_col, connectivity_col], errors="ignore")
+
+    lfp_traces_df["coherence_timestamps"] = lfp_traces_df["lfp_timestamps"].apply(lambda x: x[(resample_rate//2):(-resample_rate//2):(resample_rate//2)])
+    lfp_traces_df["coherence_calculation_frequencies"] = lfp_traces_df[[col for col in lfp_traces_df.columns if "coherence_frequencies" in col][0]].copy()
+    lfp_traces_df = lfp_traces_df.drop(columns=[col for col in lfp_traces_df.columns if "coherence_frequencies" in col], errors="ignore")
+
+    return lfp_traces_df
+
+def calculate_granger_causality(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
+    all_suffixes = set(["_".join(col.split("_")[1:]) for col in input_columns])
+    brain_region_pairs = generate_pairs(list(set([col.split("lfp")[0].strip("_") for col in input_columns])))
+
+    for first_region, second_region in brain_region_pairs:
+        for suffix in all_suffixes:
+            region_1 = "_".join([first_region, suffix])
+            region_2 = "_".join([second_region, suffix])
+            region_1_base_name = region_1.split('_')[0]
+            region_2_base_name = region_2.split('_')[0]
+            pair_base_name = f"{region_1_base_name}_{region_2_base_name}"
+
+            try:
+                multitaper_col = f"{pair_base_name}_granger_multitaper"
+                connectivity_col = f"{pair_base_name}_granger_connectivity"
+                frequencies_col = f"{pair_base_name}_granger_frequencies"
+                granger_1_2_col = f"{region_1_base_name}_{region_2_base_name}_granger_all_frequencies_all_windows"
+                granger_2_1_col = f"{region_2_base_name}_{region_1_base_name}_granger_all_frequencies_all_windows"
+
+                lfp_traces_df[multitaper_col] = lfp_traces_df.apply(
+                    lambda x: Multitaper(
+                        time_series=np.array([x[region_1], x[region_2]]).T,
+                        sampling_frequency=resample_rate,
+                        time_halfbandwidth_product=time_halfbandwidth_product,
+                        time_window_step=time_window_step,
+                        time_window_duration=time_window_duration
+                    ),
+                    axis=1
+                )
+
+                lfp_traces_df[connectivity_col] = lfp_traces_df[multitaper_col].apply(
+                    lambda x: Connectivity.from_multitaper(x)
+                )
+
+                lfp_traces_df[frequencies_col] = lfp_traces_df[connectivity_col].apply(
+                    lambda x: x.frequencies
+                )
+
+                lfp_traces_df[granger_1_2_col] = lfp_traces_df[connectivity_col].apply(
+                    lambda x: x.pairwise_spectral_granger_prediction()[:,:,0,1]
+                )
+
+                lfp_traces_df[granger_2_1_col] = lfp_traces_df[connectivity_col].apply(
+                    lambda x: x.pairwise_spectral_granger_prediction()[:,:,1,0]
+                )
+
+                lfp_traces_df[granger_1_2_col] = lfp_traces_df[granger_1_2_col].apply(lambda x: x.astype(np.float16))
+                lfp_traces_df[granger_2_1_col] = lfp_traces_df[granger_2_1_col].apply(lambda x: x.astype(np.float16))
+
+            except Exception as e:
+                print(e)
+
+            lfp_traces_df = lfp_traces_df.drop(columns=[multitaper_col, connectivity_col], errors="ignore")
+
+    lfp_traces_df["granger_timestamps"] = lfp_traces_df["lfp_timestamps"].apply(lambda x: x[(resample_rate//2):(-resample_rate//2):(resample_rate//2)])
+    lfp_traces_df["granger_calculation_frequencies"] = lfp_traces_df[[col for col in lfp_traces_df.columns if "granger_frequencies" in col][0]].copy()
+    lfp_traces_df = lfp_traces_df.drop(columns=[col for col in lfp_traces_df.columns if "granger_frequencies" in col], errors="ignore")
+
+    return lfp_traces_df
 
 def main_test_only():
     input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
@@ -368,14 +777,15 @@ def main_test_only():
     TONE_STATE = 1
     experiment_dir = "/Volumes/chaitra/reward_competition_extension/data"
     experiment_prefix = "rce_test"
-    convert_to_mp4(experiment_dir)
+    #convert_to_mp4(experiment_dir)
     paths = {}
-    session_to_trodes_temp, paths= extract_all_trodes(input_dir)
-    session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
-    metadata = create_metadata_df(session_to_trodes_temp, paths)
-    metadata, state_df, video_df, final_df = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
+    #session_to_trodes_temp, paths= extract_all_trodes(input_dir)
+    #session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
+    #metadata = create_metadata_df(session_to_trodes_temp, paths)
+    #metadata, state_df, video_df, final_df, pkl_path = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
 
     print("output from obj creation")
+
 
     # try to create LFPObject
     lfp = LFPObject(path=input_dir, channel_map_path="channel_mapping.xlsx", events_path="test.xlsx", subject="1.4")
@@ -383,5 +793,11 @@ def main_test_only():
     print(lfp.state_df)
     print(lfp.video_df)
     print(lfp.final_df)
+
+    print("~~~out put after reading from pkl~~~~")
+    print(lfp.power_df)
+    print(lfp.phase_df)
+    print(lfp.coherence_df)
+    print(lfp.granger_df)
 
 main_test_only()
