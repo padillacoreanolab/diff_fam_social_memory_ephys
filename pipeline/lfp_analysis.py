@@ -7,12 +7,20 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from spectral_connectivity import Multitaper, Connectivity
+import openpyxl
+import logging
+
+
+import spikeinterface.extractors as se
+import spikeinterface.preprocessing as sp
+
 
 # TODO: need to make collection object
 #  user still needs to call the convert to mp4 function
 #  need to fix pkl save path for object
 #  need to more modular, power functions (from notebook 2) are automatically called at object creation
 #  power, phase, coherence, granger functions depend on each other (add none exceptions)
+#  need to make all df columns lower case
 
 class LFPObject:
     def make_object(self):
@@ -84,7 +92,7 @@ class LFPObject:
         self.sampling_rate = sampling_rate
         self.frame_rate = frame_rate
 
-        #add varibales from make object function
+        #add variables from make object function
         self.metadata = None
         self.state_df = None
         self.video_df = None
@@ -112,6 +120,15 @@ class LFPObject:
 
 
         self.make_object()
+
+
+        #get channel map and lfp
+        #ALL_SESSION_DIR, ECU_STREAM_ID, TRODES_STREAM_ID, RECORDING_EXTENTION, LFP_FREQ_MIN, LFP_FREQ_MAX, ELECTRIC_NOISE_FREQ, LFP_SAMPLING_RATE, EPHYS_SAMPLING_RATE):
+        self.recording_names_dict = extract_lfp_traces(ALL_SESSION_DIR=self.path, ECU_STREAM_ID="ECU", TRODES_STREAM_ID="trodes", RECORDING_EXTENTION="*.rec", LFP_FREQ_MIN=0.5, LFP_FREQ_MAX=300, ELECTRIC_NOISE_FREQ=60, LFP_SAMPLING_RATE=1000, EPHYS_SAMPLING_RATE=20000)
+        self.channel_map, self.spike_df = load_data(channel_map_path=self.channel_map_path, pickle_path=self.pkl_path)
+        combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF=self.spike_df, recording_name_to_all_ch_lfp=self.recording_names_dict, CHANNEL_MAPPING_DF=self.channel_map, CURRENT_SUBJECT_COL="current_subject", SUBJECT_COL="Subject", ALL_CH_LFP_COL="all_ch_lfp", LFP_RESAMPLE_RATIO=20, EPHYS_SAMPLING_RATE=20000, LFP_SAMPLING_RATE=1000)
+
+
         self.make_power_df()
         self.make_phase_df()
         self.make_coherence_df()
@@ -428,6 +445,97 @@ def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
     return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df, pkl_path
 
 
+# ADDING TIME Stamps
+def load_data(channel_map_path, pickle_path, SUBJECT_COL="Subject"):
+    # Load channel mapping
+    CHANNEL_MAPPING_DF = pd.read_excel(channel_map_path)
+    CHANNEL_MAPPING_DF = CHANNEL_MAPPING_DF.drop(columns=[col for col in CHANNEL_MAPPING_DF.columns if "eib" in col], errors="ignore")
+    for col in CHANNEL_MAPPING_DF.columns:
+        if "spike_interface" in col:
+            CHANNEL_MAPPING_DF[col] = CHANNEL_MAPPING_DF[col].fillna(0)
+            CHANNEL_MAPPING_DF[col] = CHANNEL_MAPPING_DF[col].astype(int).astype(str)
+    CHANNEL_MAPPING_DF[SUBJECT_COL] = CHANNEL_MAPPING_DF[SUBJECT_COL].astype(str)
+
+    # Load trodes metadata
+    SPIKEGADGETS_EXTRACTED_DF = pd.read_pickle(pickle_path)
+
+    return CHANNEL_MAPPING_DF, SPIKEGADGETS_EXTRACTED_DF
+
+def extract_lfp_traces(ALL_SESSION_DIR, ECU_STREAM_ID, TRODES_STREAM_ID, RECORDING_EXTENTION, LFP_FREQ_MIN, LFP_FREQ_MAX, ELECTRIC_NOISE_FREQ, LFP_SAMPLING_RATE, EPHYS_SAMPLING_RATE):
+    recording_name_to_all_ch_lfp = {}
+    print("ALL SESSION DIR is " + ALL_SESSION_DIR)
+    for session_dir in glob.glob(ALL_SESSION_DIR):
+        for recording_path in glob.glob(os.path.join(session_dir, RECORDING_EXTENTION)):
+            try:
+                recording_basename = os.path.splitext(os.path.basename(recording_path))[0]
+                current_recording = se.read_spikegadgets(recording_path, stream_id=ECU_STREAM_ID)
+                current_recording = se.read_spikegadgets(recording_path, stream_id=TRODES_STREAM_ID)
+                print(recording_basename)
+
+                # Preprocessing the LFP
+                current_recording = sp.notch_filter(current_recording, freq=ELECTRIC_NOISE_FREQ)
+                current_recording = sp.bandpass_filter(current_recording, freq_min=LFP_FREQ_MIN, freq_max=LFP_FREQ_MAX)
+                current_recording = sp.resample(current_recording, resample_rate=LFP_SAMPLING_RATE)
+                recording_name_to_all_ch_lfp[recording_basename] = current_recording
+            except Exception as error:
+                print("An exception occurred:", error)
+    print("LENGTH OF RECORDING NAME TO ALL CH LFP")
+    print(len(recording_name_to_all_ch_lfp))
+    return recording_name_to_all_ch_lfp
+
+def combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF, recording_name_to_all_ch_lfp, CHANNEL_MAPPING_DF, EPHYS_SAMPLING_RATE, LFP_SAMPLING_RATE, LFP_RESAMPLE_RATIO=20, ALL_CH_LFP_COL="all_ch_lfp", SUBJECT_COL="Subject", CURRENT_SUBJECT_COL="current_subject"):
+
+    print("recording name to all channel")
+    print(recording_name_to_all_ch_lfp)
+    print(SPIKEGADGETS_EXTRACTED_DF.columns)
+    lfp_trace_condition = (SPIKEGADGETS_EXTRACTED_DF["recording"].isin(recording_name_to_all_ch_lfp))
+    print(lfp_trace_condition)
+
+    SPIKEGADGETS_LFP_DF = SPIKEGADGETS_EXTRACTED_DF[lfp_trace_condition].copy().reset_index(drop=True)
+    print("on line 494")
+    SPIKEGADGETS_LFP_DF["all_ch_lfp"] = SPIKEGADGETS_LFP_DF["recording"].map(recording_name_to_all_ch_lfp)
+    print("on line 496")
+    SPIKEGADGETS_LFP_DF["LFP_timestamps"] = SPIKEGADGETS_LFP_DF.apply(
+        lambda row: np.arange(0, row["all_ch_lfp"].get_total_samples() * LFP_RESAMPLE_RATIO, LFP_RESAMPLE_RATIO,
+                              dtype=int), axis=1)
+    print("on line 500")
+    SPIKEGADGETS_LFP_DF = pd.merge(SPIKEGADGETS_LFP_DF, CHANNEL_MAPPING_DF, left_on=CURRENT_SUBJECT_COL, right_on=SUBJECT_COL, how="left")
+    print("on line 502")
+    SPIKEGADGETS_LFP_DF["all_channels"] = SPIKEGADGETS_LFP_DF["all_ch_lfp"].apply(lambda x: x.get_channel_ids())
+    SPIKEGADGETS_LFP_DF["region_channels"] = SPIKEGADGETS_LFP_DF[["spike_interface_mPFC", "spike_interface_vHPC", "spike_interface_BLA", "spike_interface_LH", "spike_interface_MD"]].to_dict('records')
+    SPIKEGADGETS_LFP_DF["region_channels"] = SPIKEGADGETS_LFP_DF["region_channels"].apply(lambda x: sorted(x.items(), key=lambda item: int(item[1])))
+    print(SPIKEGADGETS_LFP_DF["region_channels"].iloc[0])
+    print("on line 506")
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+    print(SPIKEGADGETS_LFP_DF.head())
+    print(SPIKEGADGETS_LFP_DF.columns)
+    def get_traces_with_progress(row):
+        channel_ids = [t[1] for t in row["region_channels"]]
+        total_channels = len(channel_ids)
+        logging.info(f"Processing {total_channels} channels for row {row.name}")
+
+        traces = row[ALL_CH_LFP_COL].get_traces(channel_ids=channel_ids)
+        logging.info(f"Completed processing channels for row {row.name}")
+
+        return traces.T
+    #print number of rows in SPIKEGADGETS_LFP_DF
+    print("num rows in spike df")
+    print(len(SPIKEGADGETS_LFP_DF))
+    # Apply the modified function
+    SPIKEGADGETS_LFP_DF["all_region_lfp_trace"] = SPIKEGADGETS_LFP_DF.apply(get_traces_with_progress, axis=1)
+    print("on line 508")
+    SPIKEGADGETS_LFP_DF["per_region_lfp_trace"] = SPIKEGADGETS_LFP_DF.apply(lambda row: dict(zip(["{}_lfp_trace".format(t[0].strip("spike_interface_")) for t in row["region_channels"]], row["all_region_lfp_trace"])), axis=1)
+    SPIKEGADGETS_FINAL_DF = pd.concat([SPIKEGADGETS_LFP_DF.copy(), SPIKEGADGETS_LFP_DF['per_region_lfp_trace'].apply(pd.Series).copy()], axis=1)
+    print("on line 510")
+    SPIKEGADGETS_FINAL_DF = SPIKEGADGETS_FINAL_DF.drop(columns=["all_channels", "all_region_lfp_trace", "per_region_lfp_trace", "region_channels", "all_ch_lfp"], errors="ignore")
+    SPIKEGADGETS_FINAL_DF = SPIKEGADGETS_FINAL_DF.drop(columns=[col for col in SPIKEGADGETS_FINAL_DF.columns if "spike_interface" in col], errors="ignore")
+    SPIKEGADGETS_FINAL_DF = SPIKEGADGETS_FINAL_DF.rename(columns={col: col.lower() for col in SPIKEGADGETS_LFP_DF.columns})
+    sorted_columns = sorted(SPIKEGADGETS_FINAL_DF.columns, key=lambda x: x.split("_")[-1])
+    SPIKEGADGETS_FINAL_DF = SPIKEGADGETS_FINAL_DF[sorted_columns].copy()
+
+    print("done combining lfp traces and metadata")
+
+    return SPIKEGADGETS_FINAL_DF
 
 ### START OF NOTEBOOK 2 ###
 
@@ -485,6 +593,7 @@ def nan_helper(y):
 
 
 def preprocess_lfp_data(lfp_traces_df, voltage_scaling_value, zscore_threshold, resample_rate):
+    print("beginning preprocessing")
     original_trace_columns = [col for col in lfp_traces_df.columns if "trace" in col]
 
     for col in original_trace_columns:
@@ -523,10 +632,11 @@ def preprocess_lfp_data(lfp_traces_df, voltage_scaling_value, zscore_threshold, 
         brain_region = col.split("_")[0]
         updated_column = "{}_lfp_RMS_filtered".format(brain_region)
         lfp_traces_df[updated_column] = lfp_traces_df[col].apply(lambda x: (x / np.sqrt(np.nanmean(x**2))).astype(np.float32))
-
+    print("done preprocessing")
     return lfp_traces_df
 
 def modified_z_score(original_trace_columns, LFP_TRACES_DF, zscore_threshold=4):
+    print("Calculating modified z-score")
     for col in original_trace_columns:
         print(col)
         brain_region = col.split("_")[0]
@@ -580,6 +690,7 @@ def modified_z_score(original_trace_columns, LFP_TRACES_DF, zscore_threshold=4):
     return LFP_TRACES_DF, original_trace_columns
 
 def calculate_power(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    print("calculating power")
     input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
 
     for col in input_columns:
@@ -626,6 +737,7 @@ def calculate_power(lfp_traces_df, resample_rate, time_halfbandwidth_product, ti
     return lfp_traces_df
 
 def calculate_phase(lfp_traces_df, fs):
+    print("calculating phase")
     from scipy.signal import butter, filtfilt, hilbert
 
     order = 4
@@ -773,6 +885,7 @@ def calculate_granger_causality(lfp_traces_df, resample_rate, time_halfbandwidth
 def main_test_only():
     input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
     output_dir = "/Volumes/chaitra/reward_competition_extension/data/proc/"
+    channel_map_path = "channel_mapping.xlsx"
     TONE_DIN = "dio_ECU_Din1"
     TONE_STATE = 1
     experiment_dir = "/Volumes/chaitra/reward_competition_extension/data"
@@ -788,7 +901,7 @@ def main_test_only():
 
 
     # try to create LFPObject
-    lfp = LFPObject(path=input_dir, channel_map_path="channel_mapping.xlsx", events_path="test.xlsx", subject="1.4")
+    lfp = LFPObject(path=input_dir, channel_map_path=channel_map_path, events_path="test.xlsx", subject="1.4")
     print(lfp.metadata)
     print(lfp.state_df)
     print(lfp.video_df)
