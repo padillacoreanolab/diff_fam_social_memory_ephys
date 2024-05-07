@@ -76,6 +76,12 @@ class LFPObject:
         # assign variables
         self.granger_df = granger_df
 
+    def make_filter_bands_df(self):
+        # call get_filter_bands
+        filter_bands_df = calculate_filter_bands(self.spike_df, self.BAND_TO_FREQ)
+        # assign variables
+        self.filter_bands_df = filter_bands_df
+
     def __init__(self,
                  path,
                  channel_map_path,
@@ -120,6 +126,9 @@ class LFPObject:
         self.coherence_df = None
         self.granger_df = None
 
+        #notebook 3 "bands"
+        self.filter_bands_df = None
+
 
         self.make_object()
 
@@ -134,9 +143,19 @@ class LFPObject:
         self.spike_df.to_pickle(os.getcwd() + "test_outputs/spike_df.pkl")
 
         self.make_power_df()
+        self.power_df.to_pickle(os.getcwd() + "test_outputs/power_df.pkl")
+
         self.make_phase_df()
+        self.phase_df.to_pickle(os.getcwd() + "test_outputs/phase_df.pkl")
+
         self.make_coherence_df()
+        self.coherence_df.to_pickle(os.getcwd() + "test_outputs/coherence_df.pkl")
+
         self.make_granger_df()
+        self.granger_df.to_pickle(os.getcwd() + "test_outputs/granger_df.pkl")
+
+        self.make_filter_bands_df()
+        self.filter_bands_df.to_pickle(os.getcwd() + "test_outputs/filter_bands_df.pkl")
 
 def helper_find_nearest_indices(array1, array2):
     """
@@ -919,6 +938,95 @@ def calculate_granger_causality(lfp_traces_df, resample_rate, time_halfbandwidth
 
     return lfp_traces_df
 
+### START OF NOTEBOOK 3 ###
+def calculate_filter_bands(lfp_spectral_df, theta_band, gamma_band, output_dir, output_prefix):
+    """
+    Filters the LFP spectral data for theta and gamma bands, and saves the result to a file.
+
+    Args:
+        lfp_spectral_df (pd.DataFrame): LFP spectral data.
+        theta_band (tuple): Frequency range for theta band.
+        gamma_band (tuple): Frequency range for gamma band.
+        output_dir (str): Directory where data is saved.
+        output_prefix (str): Prefix for the output files.
+    Returns:
+        None
+    """
+    print("In filter bands function")
+    # Filter theta/gamma for power
+    print(lfp_spectral_df.columns)
+    power_columns = [col for col in lfp_spectral_df.columns if
+                     "power" in col and "calculation" not in col and "time" not in col]
+    for col in power_columns:
+        print(col)
+        brain_region_name = col.split("power")[0].strip("_")
+        theta_power_col = f"{brain_region_name}_power_theta"
+        gamma_power_col = f"{brain_region_name}_power_gamma"
+        lfp_spectral_df[theta_power_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
+                                                                                                     "power_calculation_frequencies"] >=
+                                                                                                 theta_band[0]) & (x[
+                                                                                                                       "power_calculation_frequencies"] <=
+                                                                                                                   theta_band[
+                                                                                                                       1])],
+                                                                                      axis=1), axis=1)
+        lfp_spectral_df[gamma_power_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
+                                                                                                     "power_calculation_frequencies"] >=
+                                                                                                 gamma_band[0]) & (x[
+                                                                                                                       "power_calculation_frequencies"] <=
+                                                                                                                   gamma_band[
+                                                                                                                       1])],
+                                                                                      axis=1), axis=1)
+
+    # Filter theta/gamma for coherence
+    coherence_columns = [col for col in lfp_spectral_df.columns if
+                         "coherence" in col and "calculation" not in col and "time" not in col]
+    for col in coherence_columns:
+        brain_region_name = "_".join(col.split("_")[:2])
+        theta_coherence_col = f"{brain_region_name}_coherence_theta"
+        gamma_coherence_col = f"{brain_region_name}_coherence_gamma"
+        lfp_spectral_df[theta_coherence_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
+                                                                                                         "coherence_calculation_frequencies"] >=
+                                                                                                     theta_band[0]) & (
+                                                                                                                x[
+                                                                                                                    "coherence_calculation_frequencies"] <=
+                                                                                                                theta_band[
+                                                                                                                    1])],
+                                                                                          axis=1), axis=1)
+        lfp_spectral_df[gamma_coherence_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
+                                                                                                         "coherence_calculation_frequencies"] >=
+                                                                                                     gamma_band[0]) & (
+                                                                                                                x[
+                                                                                                                    "coherence_calculation_frequencies"] <=
+                                                                                                                gamma_band[
+                                                                                                                    1])],
+                                                                                          axis=1), axis=1)
+
+    # Filter theta/gamma for granger
+    granger_columns = [col for col in lfp_spectral_df.columns if
+                       "granger" in col and "calculation" not in col and "time" not in col]
+    for col in granger_columns:
+        print(col)
+        brain_region_name = "-to-".join(col.split("_")[:2])
+        theta_granger_col = f"{brain_region_name}_granger_theta"
+        gamma_granger_col = f"{brain_region_name}_granger_gamma"
+        lfp_spectral_df[theta_granger_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
+                                                                                                       "granger_calculation_frequencies"] >=
+                                                                                                   theta_band[0]) & (x[
+                                                                                                                         "granger_calculation_frequencies"] <=
+                                                                                                                     theta_band[
+                                                                                                                         1])],
+                                                                                        axis=1), axis=1)
+        lfp_spectral_df[gamma_granger_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
+                                                                                                       "granger_calculation_frequencies"] >=
+                                                                                                   gamma_band[0]) & (x[
+                                                                                                                         "granger_calculation_frequencies"] <=
+                                                                                                                     gamma_band[
+                                                                                                                         1])],
+                                                                                        axis=1), axis=1)
+
+    full_lfp_traces_pkl = f"{output_prefix}_03_spectral_bands.pkl"
+    lfp_spectral_df.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
+
 def main_test_only():
     input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
     output_dir = "/Volumes/chaitra/reward_competition_extension/data/proc/"
@@ -936,7 +1044,6 @@ def main_test_only():
 
     print("output from obj creation")
 
-
     # try to create LFPObject
     lfp = LFPObject(path=input_dir, channel_map_path=channel_map_path, events_path="test.xlsx", subject="1.4")
 
@@ -949,5 +1056,7 @@ def main_test_only():
     lfp.phase_df.to_csv("test_outputs/phase_df.txt", sep="\t")
     lfp.coherence_df.to_csv("test_outputs/coherence_df.txt", sep="\t")
     lfp.granger_df.to_csv("test_outputs/granger_df.txt", sep="\t")
+    lfp.filter_bands_df.to_csv("test_outputs/filter_bands_df.txt", sep="\t")
+
 
 main_test_only()
