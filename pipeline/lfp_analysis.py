@@ -52,25 +52,27 @@ class LFPObject:
             print("NO PKL PATH")
             return
         # call get_power
-        power_df = calculate_power(self.LFP_TRACES_DF, self.RESAMPLE_RATE, self.TIME_HALFBANDWIDTH_PRODUCT, self.TIME_WINDOW_DURATION, self.TIME_WINDOW_STEP)
+        power_df = calculate_power(self.spike_df, self.RESAMPLE_RATE, self.TIME_HALFBANDWIDTH_PRODUCT, self.TIME_WINDOW_DURATION, self.TIME_WINDOW_STEP)
         # assign variables
         self.power_df = power_df
 
     def make_phase_df(self):
         # call get_phase
-        phase_df = calculate_phase(self.power_df, self.RESAMPLE_RATE)
+        phase_df = calculate_phase(self.spike_df, fs=1000)
         # assign variables
         self.phase_df = phase_df
 
     def make_coherence_df(self):
         # call get_coherence
-        coherence_df = calculate_coherence(phase_df=self.phase_df, resample_rate=self.RESAMPLE_RATE, time_halfbandwidth_product=self.TIME_HALFBANDWIDTH_PRODUCT, time_window_duration=self.TIME_WINDOW_DURATION, time_window_step=self.TIME_WINDOW_STEP)
+        #lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step
+        coherence_df = calculate_coherence(self.spike_df, self.RESAMPLE_RATE, self.TIME_HALFBANDWIDTH_PRODUCT, self.TIME_WINDOW_DURATION, self.TIME_WINDOW_STEP)
         # assign variables
         self.coherence_df = coherence_df
 
     def make_granger_df(self):
         # call get_granger
-        granger_df = calculate_granger_causality(coherence_df=self.coherence_df, resample_rate=self.RESAMPLE_RATE, time_halfbandwidth_product=self.TIME_HALFBANDWIDTH_PRODUCT, time_window_duration=self.TIME_WINDOW_DURATION, time_window_step=self.TIME_WINDOW_STEP)
+        #lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step
+        granger_df = calculate_granger_causality(lfp_traces_df=self.spike_df, resample_rate=self.RESAMPLE_RATE, time_halfbandwidth_product=self.TIME_HALFBANDWIDTH_PRODUCT, time_window_duration=self.TIME_WINDOW_DURATION, time_window_step=self.TIME_WINDOW_STEP)
         # assign variables
         self.granger_df = granger_df
 
@@ -126,8 +128,10 @@ class LFPObject:
         #ALL_SESSION_DIR, ECU_STREAM_ID, TRODES_STREAM_ID, RECORDING_EXTENTION, LFP_FREQ_MIN, LFP_FREQ_MAX, ELECTRIC_NOISE_FREQ, LFP_SAMPLING_RATE, EPHYS_SAMPLING_RATE):
         self.recording_names_dict = extract_lfp_traces(ALL_SESSION_DIR=self.path, ECU_STREAM_ID="ECU", TRODES_STREAM_ID="trodes", RECORDING_EXTENTION="*.rec", LFP_FREQ_MIN=0.5, LFP_FREQ_MAX=300, ELECTRIC_NOISE_FREQ=60, LFP_SAMPLING_RATE=1000, EPHYS_SAMPLING_RATE=20000)
         self.channel_map, self.spike_df = load_data(channel_map_path=self.channel_map_path, pickle_path=self.pkl_path)
-        combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF=self.spike_df, recording_name_to_all_ch_lfp=self.recording_names_dict, CHANNEL_MAPPING_DF=self.channel_map, CURRENT_SUBJECT_COL="current_subject", SUBJECT_COL="Subject", ALL_CH_LFP_COL="all_ch_lfp", LFP_RESAMPLE_RATIO=20, EPHYS_SAMPLING_RATE=20000, LFP_SAMPLING_RATE=1000)
+        self.spike_df = combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF=self.spike_df, recording_name_to_all_ch_lfp=self.recording_names_dict, CHANNEL_MAPPING_DF=self.channel_map, CURRENT_SUBJECT_COL="current_subject", SUBJECT_COL="Subject", ALL_CH_LFP_COL="all_ch_lfp", LFP_RESAMPLE_RATIO=20, EPHYS_SAMPLING_RATE=20000, LFP_SAMPLING_RATE=1000)
 
+        #temporarily pickle the spike_df for debugging
+        self.spike_df.to_pickle(os.getcwd() + "test_outputs/spike_df.pkl")
 
         self.make_power_df()
         self.make_phase_df()
@@ -769,6 +773,7 @@ def calculate_phase(lfp_traces_df, fs):
     return lfp_traces_df
 
 def calculate_coherence(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    print("calculating coherence")
     input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
     all_suffixes = set(["_".join(col.split("_")[1:]) for col in input_columns])
     brain_region_pairs = generate_pairs(list(set([col.split("lfp")[0].strip("_") for col in input_columns])))
@@ -822,6 +827,7 @@ def calculate_coherence(lfp_traces_df, resample_rate, time_halfbandwidth_product
     return lfp_traces_df
 
 def calculate_granger_causality(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    print("calculating granger causality")
     input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
     all_suffixes = set(["_".join(col.split("_")[1:]) for col in input_columns])
     brain_region_pairs = generate_pairs(list(set([col.split("lfp")[0].strip("_") for col in input_columns])))
@@ -902,15 +908,16 @@ def main_test_only():
 
     # try to create LFPObject
     lfp = LFPObject(path=input_dir, channel_map_path=channel_map_path, events_path="test.xlsx", subject="1.4")
-    print(lfp.metadata)
-    print(lfp.state_df)
-    print(lfp.video_df)
-    print(lfp.final_df)
 
-    print("~~~out put after reading from pkl~~~~")
-    print(lfp.power_df)
-    print(lfp.phase_df)
-    print(lfp.coherence_df)
-    print(lfp.granger_df)
+    #write out all the dataframes to a text file
+    lfp.metadata.to_csv("test_outputs/metadata.txt", sep="\t")
+    lfp.state_df.to_csv("test_outputs/state_df.txt", sep="\t")
+    lfp.video_df.to_csv("test_outputs/video_df.txt", sep="\t")
+    lfp.final_df.to_csv("test_outputs/final_df.txt", sep="\t")
+    lfp.power_df.to_csv("test_outputs/power_df.txt", sep="\t")
+    lfp.phase_df.to_csv("test_outputs/phase_df.txt", sep="\t")
+    lfp.coherence_df.to_csv("test_outputs/coherence_df.txt", sep="\t")
+    lfp.granger_df.to_csv("test_outputs/granger_df.txt", sep="\t")
+
 
 main_test_only()
