@@ -1,0 +1,2 @@
+	video_name	video_timestamps	session_dir
+1	20230616_111904_standard_comp_to_training_D4_subj_1-4_and_1-2.1.videoTimeStamps.cameraHWSync	[  309047   309047   310433 ... 67787037 67787037 67788422]	20230616_111904_standard_comp_to_training_D4_subj_1-4_and_1-2
