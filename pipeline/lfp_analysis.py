@@ -138,9 +138,7 @@ class LFPObject:
         self.make_coherence_df()
         self.make_granger_df()
 
-
-
-def find_nearest_indices(array1, array2):
+def helper_find_nearest_indices(array1, array2):
     """
     Finds the indices of the elements in array2 that are nearest to the elements in array1.
 
@@ -159,6 +157,41 @@ def find_nearest_indices(array1, array2):
     indices = np.array([np.abs(array2 - num).argmin() for num in array1_flat])
     return indices.reshape(array1.shape)
 
+def helper_generate_pairs(lst):
+    """
+    Generates all unique pairs from a list.
+
+    Parameters:
+    - lst (list): The list to generate pairs from.
+
+    Returns:
+    - list: A list of tuples, each containing a unique pair from the input list.
+    """
+    n = len(lst)
+    return [(lst[i], lst[j]) for i in range(n) for j in range(i+1, n)]
+
+def helper_update_array_by_mask(array, mask, value=np.nan):
+    """
+    Update elements of an array based on a mask and replace them with a specified value.
+
+    Parameters:
+    - array (np.array): The input numpy array whose values are to be updated.
+    - mask (np.array): A boolean array with the same shape as `array`. Elements of `array` corresponding to True in the mask are replaced.
+    - value (scalar, optional): The value to assign to elements of `array` where `mask` is True. Defaults to np.nan.
+
+    Returns:
+    - np.array: A copy of the input array with updated values where the mask is True.
+
+    Example:
+    array = np.array([1, 2, 3, 4])
+    mask = np.array([False, True, False, True])
+    update_array_by_mask(array, mask, value=0)
+    array([1, 0, 3, 0])
+    """
+    result = array.copy()
+    result[mask] = value
+    return result
+
 def convert_to_mp4(experiment_dir):
     """
     Converts .h264 files to .mp4 files using the bash script convert_to_mp4.sh
@@ -175,8 +208,6 @@ def convert_to_mp4(experiment_dir):
     bash_path = "./convert_to_mp4.sh"
     subprocess.run([bash_path, experiment_dir])
 
-experiment_dir = "/Volumes/chaitra/test_lfp"
-#convert_to_mp4(experiment_dir)
 def extract_all_trodes(input_dir):
     """
     Args:
@@ -279,6 +310,13 @@ def create_metadata_df(session_to_trodes, session_to_path):
     return trodes_metadata_df
 
 def add_subjects_to_metadata(metadata):
+    """
+    Adds the subjects to the metadata dataframe.
+    Args:
+        metadata (pandas dataframe): Generated from create_metadata_df.
+    Returns:
+        metadata (pandas dataframe): A dataframe containing the metadata for each session with the subjects added.
+    """
     # TODO: find a better way to do this without regex on the session_dir
     metadata["all_subjects"] = metadata["session_dir"].apply(
         lambda x: x.replace("-", "_").split("subj")[-1].split("t")[0].strip("_").replace("_", ".").split(".and."))
@@ -291,6 +329,13 @@ def add_subjects_to_metadata(metadata):
     return metadata
 
 def get_trodes_video_df(trodes_metadata_df):
+    """
+    Extracts the video data from the trodes_metadata_df and calculates the first timestamp for each session.
+    Args:
+        trodes_metadata_df (pandas dataframe): Generated from create_metadata_df.
+    Returns:
+        trodes_video_df (pandas dataframe): A dataframe containing the video data for each session.
+    """
     trodes_video_df = trodes_metadata_df[trodes_metadata_df["metadata_dir"] == "video_timestamps"].copy().reset_index(
         drop=True)
     trodes_video_df = trodes_video_df[trodes_video_df["metadata_file"] == "1"].copy()
@@ -301,6 +346,13 @@ def get_trodes_video_df(trodes_metadata_df):
     return trodes_video_df
 
 def get_trodes_state_df(trodes_metadata_df):
+    """
+    Extracts the state data from the trodes_metadata_df and calculates the timestamps for each event.
+    Args:
+        trodes_metadata_df (pandas dataframe): Generated from create_metadata_df.
+    Returns:
+        trodes_state_df (pandas dataframe): A dataframe containing the state data for each session.
+    """
     trodes_state_df = trodes_metadata_df[trodes_metadata_df["metadata_dir"].isin(["DIO"])].copy()
     trodes_state_df = trodes_metadata_df[trodes_metadata_df["id"].isin(["ECU_Din1", "ECU_Din2"])].copy()
     trodes_state_df["event_indexes"] = trodes_state_df.apply(
@@ -320,7 +372,6 @@ def get_trodes_raw_df(trodes_metadata_df):
         trodes_metadata_df (pandas dataframe): Generated from create_metadata_df.
     Returns:
         trodes_raw_df (pandas dataframe): A dataframe containing the raw data for each session.
-
     """
     trodes_raw_df = trodes_metadata_df[
         (trodes_metadata_df["metadata_dir"] == "raw") & (trodes_metadata_df["metadata_file"] == "timestamps")].copy()
@@ -341,7 +392,6 @@ def make_final_df(trodes_raw_df, trodes_state_df, trodes_video_df):
         trodes_video_df (pandas dataframe): Generated from get_trodes_video_df.
     Returns:
         trodes_final_df (pandas dataframe): A dataframe containing the final data for each session.
-
     """
     trodes_final_df = pd.merge(trodes_raw_df, trodes_state_df, on=["session_dir"], how="inner")
     trodes_final_df = trodes_final_df.rename(columns={"first_item_data": "raw_timestamps"})
@@ -370,11 +420,10 @@ def merge_state_video_df (trodes_state_df, trodes_video_df):
         trodes_video_df (pandas dataframe): Generated from get_trodes_video_df.
     Returns:
         trodes_state_df (pandas dataframe): A dataframe containing the state data for each session.
-
     """
     trodes_state_df = pd.merge(trodes_state_df, trodes_video_df, on=["session_dir"], how="inner")
     trodes_state_df["event_frames"] = trodes_state_df.apply(
-        lambda x: find_nearest_indices(x["event_timestamps"], x["video_timestamps"]), axis=1)
+        lambda x: helper_find_nearest_indices(x["event_timestamps"], x["video_timestamps"]), axis=1)
     print("HERE VIDEO TIME STAMPS")
     print(trodes_state_df["video_timestamps"])
     state_cols_to_keep = ['session_dir', 'metadata_file', 'event_timestamps', 'video_name', 'video_timestamps',
@@ -448,9 +497,18 @@ def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
 
     return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df, pkl_path
 
-
 # ADDING TIME Stamps
 def load_data(channel_map_path, pickle_path, SUBJECT_COL="Subject"):
+    """
+    Loads the channel mapping and trodes metadata dataframe.
+    Args:
+        channel_map_path (String): Path to the channel mapping excel file.
+        pickle_path (String): Path to the trodes metadata pickle file.
+        SUBJECT_COL (String): Column name for the subject in the channel mapping dataframe.
+    Returns:
+        CHANNEL_MAPPING_DF (pandas dataframe): A dataframe containing the channel mapping data.
+        SPIKEGADGETS_EXTRACTED_DF (pandas dataframe): A dataframe containing the trodes metadata.
+    """
     # Load channel mapping
     CHANNEL_MAPPING_DF = pd.read_excel(channel_map_path)
     CHANNEL_MAPPING_DF = CHANNEL_MAPPING_DF.drop(columns=[col for col in CHANNEL_MAPPING_DF.columns if "eib" in col], errors="ignore")
@@ -466,6 +524,21 @@ def load_data(channel_map_path, pickle_path, SUBJECT_COL="Subject"):
     return CHANNEL_MAPPING_DF, SPIKEGADGETS_EXTRACTED_DF
 
 def extract_lfp_traces(ALL_SESSION_DIR, ECU_STREAM_ID, TRODES_STREAM_ID, RECORDING_EXTENTION, LFP_FREQ_MIN, LFP_FREQ_MAX, ELECTRIC_NOISE_FREQ, LFP_SAMPLING_RATE, EPHYS_SAMPLING_RATE):
+    """
+    Extracts the LFP traces from the SpikeGadgets recordings using the spikeextractors module.
+    Args:
+        ALL_SESSION_DIR (String): Path to the directory containing the session directories.
+        ECU_STREAM_ID (String): The stream ID for the ECU data.
+        TRODES_STREAM_ID (String): The stream ID for the trodes data.
+        RECORDING_EXTENTION (String): The file extension for the recordings.
+        LFP_FREQ_MIN (float): The minimum frequency for the LFP bandpass filter.
+        LFP_FREQ_MAX (float): The maximum frequency for the LFP bandpass filter.
+        ELECTRIC_NOISE_FREQ (float): The frequency of the electric noise.
+        LFP_SAMPLING_RATE (int): The sampling rate for the LFP traces.
+        EPHYS_SAMPLING_RATE (int): The sampling rate for the ephys traces.
+    Returns:
+        recording_name_to_all_ch_lfp (dictionary): A dictionary containing the LFP traces for each recording.
+    """
     recording_name_to_all_ch_lfp = {}
     print("ALL SESSION DIR is " + ALL_SESSION_DIR)
     for session_dir in glob.glob(ALL_SESSION_DIR):
@@ -488,7 +561,21 @@ def extract_lfp_traces(ALL_SESSION_DIR, ECU_STREAM_ID, TRODES_STREAM_ID, RECORDI
     return recording_name_to_all_ch_lfp
 
 def combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF, recording_name_to_all_ch_lfp, CHANNEL_MAPPING_DF, EPHYS_SAMPLING_RATE, LFP_SAMPLING_RATE, LFP_RESAMPLE_RATIO=20, ALL_CH_LFP_COL="all_ch_lfp", SUBJECT_COL="Subject", CURRENT_SUBJECT_COL="current_subject"):
-
+    """
+    Combines the LFP traces with the metadata in the SpikeGadgets dataframe.
+    Args:
+        SPIKEGADGETS_EXTRACTED_DF (pandas dataframe): A dataframe containing the trodes metadata.
+        recording_name_to_all_ch_lfp (dictionary): A dictionary containing the LFP traces for each recording.
+        CHANNEL_MAPPING_DF (pandas dataframe): A dataframe containing the channel mapping data.
+        EPHYS_SAMPLING_RATE (int): The sampling rate for the ephys traces.
+        LFP_SAMPLING_RATE (int): The sampling rate for the LFP traces.
+        LFP_RESAMPLE_RATIO (int): The ratio to resample the LFP traces.
+        ALL_CH_LFP_COL (String): The column name for the LFP traces in the SpikeGadgets dataframe.
+        SUBJECT_COL (String): Column name for the subject in the channel mapping dataframe.
+        CURRENT_SUBJECT_COL (String): Column name for the current subject in the SpikeGadgets dataframe.
+    Returns:
+        SPIKEGADGETS_FINAL_DF (pandas dataframe): A dataframe containing the final data for each session.
+    """
     print("recording name to all channel")
     print(recording_name_to_all_ch_lfp)
     print(SPIKEGADGETS_EXTRACTED_DF.columns)
@@ -543,60 +630,17 @@ def combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF, recording_name_to
 
 ### START OF NOTEBOOK 2 ###
 
-def generate_pairs(lst):
-    """
-    Generates all unique pairs from a list.
-
-    Parameters:
-    - lst (list): The list to generate pairs from.
-
-    Returns:
-    - list: A list of tuples, each containing a unique pair from the input list.
-    """
-    n = len(lst)
-    return [(lst[i], lst[j]) for i in range(n) for j in range(i+1, n)]
-
-def update_array_by_mask(array, mask, value=np.nan):
-    """
-    Update elements of an array based on a mask and replace them with a specified value.
-
-    Parameters:
-    - array (np.array): The input numpy array whose values are to be updated.
-    - mask (np.array): A boolean array with the same shape as `array`. Elements of `array` corresponding to True in the mask are replaced.
-    - value (scalar, optional): The value to assign to elements of `array` where `mask` is True. Defaults to np.nan.
-
-    Returns:
-    - np.array: A copy of the input array with updated values where the mask is True.
-
-    Example:
-    array = np.array([1, 2, 3, 4])
-    mask = np.array([False, True, False, True])
-    update_array_by_mask(array, mask, value=0)
-    array([1, 0, 3, 0])
-    """
-    result = array.copy()
-    result[mask] = value
-    return result
-
-def nan_helper(y):
-    """Helper to handle indices and logical indices of NaNs.
-
-    Input:
-        - y, 1d numpy array with possible NaNs
-    Output:
-        - nans, logical indices of NaNs
-        - index, a function, with signature indices= index(logical_indices),
-          to convert logical indices of NaNs to 'equivalent' indices
-    Example:
-        # linear interpolation of NaNs
-        nans, x= nan_helper(y)
-        y[nans]= np.interp(x(nans), x(~nans), y[~nans])
-    """
-
-    return np.isnan(y), lambda z: z.nonzero()[0]
-
-
 def preprocess_lfp_data(lfp_traces_df, voltage_scaling_value, zscore_threshold, resample_rate):
+    """
+    Preprocesses the LFP traces in the input dataframe by calculating the modified z-score, root-mean-square, and filtering out outliers.
+    Args:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces.
+        voltage_scaling_value (float): The scaling value for the LFP traces.
+        zscore_threshold (float): The threshold for the modified z-score.
+        resample_rate (int): The resample rate for the LFP traces.
+    Returns:
+        lfp_traces_df (pandas dataframe): A dataframe containing the preprocessed LFP traces.
+    """
     print("beginning preprocessing")
     original_trace_columns = [col for col in lfp_traces_df.columns if "trace" in col]
 
@@ -629,7 +673,7 @@ def preprocess_lfp_data(lfp_traces_df, voltage_scaling_value, zscore_threshold, 
         brain_region = col.split("_")[0]
         updated_column = "{}_lfp_trace_filtered".format(brain_region)
         mask_column = "{}_lfp_mask".format(brain_region)
-        lfp_traces_df[updated_column] = lfp_traces_df.apply(lambda x: update_array_by_mask(x[col], x[mask_column]), axis=1)
+        lfp_traces_df[updated_column] = lfp_traces_df.apply(lambda x: helper_update_array_by_mask(x[col], x[mask_column]), axis=1)
 
     filtered_trace_column = [col for col in lfp_traces_df if "lfp_trace_filtered" in col]
     for col in filtered_trace_column:
@@ -639,61 +683,18 @@ def preprocess_lfp_data(lfp_traces_df, voltage_scaling_value, zscore_threshold, 
     print("done preprocessing")
     return lfp_traces_df
 
-def modified_z_score(original_trace_columns, LFP_TRACES_DF, zscore_threshold=4):
-    print("Calculating modified z-score")
-    for col in original_trace_columns:
-        print(col)
-        brain_region = col.split("_")[0]
-        updated_column = "{}_lfp_MAD".format(brain_region)
-        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF[col].apply(lambda x: stats.median_abs_deviation(x))
-
-    for col in original_trace_columns:
-        print(col)
-        brain_region = col.split("_")[0]
-        updated_column = "{}_lfp_modified_zscore".format(brain_region)
-        MAD_column = "{}_lfp_MAD".format(brain_region)
-
-        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF.apply(
-            lambda x: 0.6745 * (x[col] - np.median(x[col])) / x[MAD_column], axis=1)
-
-    # root-mean-square
-    for col in original_trace_columns:
-        print(col)
-        brain_region = col.split("_")[0]
-        updated_column = "{}_lfp_RMS".format(brain_region)
-        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF[col].apply(
-            lambda x: (x / np.sqrt(np.mean(x ** 2))).astype(np.float32))
-
-    zscore_columns = [col for col in LFP_TRACES_DF.columns if "zscore" in col]
-
-    for col in zscore_columns:
-        print(col)
-        brain_region = col.split("_")[0]
-        updated_column = "{}_lfp_mask".format(brain_region)
-        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF[col].apply(lambda x: np.abs(x) >= zscore_threshold)
-
-    for col in original_trace_columns:
-        print(col)
-        brain_region = col.split("_")[0]
-        updated_column = "{}_lfp_trace_filtered".format(brain_region)
-        mask_column = "{}_lfp_mask".format(brain_region)
-        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF.apply(lambda x: update_array_by_mask(x[col], x[mask_column]),
-                                                            axis=1)
-
-    filtered_trace_column = [col for col in LFP_TRACES_DF if "lfp_trace_filtered" in col]
-    for col in filtered_trace_column:
-        print(col)
-        brain_region = col.split("_")[0]
-        updated_column = "{}_lfp_RMS_filtered".format(brain_region)
-        LFP_TRACES_DF[updated_column] = LFP_TRACES_DF[col].apply(
-            lambda x: (x / np.sqrt(np.nanmean(x ** 2))).astype(np.float32))
-
-    print(LFP_TRACES_DF.head())
-    print(original_trace_columns.head())
-
-    return LFP_TRACES_DF, original_trace_columns
-
 def calculate_power(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    """
+    Calculates the power of the LFP traces using the multitaper method.
+    Args:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces.
+        resample_rate (int): The resample rate for the LFP traces.
+        time_halfbandwidth_product (float): The time halfbandwidth product for the multitaper method.
+        time_window_duration (float): The duration of the time window for the multitaper method.
+        time_window_step (float): The step size for the time window for the multitaper method.
+    Returns:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces with the power calculated.
+    """
     print("calculating power")
     input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
 
@@ -741,6 +742,14 @@ def calculate_power(lfp_traces_df, resample_rate, time_halfbandwidth_product, ti
     return lfp_traces_df
 
 def calculate_phase(lfp_traces_df, fs):
+    """
+    Calculates the phase of the LFP traces using the Hilbert transform.
+    Args:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces.
+        fs (int): The sampling rate for the LFP traces.
+    Returns:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces with the phase calculated.
+    """
     print("calculating phase")
     from scipy.signal import butter, filtfilt, hilbert
 
@@ -773,10 +782,21 @@ def calculate_phase(lfp_traces_df, fs):
     return lfp_traces_df
 
 def calculate_coherence(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    """
+    Calculates the coherence of the LFP traces using the multitaper method.
+    Args:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces.
+        resample_rate (int): The resample rate for the LFP traces.
+        time_halfbandwidth_product (float): The time halfbandwidth product for the multitaper method.
+        time_window_duration (float): The duration of the time window for the multitaper method.
+        time_window_step (float): The step size for the time window for the multitaper method.
+    Returns:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces with the coherence calculated.
+    """
     print("calculating coherence")
     input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
     all_suffixes = set(["_".join(col.split("_")[1:]) for col in input_columns])
-    brain_region_pairs = generate_pairs(list(set([col.split("lfp")[0].strip("_") for col in input_columns])))
+    brain_region_pairs = helper_generate_pairs(list(set([col.split("lfp")[0].strip("_") for col in input_columns])))
 
     for first_region, second_region in brain_region_pairs:
         for suffix in all_suffixes:
@@ -827,10 +847,21 @@ def calculate_coherence(lfp_traces_df, resample_rate, time_halfbandwidth_product
     return lfp_traces_df
 
 def calculate_granger_causality(lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step):
+    """
+    Calculates the Granger causality of the LFP traces using the multitaper method.
+    Args:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces.
+        resample_rate (int): The resample rate for the LFP traces.
+        time_halfbandwidth_product (float): The time halfbandwidth product for the multitaper method.
+        time_window_duration (float): The duration of the time window for the multitaper method.
+        time_window_step (float): The step size for the time window for the multitaper method.
+    Returns:
+        lfp_traces_df (pandas dataframe): A dataframe containing the LFP traces with the Granger causality calculated.
+    """
     print("calculating granger causality")
     input_columns = [col for col in lfp_traces_df.columns if "trace" in col or "RMS" in col]
     all_suffixes = set(["_".join(col.split("_")[1:]) for col in input_columns])
-    brain_region_pairs = generate_pairs(list(set([col.split("lfp")[0].strip("_") for col in input_columns])))
+    brain_region_pairs = helper_generate_pairs(list(set([col.split("lfp")[0].strip("_") for col in input_columns])))
 
     for first_region, second_region in brain_region_pairs:
         for suffix in all_suffixes:
@@ -918,6 +949,5 @@ def main_test_only():
     lfp.phase_df.to_csv("test_outputs/phase_df.txt", sep="\t")
     lfp.coherence_df.to_csv("test_outputs/coherence_df.txt", sep="\t")
     lfp.granger_df.to_csv("test_outputs/granger_df.txt", sep="\t")
-
 
 main_test_only()
