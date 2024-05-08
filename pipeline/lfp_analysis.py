@@ -9,6 +9,11 @@ from scipy import stats
 from spectral_connectivity import Multitaper, Connectivity
 import openpyxl
 import logging
+import h5py
+from scipy.interpolate import interp1d
+from scipy.signal import savgol_filter
+import sleap.process_pose
+import utilities.helper
 
 
 import spikeinterface.extractors as se
@@ -226,6 +231,45 @@ def helper_update_array_by_mask(array, mask, value=np.nan):
     result = array.copy()
     result[mask] = value
     return result
+
+
+def helper_compute_velocity(node_loc, window_size=25, polynomial_order=3):
+    """
+    Calculate the velocity of tracked nodes from pose data.
+
+    The function utilizes the Savitzky-Golay filter to smooth the data and compute the velocity.
+
+    Parameters:
+    ----------
+    node_loc : numpy.ndarray
+        The location of nodes, represented as an array of shape [frames, 2].
+        Each row represents x and y coordinates for a particular frame.
+
+    window_size : int, optional
+        The size of the window used for the Savitzky-Golay filter.
+        Represents the number of consecutive data points used when smoothing the data.
+        Default is 25.
+
+    polynomial_order : int, optional
+        The order of the polynomial fit to the data within the Savitzky-Golay filter window.
+        Default is 3.
+
+    Returns:
+    -------
+    numpy.ndarray
+        The velocity for each frame, calculated from the smoothed x and y coordinates.
+
+    """
+    node_loc_vel = np.zeros_like(node_loc)
+
+    # For each coordinate (x and y), smooth the data and calculate the derivative (velocity)
+    for c in range(node_loc.shape[-1]):
+        node_loc_vel[:, c] = savgol_filter(node_loc[:, c], window_size, polynomial_order, deriv=1)
+
+    # Calculate the magnitude of the velocity vectors for each frame
+    node_vel = np.linalg.norm(node_loc_vel, axis=1)
+
+    return node_vel
 
 def convert_to_mp4(experiment_dir):
     """
@@ -1042,6 +1086,124 @@ def calculate_filter_bands(lfp_spectral_df, theta_band, gamma_band, output_dir, 
 
     full_lfp_traces_pkl = f"{output_prefix}_03_spectral_bands.pkl"
     lfp_spectral_df.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
+    #Debugging
+    lfp_spectral_df.to_pickle("test_outputs/filtered_power_df.pkl")
+
+### START OF NOTEBOOK 4 ##
+
+def convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height):
+    start_stop_frame_df["bottom_width"] = start_stop_frame_df["corner_to_coordinate"].apply(lambda x: x["box_bottom_right"][0] - x["box_bottom_left"][0])
+    start_stop_frame_df["top_width"] = start_stop_frame_df["corner_to_coordinate"].apply(lambda x: x["box_top_right"][0] - x["box_top_left"][0])
+    start_stop_frame_df["right_height"] = start_stop_frame_df["corner_to_coordinate"].apply(lambda x: x["box_bottom_right"][1] - x["box_top_right"][1])
+    start_stop_frame_df["left_height"] = start_stop_frame_df["corner_to_coordinate"].apply(lambda x: x["box_bottom_left"][1] - x["box_top_left"][1])
+    start_stop_frame_df["average_height"] = start_stop_frame_df.apply(lambda row: (row["right_height"] + row["left_height"])/2, axis=1)
+    start_stop_frame_df["average_width"] = start_stop_frame_df.apply(lambda row: (row["bottom_width"] + row["top_width"])/2, axis=1)
+    start_stop_frame_df["width_ratio"] = med_pc_width / start_stop_frame_df["average_width"]
+    start_stop_frame_df["height_ratio"] = med_pc_height / start_stop_frame_df["average_height"]
+
+    start_stop_frame_df["in_video_subjects"] = start_stop_frame_df["in_video_subjects"].apply(lambda x: x.split("_"))
+    start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(lambda x: {k: v for k, v in x["subject_to_tracks"].items() if k in x["in_video_subjects"]}, axis=1)
+    start_stop_frame_df["rescaled_locations"] = start_stop_frame_df.apply(lambda x: {key: sleap.process_pose.fill_missing(sleap.process_pose.rescale_dimension_in_array(value, dimension=0, ratio=x["width_ratio"])) for key, value in x["subject_to_tracks"].items()}, axis=1)
+    start_stop_frame_df["rescaled_locations"] = start_stop_frame_df.apply(lambda x: {key: sleap.process_pose.rescale_dimension_in_array(value, dimension=1, ratio=x["height_ratio"]) for key, value in x["rescaled_locations"].items()}, axis=1)
+
+    normalized = pd.json_normalize(start_stop_frame_df["corner_to_coordinate"])
+    start_stop_frame_df = pd.concat([start_stop_frame_df.drop(["corner_to_coordinate"], axis=1), normalized], axis=1)
+
+    for corner in start_stop_frame_df["corner_parts"].iloc[0]:
+        start_stop_frame_df[corner] = start_stop_frame_df.apply(lambda x: [x[corner][0]*x["width_ratio"], x[corner][1]*x["height_ratio"]], axis=1)
+
+    return start_stop_frame_df
+
+def create_individual_pose_tracking_columns(start_stop_frame_df):
+    start_stop_frame_df = start_stop_frame_df.dropna(subset="current_subject")
+    start_stop_frame_df["agent"] = start_stop_frame_df.apply(lambda x: list((set(x["tracked_subject"]) - set([x["current_subject"]]))), axis=1)
+    start_stop_frame_df["agent"] = start_stop_frame_df["agent"].apply(lambda x: x[0] if len(x) == 1 else None)
+    start_stop_frame_df["subject_locations"] = start_stop_frame_df.apply(lambda x: x["rescaled_locations"][x["current_subject"]], axis=1)
+    start_stop_frame_df["agent_locations"] = start_stop_frame_df.apply(lambda x: x["rescaled_locations"].get(x["agent"], np.nan) if x["agent"] else np.nan, axis=1)
+
+    start_stop_frame_df = start_stop_frame_df.drop(["sleap_glob", "subject_to_index", "subject_to_tracks", "corner_parts", "corner_to_coordinate", "bottom_width", "top_width", "right_height", "left_height", "average_height", "average_width", "width_ratio", "height_ratio", 'locations', 'track_names', 'sleap_path', 'corner_path', 'all_sleap_data', 'rescaled_locations'], errors="ignore", axis=1)
+
+    return start_stop_frame_df
+
+def calculate_velocity(start_stop_frame_df, window_size, frame_rate, thorax_index):
+    start_stop_frame_df["subject_thorax_velocity"] = start_stop_frame_df.apply(lambda x: helper_compute_velocity(x["subject_locations"][:,x["body_parts"].index("thorax"),:], window_size=frame_rate*3) * frame_rate, axis=1)
+    start_stop_frame_df["subject_thorax_velocity"] = start_stop_frame_df["subject_thorax_velocity"].apply(lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
+    start_stop_frame_df["agent_thorax_velocity"] = start_stop_frame_df.apply(lambda x: helper_compute_velocity(x["agent_locations"][:,x["body_parts"].index("thorax"),:], window_size=frame_rate*3) * frame_rate if x["agent_locations"] is not np.nan else np.nan, axis=1)
+    start_stop_frame_df["agent_thorax_velocity"] = start_stop_frame_df["agent_thorax_velocity"].apply(lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
+
+    return start_stop_frame_df
+
+def calculate_distance_to_reward_port(start_stop_frame_df, thorax_index):
+    start_stop_frame_df["subject_thorax_to_reward_port"] = start_stop_frame_df.apply(lambda x: np.linalg.norm(x["subject_locations"][:,x["body_parts"].index("thorax"),:] - x["reward_port"], axis=1), axis=1)
+    start_stop_frame_df["subject_thorax_to_reward_port"] = start_stop_frame_df["subject_thorax_to_reward_port"].apply(lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
+    start_stop_frame_df["agent_thorax_to_reward_port"] = start_stop_frame_df.apply(lambda x: np.linalg.norm(x["agent_locations"][:,x["body_parts"].index("thorax"),:] - x["reward_port"], axis=1) if x["agent_locations"] is not np.nan else np.nan, axis=1)
+    start_stop_frame_df["agent_thorax_to_reward_port"] = start_stop_frame_df["agent_thorax_to_reward_port"].apply(lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
+
+    return start_stop_frame_df
+def process_sleap_tracks(start_stop_frame_df, sleap_dir, med_pc_width, med_pc_height):
+    start_stop_frame_df["all_sleap_data"] = start_stop_frame_df["sleap_path"].apply(lambda x: sleap.process_pose.extract_sleap_data(x))
+    start_stop_frame_df["body_parts"] = start_stop_frame_df["sleap_path"].apply(lambda x: sleap.process_pose.get_node_names_from_sleap(x))
+    start_stop_frame_df["locations"] = start_stop_frame_df["all_sleap_data"].apply(lambda x: x["locations"])
+    start_stop_frame_df["track_names"] = start_stop_frame_df["all_sleap_data"].apply(lambda x: x["track_names"])
+
+    start_stop_frame_df["subject_to_index"] = start_stop_frame_df.apply(lambda x: {k: x["track_names"].index(k) for k in x["tracked_subject"] if k in x["track_names"]}, axis=1)
+    start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(lambda x: {k:v for k, v in x["subject_to_index"].items()}, axis=1)
+    start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(lambda x: {k: x["locations"][:,:,:,v] for k, v in x["subject_to_index"].items()}, axis=1)
+
+    start_stop_frame_df["corner_path"] = start_stop_frame_df["sleap_path"].apply(lambda x: x.replace("id_corrected.h5", "corner.h5").replace(".fixed", "").replace(".round_1", "").replace(".1_subj", "").replace(".2_subj", ""))
+    start_stop_frame_df["corner_parts"] = start_stop_frame_df["corner_path"].apply(lambda x: sleap.process_pose.get_node_names_from_sleap(x))
+    start_stop_frame_df = start_stop_frame_df[start_stop_frame_df["corner_parts"].apply(lambda x: "reward_port" in x)]
+    start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df["corner_path"].apply(lambda x: sleap.process_pose.get_sleap_tracks_from_h5(x))
+    start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df.apply(lambda x: {part: x["corner_to_coordinate"][:,index,:,:] for index, part in enumerate(x["corner_parts"])}, axis=1)
+    start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df.apply(lambda x: {k: v[~np.isnan(v)][:2] for k, v in x["corner_to_coordinate"].items()}, axis=1)
+
+def preprocess_start_stop_frame_data(start_stop_frame_df, sleap_dir):
+    start_stop_frame_df = start_stop_frame_df.dropna(subset=["file_path"])
+    start_stop_frame_df["sleap_name"] = start_stop_frame_df["file_path"].apply(lambda x: os.path.basename(x))
+    start_stop_frame_df["video_name"] = start_stop_frame_df["file_path"].apply(lambda x: ".".join(os.path.basename(x).split(".")[:2]))
+    start_stop_frame_df["start_frame"] = start_stop_frame_df["start_frame"].astype(int)
+    start_stop_frame_df["stop_frame"] = start_stop_frame_df["stop_frame"].astype(int)
+    start_stop_frame_df = start_stop_frame_df.drop(columns=["file_path", "notes"], errors="ignore")
+
+    # Add any additional preprocessing steps here
+
+    return start_stop_frame_df
+def combine_lfp_and_sleap_data(lfp_spectral_df, start_stop_frame_df):
+    lfp_and_sleap_df = pd.merge(lfp_spectral_df, start_stop_frame_df, on=["video_name", "current_subject"], how="inner")
+    return lfp_and_sleap_df
+
+def process_sleap_data(sleap_dir, output_dir, med_pc_width, med_pc_height, frame_rate, window_size, distance_threshold, start_stop_frame_df, lfp_spectral_df, thorax_index, output_prefix):
+    # Set up paths and directories
+
+    # Process start/stop frame data
+    start_stop_frame_df = preprocess_start_stop_frame_data(start_stop_frame_df, sleap_dir)
+
+    # Process sleap data
+    start_stop_frame_df = process_sleap_tracks(start_stop_frame_df, sleap_dir, med_pc_width, med_pc_height)
+
+    # Convert pixels to cm
+    start_stop_frame_df = convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height)
+
+    # Create individual columns for pose tracking
+    start_stop_frame_df = create_individual_pose_tracking_columns(start_stop_frame_df)
+
+    # Calculate velocity
+    start_stop_frame_df = calculate_velocity(start_stop_frame_df, window_size, frame_rate, thorax_index)
+
+    # Calculate distance to reward port
+    start_stop_frame_df = calculate_distance_to_reward_port(start_stop_frame_df, thorax_index)
+
+    # Combine LFP and video start/stop data
+    lfp_and_sleap_df = combine_lfp_and_sleap_data(lfp_spectral_df, start_stop_frame_df)
+
+    # Export data
+    full_lfp_traces_pkl = f"{output_prefix}_04_spectral_and_sleap.pkl"
+    lfp_and_sleap_df.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
+
+    #Debugging
+    lfp_and_sleap_df.to_pickle("test_outputs/lfp_and_sleap_df.pkl")
+
+    return lfp_and_sleap_df
 
 def main_test_only():
     input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
