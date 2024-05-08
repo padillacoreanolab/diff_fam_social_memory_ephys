@@ -12,8 +12,7 @@ import logging
 import h5py
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
-import sleap.process_pose
-import utilities.helper
+import matplotlib.pyplot as plt
 
 
 import spikeinterface.extractors as se
@@ -103,9 +102,23 @@ class LFPObject:
         # assign variables
         self.filter_bands_df = filter_bands_df
 
+    def make_sleap_df(self):
+        # call get_start_stop
+        sleap_df = process_sleap_data(self.state_df, self.video_df)
+        # assign variables
+        self.sleap_df = sleap_df
+
+    def analyze_sleap(self):
+        #start_stop_frame_df, plot_output_dir, output_prefix, thorax_index, thorax_plots, save_plots=False
+        thorax_index = 1
+        analyze_sleap_file(start_stop_frame_df=self.sleap_df, plot_output_dir="test_outputs/", output_prefix="test",
+                           thorax_index=thorax_index, thorax_plots=True, save_plots=False)
+
+
     def __init__(self,
                  path,
                  channel_map_path,
+                 sleap_path,
                  events_path,
                  subject,
                  ecu=False,
@@ -113,6 +126,7 @@ class LFPObject:
                  frame_rate=22):
         self.path = path
         self.channel_map_path = channel_map_path
+        self.sleap_path = sleap_path
         self.events_path = events_path
         self.events = {}
         self.channel_map = {}
@@ -149,7 +163,10 @@ class LFPObject:
 
         #notebook 3 "bands"
         self.filter_bands_df = None
-
+        
+        #notebook 4 sleap, events
+        self.sleap_df = None
+        
 
         self.make_object()
 
@@ -177,6 +194,10 @@ class LFPObject:
 
         self.make_filter_bands_df()
         self.filter_bands_df.to_pickle(os.getcwd() + "/test_outputs/filter_bands_df.pkl")
+
+        self.make_sleap_df()
+        self.sleap_df.to_pickle(os.getcwd() + "/test_outputs/sleap_df.pkl")
+
 
 def helper_find_nearest_indices(array1, array2):
     """
@@ -270,6 +291,164 @@ def helper_compute_velocity(node_loc, window_size=25, polynomial_order=3):
     node_vel = np.linalg.norm(node_loc_vel, axis=1)
 
     return node_vel
+
+
+def get_sleap_tracks_from_h5(filename):
+    """
+    Retrieve pose tracking data (tracks) from a SLEAP-generated h5 file.
+
+    This function is intended for use with Pandas' apply method on columns containing filenames.
+
+    Parameters:
+    ----------
+    filename : str
+        Path to the SLEAP h5 file containing pose tracking data.
+
+    Returns:
+    -------
+    np.ndarray
+        A transposed version of the 'tracks' dataset in the provided h5 file.
+
+    Example:
+    --------
+    df['tracks'] = df['filename_column'].apply(get_sleap_tracks_from_h5)
+
+    """
+    with h5py.File(filename, "r") as f:
+        return f["tracks"][:].T
+
+
+def get_node_names_from_sleap(filename):
+    """
+    Retrieve node names from a SLEAP h5 file.
+
+    Parameters:
+    - filename (str): Path to the SLEAP h5 file.
+
+    Returns:
+    - list of str: List of node names.
+    """
+    with h5py.File(filename, "r") as f:
+        return [n.decode() for n in f["node_names"][:]]
+
+
+def fill_missing(Y, kind="linear"):
+    """Fills missing values independently along each dimension after the first."""
+
+    # Store initial shape.
+    initial_shape = Y.shape
+
+    # Flatten after first dim.
+    Y = Y.reshape((initial_shape[0], -1))
+
+    # Interpolate along each slice.
+    for i in range(Y.shape[-1]):
+        y = Y[:, i]
+
+        # Build interpolant.
+        x = np.flatnonzero(~np.isnan(y))
+        f = interp1d(x, y[x], kind=kind, fill_value=np.nan, bounds_error=False)
+
+        # Fill missing
+        xq = np.flatnonzero(np.isnan(y))
+        y[xq] = f(xq)
+
+        # Fill leading or trailing NaNs with the nearest non-NaN values
+        mask = np.isnan(y)
+        y[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), y[~mask])
+
+        # Save slice
+        Y[:, i] = y
+
+    # Restore to initial shape.
+    Y = Y.reshape(initial_shape)
+
+    return Y
+
+
+def compute_velocity(node_loc, window_size=25, polynomial_order=3):
+    """
+    Calculate the velocity of tracked nodes from pose data.
+
+    The function utilizes the Savitzky-Golay filter to smooth the data and compute the velocity.
+
+    Parameters:
+    ----------
+    node_loc : numpy.ndarray
+        The location of nodes, represented as an array of shape [frames, 2].
+        Each row represents x and y coordinates for a particular frame.
+
+    window_size : int, optional
+        The size of the window used for the Savitzky-Golay filter.
+        Represents the number of consecutive data points used when smoothing the data.
+        Default is 25.
+
+    polynomial_order : int, optional
+        The order of the polynomial fit to the data within the Savitzky-Golay filter window.
+        Default is 3.
+
+    Returns:
+    -------
+    numpy.ndarray
+        The velocity for each frame, calculated from the smoothed x and y coordinates.
+
+    """
+    node_loc_vel = np.zeros_like(node_loc)
+
+    # For each coordinate (x and y), smooth the data and calculate the derivative (velocity)
+    for c in range(node_loc.shape[-1]):
+        node_loc_vel[:, c] = savgol_filter(node_loc[:, c], window_size, polynomial_order, deriv=1)
+
+    # Calculate the magnitude of the velocity vectors for each frame
+    node_vel = np.linalg.norm(node_loc_vel, axis=1)
+
+    return node_vel
+
+
+def extract_sleap_data(filename):
+    """
+    Extracts coordinates, names of body parts, and track names from a SLEAP file.
+
+    Parameters:
+    - filename (str): Path to the SLEAP file.
+
+    Returns:
+    - tuple: A tuple containing the following elements:
+        * locations (numpy.ndarray): Array containing the coordinates.
+        * node_names (list of str): List of body part names.
+        * track_names (list of str): List of track names.
+
+    Example:
+    >>> locations, node_names, track_names = extract_sleap_data("path/to/sleap/file.h5")
+    """
+    result = {}
+    with h5py.File(filename, "r") as f:
+        result["locations"] = f["tracks"][:].T
+        result["node_names"] = [n.decode() for n in f["node_names"][:]]
+        result["track_names"] = [n.decode() for n in f["track_names"][:]]
+
+    return result
+
+
+def rescale_dimension_in_array(arr, dimension=0, ratio=1):
+    """
+    Rescale values of a specified dimension in a 3D numpy array for the entire array.
+
+    Parameters:
+    - arr (numpy.ndarray): A 3D numpy array where the third dimension is being rescaled.
+    - dimension (int, default=0): Specifies which dimension (0 or 1) of the third
+                                  dimension in the array should be rescaled.
+                                  For instance, in many contexts:
+                                  0 represents the x-coordinate,
+                                  1 represents the y-coordinate.
+    - ratio (float, default=1): The scaling factor to be applied.
+
+    Returns:
+    - numpy.ndarray: The rescaled array.
+    """
+
+    arr[:, :, dimension] *= ratio
+    return arr
 
 def convert_to_mp4(experiment_dir):
     """
@@ -576,7 +755,6 @@ def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
 
     return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df, pkl_path
 
-# ADDING TIME Stamps
 def load_data(channel_map_path, pickle_path, SUBJECT_COL="Subject"):
     """
     Loads the channel mapping and trodes metadata dataframe.
@@ -1092,6 +1270,8 @@ def calculate_filter_bands(lfp_spectral_df, theta_band, gamma_band, output_dir, 
 ### START OF NOTEBOOK 4 ##
 
 def convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height):
+    print("converting pixels to cm")
+    print(start_stop_frame_df.columns)
     start_stop_frame_df["bottom_width"] = start_stop_frame_df["corner_to_coordinate"].apply(lambda x: x["box_bottom_right"][0] - x["box_bottom_left"][0])
     start_stop_frame_df["top_width"] = start_stop_frame_df["corner_to_coordinate"].apply(lambda x: x["box_top_right"][0] - x["box_top_left"][0])
     start_stop_frame_df["right_height"] = start_stop_frame_df["corner_to_coordinate"].apply(lambda x: x["box_bottom_right"][1] - x["box_top_right"][1])
@@ -1103,8 +1283,8 @@ def convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height):
 
     start_stop_frame_df["in_video_subjects"] = start_stop_frame_df["in_video_subjects"].apply(lambda x: x.split("_"))
     start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(lambda x: {k: v for k, v in x["subject_to_tracks"].items() if k in x["in_video_subjects"]}, axis=1)
-    start_stop_frame_df["rescaled_locations"] = start_stop_frame_df.apply(lambda x: {key: sleap.process_pose.fill_missing(sleap.process_pose.rescale_dimension_in_array(value, dimension=0, ratio=x["width_ratio"])) for key, value in x["subject_to_tracks"].items()}, axis=1)
-    start_stop_frame_df["rescaled_locations"] = start_stop_frame_df.apply(lambda x: {key: sleap.process_pose.rescale_dimension_in_array(value, dimension=1, ratio=x["height_ratio"]) for key, value in x["rescaled_locations"].items()}, axis=1)
+    start_stop_frame_df["rescaled_locations"] = start_stop_frame_df.apply(lambda x: {key: fill_missing(rescale_dimension_in_array(value, dimension=0, ratio=x["width_ratio"])) for key, value in x["subject_to_tracks"].items()}, axis=1)
+    start_stop_frame_df["rescaled_locations"] = start_stop_frame_df.apply(lambda x: {key: rescale_dimension_in_array(value, dimension=1, ratio=x["height_ratio"]) for key, value in x["rescaled_locations"].items()}, axis=1)
 
     normalized = pd.json_normalize(start_stop_frame_df["corner_to_coordinate"])
     start_stop_frame_df = pd.concat([start_stop_frame_df.drop(["corner_to_coordinate"], axis=1), normalized], axis=1)
@@ -1120,8 +1300,7 @@ def create_individual_pose_tracking_columns(start_stop_frame_df):
     start_stop_frame_df["agent"] = start_stop_frame_df["agent"].apply(lambda x: x[0] if len(x) == 1 else None)
     start_stop_frame_df["subject_locations"] = start_stop_frame_df.apply(lambda x: x["rescaled_locations"][x["current_subject"]], axis=1)
     start_stop_frame_df["agent_locations"] = start_stop_frame_df.apply(lambda x: x["rescaled_locations"].get(x["agent"], np.nan) if x["agent"] else np.nan, axis=1)
-
-    start_stop_frame_df = start_stop_frame_df.drop(["sleap_glob", "subject_to_index", "subject_to_tracks", "corner_parts", "corner_to_coordinate", "bottom_width", "top_width", "right_height", "left_height", "average_height", "average_width", "width_ratio", "height_ratio", 'locations', 'track_names', 'sleap_path', 'corner_path', 'all_sleap_data', 'rescaled_locations'], errors="ignore", axis=1)
+    #start_stop_frame_df = start_stop_frame_df.drop(["sleap_glob", "subject_to_index", "subject_to_tracks", "corner_parts", "corner_to_coordinate", "bottom_width", "top_width", "right_height", "left_height", "average_height", "average_width", "width_ratio", "height_ratio", 'locations', 'track_names', 'sleap_path', 'corner_path', 'all_sleap_data', 'rescaled_locations'], errors="ignore", axis=1)
 
     return start_stop_frame_df
 
@@ -1140,22 +1319,46 @@ def calculate_distance_to_reward_port(start_stop_frame_df, thorax_index):
     start_stop_frame_df["agent_thorax_to_reward_port"] = start_stop_frame_df["agent_thorax_to_reward_port"].apply(lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
 
     return start_stop_frame_df
+
 def process_sleap_tracks(start_stop_frame_df, sleap_dir, med_pc_width, med_pc_height):
-    start_stop_frame_df["all_sleap_data"] = start_stop_frame_df["sleap_path"].apply(lambda x: sleap.process_pose.extract_sleap_data(x))
-    start_stop_frame_df["body_parts"] = start_stop_frame_df["sleap_path"].apply(lambda x: sleap.process_pose.get_node_names_from_sleap(x))
+    print(start_stop_frame_df.columns)
+    start_stop_frame_df["tracked_subject"] = start_stop_frame_df["tracked_subject"].apply(lambda x: str(x).split("_"))
+    start_stop_frame_df["current_subject"] = start_stop_frame_df["tracked_subject"]
+    start_stop_frame_df = start_stop_frame_df.explode("current_subject")
+    start_stop_frame_df["sleap_glob"] = start_stop_frame_df["sleap_name"].apply(
+        lambda x: glob.glob(os.path.join(sleap_dir, "**", x)))
+    start_stop_frame_df = start_stop_frame_df[start_stop_frame_df['sleap_glob'].apply(lambda x: len(x) >= 1)]
+    start_stop_frame_df = start_stop_frame_df.reset_index(drop=True)
+    start_stop_frame_df["sleap_path"] = start_stop_frame_df["sleap_glob"].apply(lambda x: x[0])
+    start_stop_frame_df["all_sleap_data"] = start_stop_frame_df["sleap_path"].apply(lambda x: extract_sleap_data(x))
+    start_stop_frame_df["body_parts"] = start_stop_frame_df["sleap_path"].apply(lambda x: get_node_names_from_sleap(x))
     start_stop_frame_df["locations"] = start_stop_frame_df["all_sleap_data"].apply(lambda x: x["locations"])
     start_stop_frame_df["track_names"] = start_stop_frame_df["all_sleap_data"].apply(lambda x: x["track_names"])
 
-    start_stop_frame_df["subject_to_index"] = start_stop_frame_df.apply(lambda x: {k: x["track_names"].index(k) for k in x["tracked_subject"] if k in x["track_names"]}, axis=1)
-    start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(lambda x: {k:v for k, v in x["subject_to_index"].items()}, axis=1)
-    start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(lambda x: {k: x["locations"][:,:,:,v] for k, v in x["subject_to_index"].items()}, axis=1)
+    print(start_stop_frame_df["track_names"])
+    print(start_stop_frame_df["track_names"].dtype)
+    print(start_stop_frame_df["tracked_subject"])
+    print(start_stop_frame_df["tracked_subject"].dtype)
+    print(start_stop_frame_df.columns)
+    print(start_stop_frame_df.head())
+
+
+    # Getting the indexes of each subject from the track list
+    start_stop_frame_df["subject_to_index"] = start_stop_frame_df.apply(
+        lambda x: {k: x["track_names"].index(k) for k in x["tracked_subject"] if k in x["track_names"]}, axis=1)
+    start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(
+        lambda x: {k: v for k, v in x["subject_to_index"].items()}, axis=1)
+    start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(
+        lambda x: {k: x["locations"][:, :, :, v] for k, v in x["subject_to_index"].items()}, axis=1)
 
     start_stop_frame_df["corner_path"] = start_stop_frame_df["sleap_path"].apply(lambda x: x.replace("id_corrected.h5", "corner.h5").replace(".fixed", "").replace(".round_1", "").replace(".1_subj", "").replace(".2_subj", ""))
-    start_stop_frame_df["corner_parts"] = start_stop_frame_df["corner_path"].apply(lambda x: sleap.process_pose.get_node_names_from_sleap(x))
+    start_stop_frame_df["corner_parts"] = start_stop_frame_df["corner_path"].apply(lambda x: get_node_names_from_sleap(x))
     start_stop_frame_df = start_stop_frame_df[start_stop_frame_df["corner_parts"].apply(lambda x: "reward_port" in x)]
-    start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df["corner_path"].apply(lambda x: sleap.process_pose.get_sleap_tracks_from_h5(x))
+    start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df["corner_path"].apply(lambda x: get_sleap_tracks_from_h5(x))
     start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df.apply(lambda x: {part: x["corner_to_coordinate"][:,index,:,:] for index, part in enumerate(x["corner_parts"])}, axis=1)
     start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df.apply(lambda x: {k: v[~np.isnan(v)][:2] for k, v in x["corner_to_coordinate"].items()}, axis=1)
+
+    return start_stop_frame_df
 
 def preprocess_start_stop_frame_data(start_stop_frame_df, sleap_dir):
     start_stop_frame_df = start_stop_frame_df.dropna(subset=["file_path"])
@@ -1168,11 +1371,18 @@ def preprocess_start_stop_frame_data(start_stop_frame_df, sleap_dir):
     # Add any additional preprocessing steps here
 
     return start_stop_frame_df
-def combine_lfp_and_sleap_data(lfp_spectral_df, start_stop_frame_df):
-    lfp_and_sleap_df = pd.merge(lfp_spectral_df, start_stop_frame_df, on=["video_name", "current_subject"], how="inner")
-    return lfp_and_sleap_df
 
-def process_sleap_data(sleap_dir, output_dir, med_pc_width, med_pc_height, frame_rate, window_size, distance_threshold, start_stop_frame_df, lfp_spectral_df, thorax_index, output_prefix):
+def process_sleap_data(sleap_dir,
+                       output_dir,
+                       med_pc_width,
+                       med_pc_height,
+                       frame_rate,
+                       window_size,
+                       distance_threshold,
+                       start_stop_frame_df,
+                       lfp_spectral_df,
+                       thorax_index,
+                       output_prefix):
     # Set up paths and directories
 
     # Process start/stop frame data
@@ -1193,17 +1403,67 @@ def process_sleap_data(sleap_dir, output_dir, med_pc_width, med_pc_height, frame
     # Calculate distance to reward port
     start_stop_frame_df = calculate_distance_to_reward_port(start_stop_frame_df, thorax_index)
 
-    # Combine LFP and video start/stop data
-    lfp_and_sleap_df = combine_lfp_and_sleap_data(lfp_spectral_df, start_stop_frame_df)
-
     # Export data
     full_lfp_traces_pkl = f"{output_prefix}_04_spectral_and_sleap.pkl"
-    lfp_and_sleap_df.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
+    start_stop_frame_df.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
 
     #Debugging
-    lfp_and_sleap_df.to_pickle("test_outputs/lfp_and_sleap_df.pkl")
+    start_stop_frame_df.to_pickle("test_outputs/lfp_and_sleap_df.pkl")
 
-    return lfp_and_sleap_df
+    return start_stop_frame_df
+
+def analyze_sleap_file(start_stop_frame_df, plot_output_dir, output_prefix, thorax_index, thorax_plots, save_plots=False):
+    print("in describe_sleap_files")
+    print(start_stop_frame_df.columns)
+    print(start_stop_frame_df.head())
+    for FILE_INDEX in range(len(start_stop_frame_df)):
+        print(f"===File {FILE_INDEX}===")
+        with h5py.File(start_stop_frame_df["sleap_path"].iloc[FILE_INDEX], "r") as f:
+            dset_names = list(f.keys())
+            current_subject = start_stop_frame_df["current_subject"].iloc[FILE_INDEX]
+            locations = start_stop_frame_df["rescaled_locations"].iloc[FILE_INDEX][current_subject]
+            node_names = [n.decode() for n in f["node_names"][:]]
+        print("===HDF5 datasets===")
+        print(dset_names)
+        print()
+
+        print("===locations data shape===")
+        print(locations.shape)
+        print()
+
+        print("===nodes===")
+        for i, name in enumerate(node_names):
+            print(f"{i}: {name}")
+        print()
+
+    if thorax_plots:
+        #TODO: thorax index is hard coded
+
+        #Thorax location
+        thorax_loc = locations[:, thorax_index, :]
+        fig, ax = plt.subplots()
+
+        plt.plot(thorax_loc[:, 0], label='X-coordinates')
+        # Converting to negative so that we can see both x and y track
+        plt.plot(-1 * thorax_loc[:, 1], label='Y-coordinates')
+
+        plt.legend(loc="center right")
+        plt.title('Thorax locations')
+        plt.xlabel("Time in frames")
+        plt.ylabel("Coordinate Position")
+
+        if save_plots:
+            plt.savefig(os.path.join(plot_output_dir, f"{output_prefix}_thorax_locations.png"))
+        plt.show()
+
+        #Thorax tracks
+        plt.figure(figsize=(7, 7))
+        plt.plot(thorax_loc[:, 0], thorax_loc[:, 1])
+
+        plt.title('Thorax tracks')
+        plt.xlabel("X-Coordinates")
+        plt.ylabel("Y-Coordinates")
+
 
 def main_test_only():
     input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
@@ -1213,6 +1473,8 @@ def main_test_only():
     TONE_STATE = 1
     experiment_dir = "/Volumes/chaitra/reward_competition_extension/data"
     experiment_prefix = "rce_test"
+    sleap_path = "/Volumes/chaitra/reward_competition_extension/data/proc/sleap/"
+    event_path = "/Volumes/chaitra/reward_competition_extension/data/proc/events.xlsx"
     #convert_to_mp4(experiment_dir)
     paths = {}
     #session_to_trodes_temp, paths= extract_all_trodes(input_dir)
@@ -1223,6 +1485,13 @@ def main_test_only():
     print("output from obj creation")
     CHANNEL_MAPPING_DF, SPIKE_DF = load_data(channel_map_path=channel_map_path, pickle_path="test_outputs/power_df.pkl")
     calculate_filter_bands(SPIKE_DF, (4, 12), (30, 50), output_dir, experiment_prefix)
+    sleap_df = process_sleap_data(sleap_dir=sleap_path, output_dir=output_dir, med_pc_width=1, med_pc_height=1,
+                                  frame_rate=30, window_size=90, distance_threshold=0.1,
+                                  start_stop_frame_df=pd.read_excel(event_path),
+                                  lfp_spectral_df=pd.read_pickle("test_outputs/filtered_power_df.pkl"), thorax_index=0,
+                                  output_prefix="test_outputs")
+    sleap_df.to_pickle("test_outputs/sleap_df.pkl")
+    analyze_sleap_file(sleap_df, output_dir, experiment_prefix, 0, True, save_plots=False)
 
 
     # try to create LFPObject
