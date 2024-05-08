@@ -31,7 +31,9 @@ class LFPrecordingCollection:
     reward non reward
     social and nonsocial
 
-    4 event types: [win, loss, reward, omission]
+    4 event types: [win, loss, reward, omission] --> all are tone time stamps
+    user specifies possible event types (and number of event types)
+    column names if excel --> event names and count (unique)
     win (on excel) --> if subject is also a condition --> win
         subject info = subject --> if condition == subject --> win
 

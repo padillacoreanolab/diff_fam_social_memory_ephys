@@ -22,6 +22,15 @@ import spikeinterface.preprocessing as sp
 #  power, phase, coherence, granger functions depend on each other (add none exceptions)
 #  need to make all df columns lower case
 
+class LFPCollection:
+    """
+    list_of_lfp_objects: list of LFPObject objects
+    for file in recording_dir:
+        generate_lfp_object(file)
+
+    mainly for analysis, graphs, and overall trends
+    """
+
 class LFPObject:
     def make_object(self):
         # call extract_all_trodes
@@ -65,20 +74,27 @@ class LFPObject:
     def make_coherence_df(self):
         # call get_coherence
         #lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step
-        coherence_df = calculate_coherence(self.spike_df, self.RESAMPLE_RATE, self.TIME_HALFBANDWIDTH_PRODUCT, self.TIME_WINDOW_DURATION, self.TIME_WINDOW_STEP)
+        coherence_df = calculate_coherence(self.spike_df, self.RESAMPLE_RATE,
+                                           self.TIME_HALFBANDWIDTH_PRODUCT,
+                                           self.TIME_WINDOW_DURATION,
+                                           self.TIME_WINDOW_STEP)
         # assign variables
         self.coherence_df = coherence_df
 
     def make_granger_df(self):
         # call get_granger
         #lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step
-        granger_df = calculate_granger_causality(lfp_traces_df=self.spike_df, resample_rate=self.RESAMPLE_RATE, time_halfbandwidth_product=self.TIME_HALFBANDWIDTH_PRODUCT, time_window_duration=self.TIME_WINDOW_DURATION, time_window_step=self.TIME_WINDOW_STEP)
+        granger_df = calculate_granger_causality(lfp_traces_df=self.spike_df, resample_rate=self.RESAMPLE_RATE,
+                                                 time_halfbandwidth_product=self.TIME_HALFBANDWIDTH_PRODUCT,
+                                                 time_window_duration=self.TIME_WINDOW_DURATION,
+                                                 time_window_step=self.TIME_WINDOW_STEP)
         # assign variables
         self.granger_df = granger_df
 
     def make_filter_bands_df(self):
         # call get_filter_bands
-        filter_bands_df = calculate_filter_bands(self.spike_df, self.BAND_TO_FREQ)
+        #(lfp_spectral_df, theta_band, gamma_band, output_dir, output_prefix):
+        filter_bands_df = calculate_filter_bands(lfp_spectral_df=self.power_df, theta_band=self.BAND_TO_FREQ["theta"], gamma_band=self.BAND_TO_FREQ["gamma"], output_dir=os.getcwd(), output_prefix="test")
         # assign variables
         self.filter_bands_df = filter_bands_df
 
@@ -120,7 +136,7 @@ class LFPObject:
         self.TIME_WINDOW_STEP = 0.5
         self.BAND_TO_FREQ = {"theta": (4, 12), "gamma": (30, 51)}
 
-        #power stuff
+        #TODO: power stuff, save only columns of power, phase, coherence, granger
         self.power_df = None
         self.phase_df = None
         self.coherence_df = None
@@ -140,22 +156,22 @@ class LFPObject:
         self.spike_df = combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF=self.spike_df, recording_name_to_all_ch_lfp=self.recording_names_dict, CHANNEL_MAPPING_DF=self.channel_map, CURRENT_SUBJECT_COL="current_subject", SUBJECT_COL="Subject", ALL_CH_LFP_COL="all_ch_lfp", LFP_RESAMPLE_RATIO=20, EPHYS_SAMPLING_RATE=20000, LFP_SAMPLING_RATE=1000)
 
         #temporarily pickle the spike_df for debugging
-        self.spike_df.to_pickle(os.getcwd() + "test_outputs/spike_df.pkl")
+        self.spike_df.to_pickle(os.getcwd() + "/test_outputs/spike_df.pkl")
 
         self.make_power_df()
-        self.power_df.to_pickle(os.getcwd() + "test_outputs/power_df.pkl")
+        self.power_df.to_pickle(os.getcwd() + "/test_outputs/power_df.pkl")
 
         self.make_phase_df()
-        self.phase_df.to_pickle(os.getcwd() + "test_outputs/phase_df.pkl")
+        self.phase_df.to_pickle(os.getcwd() + "/test_outputs/phase_df.pkl")
 
         self.make_coherence_df()
-        self.coherence_df.to_pickle(os.getcwd() + "test_outputs/coherence_df.pkl")
+        self.coherence_df.to_pickle(os.getcwd() + "/test_outputs/coherence_df.pkl")
 
         self.make_granger_df()
-        self.granger_df.to_pickle(os.getcwd() + "test_outputs/granger_df.pkl")
+        self.granger_df.to_pickle(os.getcwd() + "/test_outputs/granger_df.pkl")
 
         self.make_filter_bands_df()
-        self.filter_bands_df.to_pickle(os.getcwd() + "test_outputs/filter_bands_df.pkl")
+        self.filter_bands_df.to_pickle(os.getcwd() + "/test_outputs/filter_bands_df.pkl")
 
 def helper_find_nearest_indices(array1, array2):
     """
@@ -1043,10 +1059,13 @@ def main_test_only():
     #metadata, state_df, video_df, final_df, pkl_path = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
 
     print("output from obj creation")
+    CHANNEL_MAPPING_DF, SPIKE_DF = load_data(channel_map_path=channel_map_path, pickle_path="test_outputs/power_df.pkl")
+    calculate_filter_bands(SPIKE_DF, (4, 12), (30, 50), output_dir, experiment_prefix)
+
 
     # try to create LFPObject
-    lfp = LFPObject(path=input_dir, channel_map_path=channel_map_path, events_path="test.xlsx", subject="1.4")
-
+    #lfp = LFPObject(path=input_dir, channel_map_path=channel_map_path, events_path="test.xlsx", subject="1.4")
+"""
     #write out all the dataframes to a text file
     lfp.metadata.to_csv("test_outputs/metadata.txt", sep="\t")
     lfp.state_df.to_csv("test_outputs/state_df.txt", sep="\t")
@@ -1056,7 +1075,9 @@ def main_test_only():
     lfp.phase_df.to_csv("test_outputs/phase_df.txt", sep="\t")
     lfp.coherence_df.to_csv("test_outputs/coherence_df.txt", sep="\t")
     lfp.granger_df.to_csv("test_outputs/granger_df.txt", sep="\t")
-    lfp.filter_bands_df.to_csv("test_outputs/filter_bands_df.txt", sep="\t")
+"""
+   # lfp.filter_bands_df.to_csv("test_outputs/filter_bands_df.txt", sep="\t")
+
 
 
 main_test_only()
