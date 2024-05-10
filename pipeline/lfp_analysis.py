@@ -1454,6 +1454,7 @@ def analyze_sleap_file(start_stop_frame_df, plot_output_dir, output_prefix, thor
 
         if save_plots:
             plt.savefig(os.path.join(plot_output_dir, f"{output_prefix}_thorax_locations.png"))
+            plt.savefig("test_outputs/thorax_locations.png")
         plt.show()
 
         #Thorax tracks
@@ -1463,6 +1464,10 @@ def analyze_sleap_file(start_stop_frame_df, plot_output_dir, output_prefix, thor
         plt.title('Thorax tracks')
         plt.xlabel("X-Coordinates")
         plt.ylabel("Y-Coordinates")
+
+        if save_plots:
+            plt.savefig(os.path.join(plot_output_dir, f"{output_prefix}_thorax_tracks.png"))
+            plt.savefig("test_outputs/thorax_tracks.png")
 
 
 def main_test_only():
@@ -1475,6 +1480,8 @@ def main_test_only():
     experiment_prefix = "rce_test"
     sleap_path = "/Volumes/chaitra/reward_competition_extension/data/proc/sleap/"
     event_path = "/Volumes/chaitra/reward_competition_extension/data/proc/events.xlsx"
+    phy_path = "/Volumes/chaitra/reward_competition_extension/data/phy/"
+    labels_path = "/Volumes/chaitra/reward_competition_extension/data/labels.xlsx"
     #convert_to_mp4(experiment_dir)
     paths = {}
     #session_to_trodes_temp, paths= extract_all_trodes(input_dir)
@@ -1491,7 +1498,7 @@ def main_test_only():
                                   lfp_spectral_df=pd.read_pickle("test_outputs/filtered_power_df.pkl"), thorax_index=0,
                                   output_prefix="test_outputs")
     sleap_df.to_pickle("test_outputs/sleap_df.pkl")
-    analyze_sleap_file(sleap_df, output_dir, experiment_prefix, 0, True, save_plots=False)
+    analyze_sleap_file(sleap_df, output_dir, experiment_prefix, 0, True, save_plots=True)
 
 
     # try to create LFPObject
