@@ -104,9 +104,10 @@ class LFPObject:
 
     def make_sleap_df(self):
         # call get_start_stop
-        sleap_df = process_sleap_data(self.state_df, self.video_df)
+        sleap_df, start_stop_df = process_sleap_data(self.state_df, self.video_df)
         # assign variables
         self.sleap_df = sleap_df
+        self.start_stop_df = start_stop_df
 
     def analyze_sleap(self):
         #start_stop_frame_df, plot_output_dir, output_prefix, thorax_index, thorax_plots, save_plots=False
@@ -166,6 +167,7 @@ class LFPObject:
         
         #notebook 4 sleap, events
         self.sleap_df = None
+        self.start_stop_df = None
         
 
         self.make_object()
@@ -197,6 +199,8 @@ class LFPObject:
 
         self.make_sleap_df()
         self.sleap_df.to_pickle(os.getcwd() + "/test_outputs/sleap_df.pkl")
+        self.start_stop_df.to_pickle(os.getcwd() + "/test_outputs/start_stop_df.pkl")
+
 
 
 def helper_find_nearest_indices(array1, array2):
@@ -858,6 +862,13 @@ def combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF, recording_name_to
     print(SPIKEGADGETS_LFP_DF.head())
     print(SPIKEGADGETS_LFP_DF.columns)
     def get_traces_with_progress(row):
+        """
+        Extracts the LFP traces for each region in the input row.
+        Args:
+            row (pandas series): A row in the SpikeGadgets dataframe.
+        Returns:
+            traces (numpy array): A numpy array containing the LFP traces for each region.
+        """
         channel_ids = [t[1] for t in row["region_channels"]]
         total_channels = len(channel_ids)
         logging.info(f"Processing {total_channels} channels for row {row.name}")
@@ -1270,6 +1281,15 @@ def calculate_filter_bands(lfp_spectral_df, theta_band, gamma_band, output_dir, 
 ### START OF NOTEBOOK 4 ##
 
 def convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height):
+    """
+    Converts the pixel values in the input dataframe to centimeters.
+    Args:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pixel values.
+        med_pc_width (float): The width of the video in pixels.
+        med_pc_height (float): The height of the video in pixels.
+    Returns:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pixel values converted to centimeters.
+    """
     print("converting pixels to cm")
     print(start_stop_frame_df.columns)
     start_stop_frame_df["bottom_width"] = start_stop_frame_df["corner_to_coordinate"].apply(lambda x: x["box_bottom_right"][0] - x["box_bottom_left"][0])
@@ -1295,6 +1315,14 @@ def convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height):
     return start_stop_frame_df
 
 def create_individual_pose_tracking_columns(start_stop_frame_df):
+    """
+    Creates columns for the individual pose tracking data.
+    Args:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data.
+    Returns:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data with the individual
+        columns created.
+    """
     start_stop_frame_df = start_stop_frame_df.dropna(subset="current_subject")
     start_stop_frame_df["agent"] = start_stop_frame_df.apply(lambda x: list((set(x["tracked_subject"]) - set([x["current_subject"]]))), axis=1)
     start_stop_frame_df["agent"] = start_stop_frame_df["agent"].apply(lambda x: x[0] if len(x) == 1 else None)
@@ -1305,6 +1333,18 @@ def create_individual_pose_tracking_columns(start_stop_frame_df):
     return start_stop_frame_df
 
 def calculate_velocity(start_stop_frame_df, window_size, frame_rate, thorax_index):
+    """
+    Calculates the velocity of the subject and agent thorax.
+    Args:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data.
+        window_size (int): The window size for the velocity calculation.
+        frame_rate (int): The frame rate of the video.
+        thorax_index (int): The index of the thorax in the body parts list.
+    Returns:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data with the velocity
+        calculated.
+    """
+    start_stop_frame_df["body_parts"].apply(lambda x: x.index("thorax"))
     start_stop_frame_df["subject_thorax_velocity"] = start_stop_frame_df.apply(lambda x: helper_compute_velocity(x["subject_locations"][:,x["body_parts"].index("thorax"),:], window_size=frame_rate*3) * frame_rate, axis=1)
     start_stop_frame_df["subject_thorax_velocity"] = start_stop_frame_df["subject_thorax_velocity"].apply(lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
     start_stop_frame_df["agent_thorax_velocity"] = start_stop_frame_df.apply(lambda x: helper_compute_velocity(x["agent_locations"][:,x["body_parts"].index("thorax"),:], window_size=frame_rate*3) * frame_rate if x["agent_locations"] is not np.nan else np.nan, axis=1)
@@ -1313,6 +1353,14 @@ def calculate_velocity(start_stop_frame_df, window_size, frame_rate, thorax_inde
     return start_stop_frame_df
 
 def calculate_distance_to_reward_port(start_stop_frame_df, thorax_index):
+    """
+    Calculates the distance between the subject and agent thorax to the reward port.
+    Args:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data.
+        thorax_index (int): The index of the thorax in the body parts list.
+    Returns:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data with the distance
+    """
     start_stop_frame_df["subject_thorax_to_reward_port"] = start_stop_frame_df.apply(lambda x: np.linalg.norm(x["subject_locations"][:,x["body_parts"].index("thorax"),:] - x["reward_port"], axis=1), axis=1)
     start_stop_frame_df["subject_thorax_to_reward_port"] = start_stop_frame_df["subject_thorax_to_reward_port"].apply(lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
     start_stop_frame_df["agent_thorax_to_reward_port"] = start_stop_frame_df.apply(lambda x: np.linalg.norm(x["agent_locations"][:,x["body_parts"].index("thorax"),:] - x["reward_port"], axis=1) if x["agent_locations"] is not np.nan else np.nan, axis=1)
@@ -1321,6 +1369,17 @@ def calculate_distance_to_reward_port(start_stop_frame_df, thorax_index):
     return start_stop_frame_df
 
 def process_sleap_tracks(start_stop_frame_df, sleap_dir, med_pc_width, med_pc_height):
+    """
+    Processes the SLEAP tracks.
+    Args:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data.
+        sleap_dir (str): The directory containing the SLEAP data.
+        med_pc_width (float): The width of the video in pixels.
+        med_pc_height (float): The height of the video in pixels.
+    Returns:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data with the SLEAP
+        tracks processed.
+    """
     print(start_stop_frame_df.columns)
     start_stop_frame_df["tracked_subject"] = start_stop_frame_df["tracked_subject"].apply(lambda x: str(x).split("_"))
     start_stop_frame_df["current_subject"] = start_stop_frame_df["tracked_subject"]
@@ -1361,6 +1420,14 @@ def process_sleap_tracks(start_stop_frame_df, sleap_dir, med_pc_width, med_pc_he
     return start_stop_frame_df
 
 def preprocess_start_stop_frame_data(start_stop_frame_df, sleap_dir):
+    """
+    Preprocesses the start/stop frame data.
+    Args:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the start/stop frame data.
+        sleap_dir (str): The directory containing the SLEAP data.
+    Returns:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the start/stop frame data preprocessed.
+    """
     start_stop_frame_df = start_stop_frame_df.dropna(subset=["file_path"])
     start_stop_frame_df["sleap_name"] = start_stop_frame_df["file_path"].apply(lambda x: os.path.basename(x))
     start_stop_frame_df["video_name"] = start_stop_frame_df["file_path"].apply(lambda x: ".".join(os.path.basename(x).split(".")[:2]))
@@ -1371,6 +1438,24 @@ def preprocess_start_stop_frame_data(start_stop_frame_df, sleap_dir):
     # Add any additional preprocessing steps here
 
     return start_stop_frame_df
+
+def combine_with_lfp(start_stop_frame_df, lfp_spectral_df):
+    """
+    Combines the start/stop frame data with the LFP data.
+    Args:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the start/stop frame data.
+        lfp_spectral_df (pandas dataframe): A dataframe containing the LFP data.
+    Returns:
+        lfp_and_sleap (pandas dataframe): A dataframe containing the start/stop frame data combined with the LFP data.
+    """
+    start_stop_frame_df = start_stop_frame_df.dropna(subset=["video_name"])
+    lfp_spectral_df = lfp_spectral_df.dropna(subset=["video_name"])
+    lfp_and_sleap = pd.merge(start_stop_frame_df, lfp_spectral_df, on="video_name", how="inner")
+
+    lfp_and_sleap["video_timestamps"].apply(lambda x: x.shape).head()
+    lfp_and_sleap[lfp_and_sleap["subject_thorax_velocity"].apply(lambda x: np.isnan(x).any())]
+
+    return lfp_and_sleap
 
 def process_sleap_data(sleap_dir,
                        output_dir,
@@ -1383,6 +1468,24 @@ def process_sleap_data(sleap_dir,
                        lfp_spectral_df,
                        thorax_index,
                        output_prefix):
+    """
+    Processes the SLEAP data.
+    Args:
+        sleap_dir (str): The directory containing the SLEAP data.
+        output_dir (str): The directory where the output data is saved.
+        med_pc_width (float): The width of the video in pixels.
+        med_pc_height (float): The height of the video in pixels.
+        frame_rate (int): The frame rate of the video.
+        window_size (int): The window size for the velocity calculation.
+        distance_threshold (float): The distance threshold for the reward port.
+        start_stop_frame_df (pandas dataframe): A dataframe containing the start/stop frame data.
+        lfp_spectral_df (pandas dataframe): A dataframe containing the LFP data.
+        thorax_index (int): The index of the thorax in the body parts list.
+        output_prefix (str): Prefix for the output files.
+    Returns:
+        lfp_and_sleap (pandas dataframe): A dataframe containing the start/stop frame data combined with the LFP data.
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data.
+    """
     # Set up paths and directories
 
     # Process start/stop frame data
@@ -1403,16 +1506,36 @@ def process_sleap_data(sleap_dir,
     # Calculate distance to reward port
     start_stop_frame_df = calculate_distance_to_reward_port(start_stop_frame_df, thorax_index)
 
+    # Combine with LFP data
+    lfp_and_sleap = combine_with_lfp(start_stop_frame_df, lfp_spectral_df)
+    # Pickle
+    full_lfp_traces_pkl = f"{output_prefix}_lfp_and_sleap.pkl"
+    lfp_and_sleap.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
+
+
     # Export data
-    full_lfp_traces_pkl = f"{output_prefix}_04_spectral_and_sleap.pkl"
+    full_lfp_traces_pkl = f"{output_prefix}_start_stop.pkl"
     start_stop_frame_df.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
 
     #Debugging
-    start_stop_frame_df.to_pickle("test_outputs/lfp_and_sleap_df.pkl")
+    start_stop_frame_df.to_pickle("test_outputs/start_stop_df.pkl")
+    lfp_and_sleap.to_pickle("test_outputs/lfp_and_sleap_df.pkl")
 
-    return start_stop_frame_df
+    return lfp_and_sleap, start_stop_frame_df
 
 def analyze_sleap_file(start_stop_frame_df, plot_output_dir, output_prefix, thorax_index, thorax_plots, save_plots=False):
+    """
+    Analyzes the SLEAP files.
+    Args:
+        start_stop_frame_df (pandas dataframe): A dataframe containing the pose tracking data.
+        plot_output_dir (str): Directory where the plots are saved.
+        output_prefix (str): Prefix for the output files.
+        thorax_index (int): The index of the thorax in the body parts list.
+        thorax_plots (bool): Whether to plot the thorax data.
+        save_plots (bool): Whether to save the plots.
+    Returns:
+        None
+    """
     print("in describe_sleap_files")
     print(start_stop_frame_df.columns)
     print(start_stop_frame_df.head())
@@ -1492,7 +1615,7 @@ def main_test_only():
     print("output from obj creation")
     CHANNEL_MAPPING_DF, SPIKE_DF = load_data(channel_map_path=channel_map_path, pickle_path="test_outputs/power_df.pkl")
     calculate_filter_bands(SPIKE_DF, (4, 12), (30, 50), output_dir, experiment_prefix)
-    sleap_df = process_sleap_data(sleap_dir=sleap_path, output_dir=output_dir, med_pc_width=1, med_pc_height=1,
+    sleap_df, start_stop_df = process_sleap_data(sleap_dir=sleap_path, output_dir=output_dir, med_pc_width=1, med_pc_height=1,
                                   frame_rate=30, window_size=90, distance_threshold=0.1,
                                   start_stop_frame_df=pd.read_excel(event_path),
                                   lfp_spectral_df=pd.read_pickle("test_outputs/filtered_power_df.pkl"), thorax_index=0,
