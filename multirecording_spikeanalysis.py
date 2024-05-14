@@ -465,7 +465,6 @@ class EphysRecording:
 
         self.unit_timestamps = unit_timestamps
 
-
 class EphysRecordingCollection:
     """
     This class initializes and reads in phy folders as EphysRecording
