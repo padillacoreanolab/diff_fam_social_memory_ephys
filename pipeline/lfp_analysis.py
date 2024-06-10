@@ -18,6 +18,9 @@ import matplotlib.pyplot as plt
 import spikeinterface.extractors as se
 import spikeinterface.preprocessing as sp
 
+import neuron
+
+
 
 # TODO: need to make collection object
 #  user still needs to call the convert to mp4 function
@@ -115,12 +118,21 @@ class LFPObject:
         analyze_sleap_file(start_stop_frame_df=self.sleap_df, plot_output_dir="test_outputs/", output_prefix="test",
                            thorax_index=thorax_index, thorax_plots=True, save_plots=False)
 
+    def add_spike_times(self):
+        #takes lfp spectral and phy dir
+        #lfp_spectral_df, grouped_df, all_spike_time_df
+
+        add_spike_to_phy(lfp_spectral_df=self.power_df, phy_dir=self.phy_curation_path, output_dir=os.getcwd(), output_prefix="test")
+
+
+        return
 
     def __init__(self,
                  path,
                  channel_map_path,
                  sleap_path,
                  events_path,
+                 phy_curation_path,
                  subject,
                  ecu=False,
                  sampling_rate=20000,
@@ -129,6 +141,7 @@ class LFPObject:
         self.channel_map_path = channel_map_path
         self.sleap_path = sleap_path
         self.events_path = events_path
+        self.phy_curation_path = phy_curation_path
         self.events = {}
         self.channel_map = {}
         self.recording = None
@@ -168,7 +181,9 @@ class LFPObject:
         #notebook 4 sleap, events
         self.sleap_df = None
         self.start_stop_df = None
-        
+
+        #notebook 5
+        self.spike_times_df = None
 
         self.make_object()
 
@@ -200,6 +215,11 @@ class LFPObject:
         self.make_sleap_df()
         self.sleap_df.to_pickle(os.getcwd() + "/test_outputs/sleap_df.pkl")
         self.start_stop_df.to_pickle(os.getcwd() + "/test_outputs/start_stop_df.pkl")
+
+        self.analyze_sleap()
+
+        self.add_spike_times()
+        self.spike_times_df.to_pickle(os.getcwd() + "/test_outputs/spike_times_df.pkl")
 
 
 
@@ -422,8 +442,7 @@ def extract_sleap_data(filename):
         * node_names (list of str): List of body part names.
         * track_names (list of str): List of track names.
 
-    Example:
-    >>> locations, node_names, track_names = extract_sleap_data("path/to/sleap/file.h5")
+    Example: locations, node_names, track_names = extract_sleap_data("path/to/sleap/file.h5")
     """
     result = {}
     with h5py.File(filename, "r") as f:
@@ -1593,21 +1612,177 @@ def analyze_sleap_file(start_stop_frame_df, plot_output_dir, output_prefix, thor
             plt.savefig("test_outputs/thorax_tracks.png")
 
 
+def read_phy_data(all_phy_dir):
+    """
+    Read and process data from Phy.
+    """
+    recording_to_cluster_info = {}
+    recording_to_spike_clusters = {}
+    recording_to_spike_times = {}
+
+    for recording_dir in all_phy_dir:
+        try:
+            recording_basename = os.path.basename(recording_dir).strip(".rec")
+
+            # Read cluster info
+            file_path = os.path.join(recording_dir, "phy", "cluster_info.tsv")
+            recording_to_cluster_info[recording_basename] = pd.read_csv(file_path, sep="\t")
+
+            # Read spike clusters
+            file_path = os.path.join(recording_dir, "phy", "spike_clusters.npy")
+            recording_to_spike_clusters[recording_basename] = np.load(file_path)
+
+            # Read spike times
+            file_path = os.path.join(recording_dir, "phy", "spike_times.npy")
+            recording_to_spike_times[recording_basename] = np.load(file_path)
+        except Exception as e:
+            print(e)
+
+    return recording_to_cluster_info, recording_to_spike_clusters, recording_to_spike_times
+
+
+def filter_good_units(recording_to_cluster_info):
+    """
+    Filter good units from cluster information.
+    """
+    recording_to_cluster_info_df = pd.concat(recording_to_cluster_info, names=['recording_name']).reset_index(level=1,
+                                                                                                              drop=True).reset_index()
+    good_unit_cluster_info_df = recording_to_cluster_info_df[
+        recording_to_cluster_info_df["group"] == "good"].reset_index(drop=True)
+    recording_to_good_unit_ids = good_unit_cluster_info_df.groupby('recording_name')['cluster_id'].apply(list).to_dict()
+
+    return recording_to_good_unit_ids
+
+
+def combine_spike_data(recording_to_spike_clusters, recording_to_spike_times, recording_to_good_unit_ids,
+                       sampling_rate):
+    """
+    Combine spike data into a DataFrame.
+    """
+    recording_to_spike_df = {}
+
+    for recording_dir in recording_to_spike_clusters.keys():
+        try:
+            recording_basename = recording_dir
+            cluster_info_path = os.path.join(recording_dir, "phy", "cluster_info.tsv")
+            cluster_info_df = pd.read_csv(cluster_info_path, sep="\t")
+
+            spike_clusters = recording_to_spike_clusters[recording_basename]
+            spike_times = recording_to_spike_times[recording_basename]
+
+            spike_df = pd.DataFrame({'spike_clusters': spike_clusters, 'spike_times': spike_times.T[0]})
+
+            merged_df = spike_df.merge(cluster_info_df, left_on='spike_clusters', right_on='cluster_id', how="left")
+            merged_df["recording_name"] = recording_basename
+
+            merged_df["timestamp_isi"] = merged_df.groupby('spike_clusters')["spike_times"].diff()
+            merged_df["current_isi"] = merged_df["timestamp_isi"] / sampling_rate
+
+            if not merged_df.empty:
+                recording_to_spike_df[recording_basename] = merged_df
+        except Exception as e:
+            print(e)
+
+    all_spike_time_df = pd.concat(recording_to_spike_df.values())
+    all_spike_time_df = all_spike_time_df[
+        all_spike_time_df["cluster_id"].isin(recording_to_good_unit_ids[recording_basename])].reset_index(drop=True)
+
+    return all_spike_time_df
+
+
+def group_neurons_by_recording(all_spike_time_df, max_spikes=None):
+    """
+    Group neurons by recording and pad spike times with NaN.
+    """
+    grouped_df = all_spike_time_df.groupby(['spike_clusters', 'recording_name'])["spike_times"].apply(
+        lambda x: np.array(x)).reset_index()
+    grouped_df = grouped_df.sort_values(by=['recording_name', 'spike_clusters']).reset_index(drop=True)
+
+    if max_spikes is None:
+        max_number_of_spikes = all_spike_time_df["n_spikes"].max()
+    else:
+        max_number_of_spikes = max_spikes
+
+    grouped_df["spike_times"] = grouped_df["spike_times"].apply(
+        lambda x: np.concatenate([x, np.full([max_number_of_spikes - x.shape[0]], np.nan)]))
+    grouped_df = grouped_df.groupby('recording_name').agg(
+        {'spike_clusters': lambda x: list(x), 'spike_times': lambda x: np.array(list(x))}).reset_index()
+
+    return grouped_df
+
+
+def calculate_firing_rates(lfp_spectral_df, grouped_df, sampling_rate, spike_window):
+    """
+    Calculate firing rates and timestamps for neurons.
+    """
+    lfp_spectral_df = pd.merge(lfp_spectral_df, grouped_df, left_on='recording', right_on="recording_name", how='inner')
+
+    lfp_spectral_df["neuron_average_fr"] = lfp_spectral_df.apply(lambda x: np.array([
+                                                                                        neuron.spikes.calculate_rolling_avg_firing_rate(
+                                                                                            np.array(times[~np.isnan(
+                                                                                                times)]), stop_time=x[
+                                                                                                                        "last_timestamp"] -
+                                                                                                                    x[
+                                                                                                                        "first_timestamp"],
+                                                                                            window_size=spike_window,
+                                                                                            slide=spike_window)[0] for
+                                                                                        times in x["spike_times"]]),
+                                                                 axis=1)
+
+    lfp_spectral_df["neuron_average_timestamps"] = lfp_spectral_df.apply(lambda x:
+                                                                         neuron.spikes.calculate_rolling_avg_firing_rate(
+                                                                             x["spike_times"][0][
+                                                                                 ~np.isnan(x["spike_times"][0])],
+                                                                             stop_time=x["last_timestamp"] - x[
+                                                                                 "first_timestamp"],
+                                                                             window_size=spike_window,
+                                                                             slide=spike_window)[1], axis=1)
+
+    lfp_spectral_df["neuron_average_fr"] = lfp_spectral_df.apply(lambda x: x["neuron_average_fr"] * spike_window,
+                                                                 axis=1)
+
+    return lfp_spectral_df
+
+def add_spike_to_phy(phy_curation_path, lfp_spectral_df, output_dir, output_prefix):
+    """
+    Adds the spike data to the Phy curation file.
+    Args:
+        phy_curation_path (str): The path to the Phy curation file.
+        lfp_spectral_df (pandas dataframe): A dataframe containing the LFP data.
+        output_dir (str): Directory where the output data is saved.
+        output_prefix (str): Prefix for the output files.
+    Returns:
+        lfp_spectral_df (pandas dataframe): A dataframe containing the LFP data with the spike data added.
+        grouped_df (pandas dataframe): A dataframe containing the grouped neurons.
+        all_spike_time_df (pandas dataframe): A dataframe containing all the spike times.
+    """
+    # Read Phy curation file with read function
+    recording_to_cluster_info, recording_to_spike_clusters, recording_to_spike_times = read_phy_data(phy_curation_path)
+    recording_to_good_unit_ids = filter_good_units(recording_to_cluster_info)
+    all_spike_time_df = combine_spike_data(recording_to_spike_clusters, recording_to_spike_times, recording_to_good_unit_ids, 30000)
+    grouped_df = group_neurons_by_recording(all_spike_time_df)
+    lfp_spectral_df = calculate_firing_rates(lfp_spectral_df, grouped_df, 30000, 1)
+
+    # save the results
+    lfp_spectral_df.to_pickle(os.path.join(output_dir, f"{output_prefix}_lfp_spectral_df.pkl"))
+    grouped_df.to_pickle(os.path.join(output_dir, f"{output_prefix}_grouped_df.pkl"))
+    all_spike_time_df.to_pickle(os.path.join(output_dir, f"{output_prefix}_all_spike_time_df.pkl"))
+
+    return lfp_spectral_df, grouped_df, all_spike_time_df
+
 def main_test_only():
     input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
     output_dir = "/Volumes/chaitra/reward_competition_extension/data/proc/"
     channel_map_path = "channel_mapping.xlsx"
-    TONE_DIN = "dio_ECU_Din1"
-    TONE_STATE = 1
     experiment_dir = "/Volumes/chaitra/reward_competition_extension/data"
     experiment_prefix = "rce_test"
     sleap_path = "/Volumes/chaitra/reward_competition_extension/data/proc/sleap/"
     event_path = "/Volumes/chaitra/reward_competition_extension/data/proc/events.xlsx"
     phy_path = "/Volumes/chaitra/reward_competition_extension/data/phy/"
     labels_path = "/Volumes/chaitra/reward_competition_extension/data/labels.xlsx"
-    #convert_to_mp4(experiment_dir)
+    convert_to_mp4(experiment_dir)
     paths = {}
-    #session_to_trodes_temp, paths= extract_all_trodes(input_dir)
+    session_to_trodes_temp, paths= extract_all_trodes(input_dir)
     #session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
     #metadata = create_metadata_df(session_to_trodes_temp, paths)
     #metadata, state_df, video_df, final_df, pkl_path = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
