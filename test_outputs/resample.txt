@@ -1,2 +1,0 @@
-ResampleRecording: 32 channels - 1.0kHz - 1 segments - 3,280,151 samples 
-                   3,280.15s (54.67 minutes) - int16 dtype - 200.20 MiB

@@ -3,3 +3,9 @@ venv/*
 .DS_Store
 *.rec
 *.pkl
+trodes/__pycache__/*
+*.txt
+archive/data/*
+*.zip
+*.xlsx
+*.png

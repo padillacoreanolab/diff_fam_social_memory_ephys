@@ -1,3 +1,0 @@
-SpikeGadgetsRecordingExtractor: 32 channels - 20.0kHz - 1 segments - 65,603,030 samples 
-                                3,280.15s (54.67 minutes) - int16 dtype - 3.91 GiB
-  file_path: /Users/chaitrapeddireddy/Documents/GitHub/lfp/reward_competition_extention/data/omission/test/test_1_merged.rec/20230618_100636_standard_comp_to_omission_D2_subj_1_1_t1b2L_box2_merged.rec
