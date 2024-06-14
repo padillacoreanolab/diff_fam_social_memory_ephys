@@ -1,0 +1,10 @@
+h5py==3.11.0
+matplotlib==3.8.4
+NEURON==8.2.4
+numpy==1.26.4
+openpyxl==3.1.2
+pandas==2.2.2
+scikit_learn==1.5.0
+scipy==1.13.1
+spectral_connectivity==1.1.2
+spikeinterface==0.100.6

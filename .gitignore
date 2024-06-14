@@ -5,6 +5,7 @@ venv/*
 *.pkl
 trodes/__pycache__/*
 *.txt
+!requirements.txt
 archive/data/*
 *.zip
 *.xlsx
