@@ -7,7 +7,6 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from spectral_connectivity import Multitaper, Connectivity
-import openpyxl
 import logging
 import h5py
 from scipy.interpolate import interp1d
@@ -47,40 +46,35 @@ class LfpExperiment:
 class LfpRecordingObject:
     def make_object(self):
         # call extract_all_trodes
-        session_to_trodes_temp, paths = extract_all_trodes(self.path)
+        session_to_trodes_temp, paths = extract_all_trodes(input_dir=self.path)
         # call add_video_timestamps
         session_to_trodes_temp = add_video_timestamps(
-            session_to_trodes_temp, self.path)
+            session_to_trodes_data=session_to_trodes_temp, directory_path=self.path)
         # call create_metadata_df
-        metadata = create_metadata_df(session_to_trodes_temp, paths)
+        metadata = create_metadata_df(session_to_trodes=session_to_trodes_temp, session_to_path=paths)
         # call adjust_first_timestamps
-        metadata, state_df, video_df, final_df, pkl_path = adjust_first_timestamps(
-            metadata, self.path, self.subject)
-        # assign variables
-        self.metadata = metadata
-        self.state_df = state_df
-        self.video_df = video_df
-        self.final_df = final_df
-        self.pkl_path = pkl_path
+        self.metadata, self.state_df, self.video_df, self.final_df = adjust_first_timestamps(
+            trodes_metadata_df=metadata, output_dir=self.path, experiment_prefix=self.experiment_name)
+
+        print(self.output_path)
+
+        # Pickle all
+        self.metadata.to_pickle(self.output_path + "/metadata.pkl")
+        self.state_df.to_pickle(self.output_path + "/state_df.pkl")
+        self.video_df.to_pickle(self.output_path + "/video_df.pkl")
+        self.final_df.to_pickle(self.output_path + "/final_df.pkl")
 
         print("LFP Object has been created for " + self.subject + " at " + self.path)
 
     def make_power_df(self):
-        # handle modified z score
-        if self.pkl_path is not None:
-            print("CALLED here")
-            LFP_TRACES_DF = preprocess_lfp_data(
-                pd.read_pickle(
-                    self.pkl_path),
-                self.VOLTAGE_SCALING_VALUE,
-                self.zscore_threshold,
-                self.RESAMPLE_RATE)
-            self.LFP_TRACES_DF = LFP_TRACES_DF
-            print("LFP TRACES DF")
-            print(LFP_TRACES_DF.head())
-        else:
-            print("NO PKL PATH")
-            return
+        LFP_TRACES_DF = preprocess_lfp_data(
+                lfp_traces_df=self.spike_df,
+                voltage_scaling_value=self.VOLTAGE_SCALING_VALUE,
+                zscore_threshold=self.zscore_threshold,
+                resample_rate=self.RESAMPLE_RATE)
+        self.LFP_TRACES_DF = LFP_TRACES_DF
+        print("LFP TRACES DF")
+        print(LFP_TRACES_DF.head())
         # call get_power
         power_df = calculate_power(
             self.spike_df,
@@ -140,20 +134,25 @@ class LfpRecordingObject:
     def analyze_sleap(self):
         # start_stop_frame_df, plot_output_dir, output_prefix, thorax_index, thorax_plots, save_plots=False
         thorax_index = 1
-        analyze_sleap_file(start_stop_frame_df=self.sleap_df, plot_output_dir="test_outputs/", output_prefix="test",
+        analyze_sleap_file(start_stop_frame_df=self.sleap_df, plot_output_dir=self.output_path + "/plots/", output_prefix="test",
                            thorax_index=thorax_index, thorax_plots=True, save_plots=False)
 
     def add_spike_times(self):
         # takes lfp spectral and phy dir
         # lfp_spectral_df, grouped_df, all_spike_time_df
 
-        add_spike_to_phy(
+        self.power_df, self.grouped_df, self.all_spike_time_df = add_spike_to_phy(
             lfp_spectral_df=self.power_df,
-            phy_dir=self.phy_curation_path,
+            phy_curation_path=self.phy_curation_path,
             output_dir=os.getcwd(),
             output_prefix="test")
 
-        return
+    def make_output_dir(self):
+        print("IN MAKE OUTPUT DIR")
+        os.makedirs(self.output_path, exist_ok=True)
+        self.output_path = self.output_path + "/" + self.subject
+        os.makedirs(self.output_path, exist_ok=True)
+        print("Output path is " + self.output_path)
 
     def __init__(self,
                  path,
@@ -162,7 +161,9 @@ class LfpRecordingObject:
                  events_path,
                  phy_curation_path,
                  labels_path,
+                 experiment_name,
                  subject,
+                 output_path,
                  ecu=False,
                  sampling_rate=20000,
                  frame_rate=22):
@@ -171,12 +172,16 @@ class LfpRecordingObject:
         self.sleap_path = sleap_path
         self.events_path = events_path
         self.phy_curation_path = phy_curation_path
+        self.labels_path = labels_path
+        self.experiment_name = experiment_name
         self.events = {}
         self.channel_map = {}
         self.recording = None
         self.subject = subject
         self.sampling_rate = sampling_rate
         self.frame_rate = frame_rate
+
+        self.output_path = output_path
 
         # add variables from make object function
         self.metadata = None
@@ -214,6 +219,10 @@ class LfpRecordingObject:
         # notebook 5
         self.spike_times_df = None
 
+        self.all_spike_time_df = None
+        self.grouped_df = None
+
+        self.make_output_dir()
         self.make_object()
 
         # get channel map and lfp
@@ -231,11 +240,10 @@ class LfpRecordingObject:
             LFP_SAMPLING_RATE=1000,
             EPHYS_SAMPLING_RATE=20000)
 
-        self.channel_map, self.spike_df = load_data(
-            channel_map_path=self.channel_map_path, pickle_path=self.pkl_path)
+        self.channel_map = load_channel_map(channel_map_path=self.channel_map_path)
 
         self.spike_df = combine_lfp_traces_and_metadata(
-            SPIKEGADGETS_EXTRACTED_DF=self.spike_df,
+            SPIKEGADGETS_EXTRACTED_DF=self.final_df,
             recording_name_to_all_ch_lfp=self.recording_names_dict,
             CHANNEL_MAPPING_DF=self.channel_map,
             CURRENT_SUBJECT_COL="current_subject",
@@ -246,44 +254,42 @@ class LfpRecordingObject:
             LFP_SAMPLING_RATE=1000)
 
         # temporarily pickle the spike_df for debugging
-        self.spike_df.to_pickle(os.getcwd() + "/test_outputs/spike_df.pkl")
+        self.spike_df.to_pickle(self.output_path + "/spike_df.pkl")
 
         self.make_power_df()
-        print("Power dataframe has been created at " + os.getcwd() + "/test_outputs/power_df.pkl")
-        self.power_df.to_pickle(os.getcwd() + "/test_outputs/power_df.pkl")
+        print("Power dataframe has been created at " + self.output_path + "/power_df.pkl")
+        self.power_df.to_pickle(self.output_path + "/power_df.pkl")
 
         self.make_phase_df()
-        print("Phase dataframe has been created at " + os.getcwd() + "/test_outputs/phase_df.pkl")
-        self.phase_df.to_pickle(os.getcwd() + "/test_outputs/phase_df.pkl")
+        print("Phase dataframe has been created at " + self.output_path + "/phase_df.pkl")
+        self.phase_df.to_pickle(self.output_path + "/phase_df.pkl")
 
         self.make_coherence_df()
-        print("Coherence dataframe has been created at " + os.getcwd() + "/test_outputs/coherence_df.pkl")
-        self.coherence_df.to_pickle(
-            os.getcwd() + "/test_outputs/coherence_df.pkl")
+        print("Coherence dataframe has been created at " + self.output_path + "/coherence_df.pkl")
+        self.coherence_df.to_pickle(self.output_path + "/coherence_df.pkl")
 
         self.make_granger_df()
-        print("Granger dataframe has been created at " + os.getcwd() + "/test_outputs/granger_df.pkl")
-        self.granger_df.to_pickle(os.getcwd() + "/test_outputs/granger_df.pkl")
+        print("Granger dataframe has been created at " + self.output_path + "/granger_df.pkl")
+        self.granger_df.to_pickle(self.output_path + "/granger_df.pkl")
 
         self.make_filter_bands_df()
-        print("Filter bands dataframe has been created at " + os.getcwd() + "/test_outputs/filter_bands_df.pkl")
-        self.filter_bands_df.to_pickle(
-            os.getcwd() + "/test_outputs/filter_bands_df.pkl")
+        print("Filter bands dataframe has been created at " + self.output_path + "/filter_bands_df.pkl")
+        self.filter_bands_df.to_pickle(self.output_path + "/filter_bands_df.pkl")
 
         self.make_sleap_df()
-        print("Sleap dataframe has been created at " + os.getcwd() + "/test_outputs/sleap_df.pkl")
-        self.sleap_df.to_pickle(os.getcwd() + "/test_outputs/sleap_df.pkl")
-        self.start_stop_df.to_pickle(
-            os.getcwd() + "/test_outputs/start_stop_df.pkl")
+        print("Sleap and start/stop dataframes has been created at " + self.output_path + "/sleap_df.pkl and "
+              + self.output_path + "/start_stop_df.pkl")
+        self.sleap_df.to_pickle(self.output_path + "/sleap_df.pkl")
+        self.start_stop_df.to_pickle(self.output_path + "/start_stop_df.pkl")
 
         self.analyze_sleap()
         print("Analysis of sleap data has been completed")
 
         self.add_spike_times()
-        print("Spike times have been added to the phy file at " + os.getcwd() + "/test_outputs/spike_times_df.pkl")
-        self.spike_times_df.to_pickle(
-            os.getcwd() + "/test_outputs/spike_times_df.pkl")
-
+        print("Spike times have been added to the phy file at " + self.output_path + "/spike_times_df.pkl")
+        self.spike_times_df.to_pickle(self.output_path + "/spike_times_df.pkl")
+        self.grouped_df.to_pickle(self.output_path + "/grouped_df.pkl")
+        self.all_spike_time_df.to_pickle(self.output_path + "/all_spike_time_df.pkl")
 
 def helper_find_nearest_indices(array1, array2):
     """
@@ -900,28 +906,17 @@ def adjust_first_timestamps(trodes_metadata_df, output_dir, experiment_prefix):
     trodes_final_df = make_final_df(
         trodes_raw_df, trodes_state_df, trodes_video_df)
 
-    # Pickle the final dataframe in the output directory with the experiment
-    # prefix.
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    # save the final dataframe in experiment path
-    pkl_path = os.path.join(output_dir, experiment_prefix + "_final_df.pkl")
-    trodes_final_df.to_pickle(pkl_path)
-    print("pickle saved in ", os.path.join(pkl_path))
-
-    return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df, pkl_path
+    return trodes_metadata_df, trodes_state_df, trodes_video_df, trodes_final_df
 
 
-def load_data(channel_map_path, pickle_path, SUBJECT_COL="Subject"):
+def load_channel_map(channel_map_path, SUBJECT_COL="Subject"):
     """
     Loads the channel mapping and trodes metadata dataframe.
     Args:
         channel_map_path (String): Path to the channel mapping excel file.
-        pickle_path (String): Path to the trodes metadata pickle file.
         SUBJECT_COL (String): Column name for the subject in the channel mapping dataframe.
     Returns:
         CHANNEL_MAPPING_DF (pandas dataframe): A dataframe containing the channel mapping data.
-        SPIKEGADGETS_EXTRACTED_DF (pandas dataframe): A dataframe containing the trodes metadata.
     """
     # Load channel mapping
     CHANNEL_MAPPING_DF = pd.read_excel(channel_map_path)
@@ -937,10 +932,7 @@ def load_data(channel_map_path, pickle_path, SUBJECT_COL="Subject"):
     CHANNEL_MAPPING_DF[SUBJECT_COL] = CHANNEL_MAPPING_DF[SUBJECT_COL].astype(
         str)
 
-    # Load trodes metadata
-    SPIKEGADGETS_EXTRACTED_DF = pd.read_pickle(pickle_path)
-
-    return CHANNEL_MAPPING_DF, SPIKEGADGETS_EXTRACTED_DF
+    return CHANNEL_MAPPING_DF
 
 
 def extract_lfp_traces(ALL_SESSION_DIR, ECU_STREAM_ID, TRODES_STREAM_ID, RECORDING_EXTENTION,
@@ -1543,10 +1535,6 @@ def calculate_filter_bands(lfp_spectral_df, theta_band,
                                                                                                                          1])],
                                                                                         axis=1), axis=1)
 
-    full_lfp_traces_pkl = f"{output_prefix}_03_spectral_bands.pkl"
-    lfp_spectral_df.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
-    # Debugging
-    lfp_spectral_df.to_pickle("test_outputs/filtered_power_df.pkl")
     return lfp_spectral_df
 
 
@@ -1823,7 +1811,7 @@ def combine_with_lfp(start_stop_frame_df, lfp_spectral_df):
         how="inner")
 
     lfp_and_sleap["video_timestamps"].apply(lambda x: x.shape).head()
-    lfp_and_sleap[lfp_and_sleap["subject_thorax_velocity"].apply(
+    lfp_and_sleap = lfp_and_sleap[lfp_and_sleap["subject_thorax_velocity"].apply(
         lambda x: np.isnan(x).any())]
 
     return lfp_and_sleap
@@ -1886,20 +1874,6 @@ def process_sleap_data(sleap_dir,
 
     # Combine with LFP data
     lfp_and_sleap = combine_with_lfp(start_stop_frame_df, lfp_spectral_df)
-    # Pickle
-    full_lfp_traces_pkl = f"{output_prefix}_lfp_and_sleap.pkl"
-    lfp_and_sleap.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
-
-    # Export data
-    full_lfp_traces_pkl = f"{output_prefix}_start_stop.pkl"
-    start_stop_frame_df.to_pickle(
-        os.path.join(
-            output_dir,
-            full_lfp_traces_pkl))
-
-    # Debugging
-    start_stop_frame_df.to_pickle("test_outputs/start_stop_df.pkl")
-    lfp_and_sleap.to_pickle("test_outputs/lfp_and_sleap_df.pkl")
 
     return lfp_and_sleap, start_stop_frame_df
 
@@ -1956,14 +1930,14 @@ def analyze_sleap_file(start_stop_frame_df, plot_output_dir,
         plt.title('Thorax locations')
         plt.xlabel("Time in frames")
         plt.ylabel("Coordinate Position")
+        plt.show()
 
         if save_plots:
             plt.savefig(
                 os.path.join(
                     plot_output_dir,
                     f"{output_prefix}_thorax_locations.png"))
-            plt.savefig("test_outputs/thorax_locations.png")
-        plt.show()
+
 
         # Thorax tracks
         plt.figure(figsize=(7, 7))
@@ -1978,7 +1952,6 @@ def analyze_sleap_file(start_stop_frame_df, plot_output_dir,
                 os.path.join(
                     plot_output_dir,
                     f"{output_prefix}_thorax_tracks.png"))
-            plt.savefig("test_outputs/thorax_tracks.png")
 
 
 def read_phy_data(all_phy_dir):
@@ -2174,63 +2147,3 @@ def add_spike_to_phy(phy_curation_path, lfp_spectral_df,
             f"{output_prefix}_all_spike_time_df.pkl"))
 
     return lfp_spectral_df, grouped_df, all_spike_time_df
-
-
-def main_test_only():
-    input_dir = "/Volumes/chaitra/reward_competition_extension/data/standard/2023_06_*/*.rec"
-    output_dir = "/Volumes/chaitra/reward_competition_extension/data/proc/"
-    channel_map_path = "channel_mapping.xlsx"
-    experiment_dir = "/Volumes/chaitra/reward_competition_extension/data"
-    experiment_prefix = "rce_test"
-    sleap_path = "/Volumes/chaitra/reward_competition_extension/data/proc/sleap/"
-    event_path = "/Volumes/chaitra/reward_competition_extension/data/proc/events.xlsx"
-    phy_path = "/Volumes/chaitra/reward_competition_extension/data/phy/"
-    labels_path = "/Volumes/chaitra/reward_competition_extension/data/labels.xlsx"
-    convert_to_mp4(experiment_dir)
-    paths = {}
-    session_to_trodes_temp, paths = extract_all_trodes(input_dir)
-    # session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
-    # metadata = create_metadata_df(session_to_trodes_temp, paths)
-    # metadata, state_df, video_df, final_df, pkl_path = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
-
-    print("output from obj creation")
-    CHANNEL_MAPPING_DF, SPIKE_DF = load_data(
-        channel_map_path=channel_map_path, pickle_path="test_outputs/power_df.pkl")
-    calculate_filter_bands(SPIKE_DF, (4, 12), (30, 50),
-                           output_dir, experiment_prefix)
-    sleap_df, start_stop_df = process_sleap_data(sleap_dir=sleap_path, output_dir=output_dir, med_pc_width=1,
-                                                 med_pc_height=1,
-                                                 frame_rate=30, window_size=90, distance_threshold=0.1,
-                                                 start_stop_frame_df=pd.read_excel(
-                                                     event_path),
-                                                 lfp_spectral_df=pd.read_pickle("test_outputs/filtered_power_df.pkl"),
-                                                 thorax_index=0,
-                                                 output_prefix="test_outputs")
-    sleap_df.to_pickle("test_outputs/sleap_df.pkl")
-    analyze_sleap_file(
-        sleap_df,
-        output_dir,
-        experiment_prefix,
-        0,
-        True,
-        save_plots=True)
-
-    # try to create LFPObject
-    # lfp = LFPObject(path=input_dir, channel_map_path=channel_map_path, events_path="test.xlsx", subject="1.4")
-
-
-"""
-    #write out all the dataframes to a text file
-    lfp.metadata.to_csv("test_outputs/metadata.txt", sep="\t")
-    lfp.state_df.to_csv("test_outputs/state_df.txt", sep="\t")
-    lfp.video_df.to_csv("test_outputs/video_df.txt", sep="\t")
-    lfp.final_df.to_csv("test_outputs/final_df.txt", sep="\t")
-    lfp.power_df.to_csv("test_outputs/power_df.txt", sep="\t")
-    lfp.phase_df.to_csv("test_outputs/phase_df.txt", sep="\t")
-    lfp.coherence_df.to_csv("test_outputs/coherence_df.txt", sep="\t")
-    lfp.granger_df.to_csv("test_outputs/granger_df.txt", sep="\t")
-"""
-# lfp.filter_bands_df.to_csv("test_outputs/filter_bands_df.txt", sep="\t")
-
-
-main_test_only()

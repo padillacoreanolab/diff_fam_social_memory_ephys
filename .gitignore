@@ -11,3 +11,4 @@ archive/data/*
 *.xlsx
 !input/*
 *.png
+__pycache__/*
