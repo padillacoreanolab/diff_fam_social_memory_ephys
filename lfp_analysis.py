@@ -14,7 +14,6 @@ from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 
-
 import spikeinterface.extractors as se
 import spikeinterface.preprocessing as sp
 
@@ -28,7 +27,7 @@ import neuron
 #  power, phase, coherence, granger functions depend on each other (add none exceptions)
 #  need to make all df columns lower case
 
-class LFPCollection:
+class LfpExperiment:
     """
     list_of_lfp_objects: list of LFPObject objects
     for file in recording_dir:
@@ -37,8 +36,15 @@ class LFPCollection:
     mainly for analysis, graphs, and overall trends
     """
 
+    def __init__(self, experiment):
+        self.list_of_lfp_objects = {}
+        self.experiment = experiment
 
-class LFPObject:
+    def add_lfp_object(self, lfp_object, subject):
+        self.list_of_lfp_objects[(subject, self.experiment)] = lfp_object
+
+
+class LfpRecordingObject:
     def make_object(self):
         # call extract_all_trodes
         session_to_trodes_temp, paths = extract_all_trodes(self.path)
@@ -56,6 +62,8 @@ class LFPObject:
         self.video_df = video_df
         self.final_df = final_df
         self.pkl_path = pkl_path
+
+        print("LFP Object has been created for " + self.subject + " at " + self.path)
 
     def make_power_df(self):
         # handle modified z score
@@ -91,7 +99,7 @@ class LFPObject:
 
     def make_coherence_df(self):
         # call get_coherence
-        #lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step
+        # lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step
         coherence_df = calculate_coherence(self.spike_df, self.RESAMPLE_RATE,
                                            self.TIME_HALFBANDWIDTH_PRODUCT,
                                            self.TIME_WINDOW_DURATION,
@@ -101,7 +109,7 @@ class LFPObject:
 
     def make_granger_df(self):
         # call get_granger
-        #lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step
+        # lfp_traces_df, resample_rate, time_halfbandwidth_product, time_window_duration, time_window_step
         granger_df = calculate_granger_causality(lfp_traces_df=self.spike_df, resample_rate=self.RESAMPLE_RATE,
                                                  time_halfbandwidth_product=self.TIME_HALFBANDWIDTH_PRODUCT,
                                                  time_window_duration=self.TIME_WINDOW_DURATION,
@@ -130,14 +138,14 @@ class LFPObject:
         self.start_stop_df = start_stop_df
 
     def analyze_sleap(self):
-        #start_stop_frame_df, plot_output_dir, output_prefix, thorax_index, thorax_plots, save_plots=False
+        # start_stop_frame_df, plot_output_dir, output_prefix, thorax_index, thorax_plots, save_plots=False
         thorax_index = 1
         analyze_sleap_file(start_stop_frame_df=self.sleap_df, plot_output_dir="test_outputs/", output_prefix="test",
                            thorax_index=thorax_index, thorax_plots=True, save_plots=False)
 
     def add_spike_times(self):
         # takes lfp spectral and phy dir
-        #lfp_spectral_df, grouped_df, all_spike_time_df
+        # lfp_spectral_df, grouped_df, all_spike_time_df
 
         add_spike_to_phy(
             lfp_spectral_df=self.power_df,
@@ -153,6 +161,7 @@ class LFPObject:
                  sleap_path,
                  events_path,
                  phy_curation_path,
+                 labels_path,
                  subject,
                  ecu=False,
                  sampling_rate=20000,
@@ -180,7 +189,7 @@ class LFPObject:
         self.LFP_TRACES_DF = None
         self.original_trace_columns = None
 
-        # hard coding these variables for power
+        # TODO: hard coding these variables for power
         self.VOLTAGE_SCALING_VALUE = 0.195
         self.zscore_threshold = 4
         self.RESAMPLE_RATE = 1000
@@ -189,7 +198,6 @@ class LFPObject:
         self.TIME_WINDOW_STEP = 0.5
         self.BAND_TO_FREQ = {"theta": (4, 12), "gamma": (30, 51)}
 
-        # TODO: power stuff, save only columns of power, phase, coherence,
         # granger
         self.power_df = None
         self.phase_df = None
@@ -222,8 +230,10 @@ class LFPObject:
             ELECTRIC_NOISE_FREQ=60,
             LFP_SAMPLING_RATE=1000,
             EPHYS_SAMPLING_RATE=20000)
+
         self.channel_map, self.spike_df = load_data(
             channel_map_path=self.channel_map_path, pickle_path=self.pkl_path)
+
         self.spike_df = combine_lfp_traces_and_metadata(
             SPIKEGADGETS_EXTRACTED_DF=self.spike_df,
             recording_name_to_all_ch_lfp=self.recording_names_dict,
@@ -239,30 +249,38 @@ class LFPObject:
         self.spike_df.to_pickle(os.getcwd() + "/test_outputs/spike_df.pkl")
 
         self.make_power_df()
+        print("Power dataframe has been created at " + os.getcwd() + "/test_outputs/power_df.pkl")
         self.power_df.to_pickle(os.getcwd() + "/test_outputs/power_df.pkl")
 
         self.make_phase_df()
+        print("Phase dataframe has been created at " + os.getcwd() + "/test_outputs/phase_df.pkl")
         self.phase_df.to_pickle(os.getcwd() + "/test_outputs/phase_df.pkl")
 
         self.make_coherence_df()
+        print("Coherence dataframe has been created at " + os.getcwd() + "/test_outputs/coherence_df.pkl")
         self.coherence_df.to_pickle(
             os.getcwd() + "/test_outputs/coherence_df.pkl")
 
         self.make_granger_df()
+        print("Granger dataframe has been created at " + os.getcwd() + "/test_outputs/granger_df.pkl")
         self.granger_df.to_pickle(os.getcwd() + "/test_outputs/granger_df.pkl")
 
         self.make_filter_bands_df()
+        print("Filter bands dataframe has been created at " + os.getcwd() + "/test_outputs/filter_bands_df.pkl")
         self.filter_bands_df.to_pickle(
             os.getcwd() + "/test_outputs/filter_bands_df.pkl")
 
         self.make_sleap_df()
+        print("Sleap dataframe has been created at " + os.getcwd() + "/test_outputs/sleap_df.pkl")
         self.sleap_df.to_pickle(os.getcwd() + "/test_outputs/sleap_df.pkl")
         self.start_stop_df.to_pickle(
             os.getcwd() + "/test_outputs/start_stop_df.pkl")
 
         self.analyze_sleap()
+        print("Analysis of sleap data has been completed")
 
         self.add_spike_times()
+        print("Spike times have been added to the phy file at " + os.getcwd() + "/test_outputs/spike_times_df.pkl")
         self.spike_times_df.to_pickle(
             os.getcwd() + "/test_outputs/spike_times_df.pkl")
 
@@ -713,12 +731,12 @@ def get_trodes_state_df(trodes_metadata_df):
         trodes_state_df (pandas dataframe): A dataframe containing the state data for each session.
     """
     trodes_state_df = trodes_metadata_df[trodes_metadata_df["metadata_dir"].isin([
-                                                                                 "DIO"])].copy()
+        "DIO"])].copy()
     trodes_state_df = trodes_metadata_df[trodes_metadata_df["id"].isin(
         ["ECU_Din1", "ECU_Din2"])].copy()
     trodes_state_df["event_indexes"] = trodes_state_df.apply(
         lambda x: np.column_stack([np.where(x["last_item_data"] == 1)[
-                                  0], np.where(x["last_item_data"] == 1)[0] + 1]),
+                                       0], np.where(x["last_item_data"] == 1)[0] + 1]),
         axis=1)
     trodes_state_df["event_indexes"] = trodes_state_df.apply(
         lambda x: x["event_indexes"][x["event_indexes"][:, 1] <= x["first_item_data"].shape[0] - 1], axis=1)
@@ -740,7 +758,8 @@ def get_trodes_raw_df(trodes_metadata_df):
         (trodes_metadata_df["metadata_dir"] == "raw") & (trodes_metadata_df["metadata_file"] == "timestamps")].copy()
     trodes_raw_df["first_timestamp"] = trodes_raw_df["first_item_data"].apply(
         lambda x: x[0])
-    trodes_raw_cols = ['session_dir', 'recording', 'original_file', 'session_path', 'current_subject', 'first_item_data',
+    trodes_raw_cols = ['session_dir', 'recording', 'original_file', 'session_path', 'current_subject',
+                       'first_item_data',
                        'first_timestamp', 'all_subjects']
     trodes_raw_df = trodes_raw_df[trodes_raw_cols].reset_index(
         drop=True).copy()
@@ -970,8 +989,10 @@ def extract_lfp_traces(ALL_SESSION_DIR, ECU_STREAM_ID, TRODES_STREAM_ID, RECORDI
     return recording_name_to_all_ch_lfp
 
 
-def combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF, recording_name_to_all_ch_lfp, CHANNEL_MAPPING_DF, EPHYS_SAMPLING_RATE,
-                                    LFP_SAMPLING_RATE, LFP_RESAMPLE_RATIO=20, ALL_CH_LFP_COL="all_ch_lfp", SUBJECT_COL="Subject", CURRENT_SUBJECT_COL="current_subject"):
+def combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF, recording_name_to_all_ch_lfp, CHANNEL_MAPPING_DF,
+                                    EPHYS_SAMPLING_RATE,
+                                    LFP_SAMPLING_RATE, LFP_RESAMPLE_RATIO=20, ALL_CH_LFP_COL="all_ch_lfp",
+                                    SUBJECT_COL="Subject", CURRENT_SUBJECT_COL="current_subject"):
     """
     Combines the LFP traces with the metadata in the SpikeGadgets dataframe.
     Args:
@@ -1043,6 +1064,7 @@ def combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF, recording_name_to
         logging.info(f"Completed processing channels for row {row.name}")
 
         return traces.T
+
     # print number of rows in SPIKEGADGETS_LFP_DF
     print("num rows in spike df")
     print(len(SPIKEGADGETS_LFP_DF))
@@ -1076,6 +1098,7 @@ def combine_lfp_traces_and_metadata(SPIKEGADGETS_EXTRACTED_DF, recording_name_to
     print("done combining lfp traces and metadata")
 
     return SPIKEGADGETS_FINAL_DF
+
 
 ### START OF NOTEBOOK 2 ###
 
@@ -1118,7 +1141,7 @@ def preprocess_lfp_data(lfp_traces_df, voltage_scaling_value,
         brain_region = col.split("_")[0]
         updated_column = "{}_lfp_RMS".format(brain_region)
         lfp_traces_df[updated_column] = lfp_traces_df[col].apply(
-            lambda x: (x / np.sqrt(np.mean(x**2))).astype(np.float32))
+            lambda x: (x / np.sqrt(np.mean(x ** 2))).astype(np.float32))
 
     zscore_columns = [col for col in lfp_traces_df.columns if "zscore" in col]
     for col in zscore_columns:
@@ -1141,7 +1164,7 @@ def preprocess_lfp_data(lfp_traces_df, voltage_scaling_value,
         brain_region = col.split("_")[0]
         updated_column = "{}_lfp_RMS_filtered".format(brain_region)
         lfp_traces_df[updated_column] = lfp_traces_df[col].apply(
-            lambda x: (x / np.sqrt(np.nanmean(x**2))).astype(np.float32))
+            lambda x: (x / np.sqrt(np.nanmean(x ** 2))).astype(np.float32))
     print("done preprocessing")
     return lfp_traces_df
 
@@ -1397,12 +1420,12 @@ def calculate_granger_causality(lfp_traces_df, resample_rate,
 
                 lfp_traces_df[granger_1_2_col] = lfp_traces_df[connectivity_col].apply(
                     lambda x: x.pairwise_spectral_granger_prediction()[
-                        :, :, 0, 1]
+                              :, :, 0, 1]
                 )
 
                 lfp_traces_df[granger_2_1_col] = lfp_traces_df[connectivity_col].apply(
                     lambda x: x.pairwise_spectral_granger_prediction()[
-                        :, :, 1, 0]
+                              :, :, 1, 0]
                 )
 
                 lfp_traces_df[granger_1_2_col] = lfp_traces_df[granger_1_2_col].apply(
@@ -1429,6 +1452,7 @@ def calculate_granger_causality(lfp_traces_df, resample_rate,
         errors="ignore")
 
     return lfp_traces_df
+
 
 ### START OF NOTEBOOK 3 ###
 
@@ -1458,19 +1482,19 @@ def calculate_filter_bands(lfp_spectral_df, theta_band,
         theta_power_col = f"{brain_region_name}_power_theta"
         gamma_power_col = f"{brain_region_name}_power_gamma"
         lfp_spectral_df[theta_power_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
-            "power_calculation_frequencies"] >=
-            theta_band[0]) & (x[
-                "power_calculation_frequencies"] <=
-            theta_band[
-                1])],
-            axis=1), axis=1)
+                                                                                                     "power_calculation_frequencies"] >=
+                                                                                                 theta_band[0]) & (x[
+                                                                                                                       "power_calculation_frequencies"] <=
+                                                                                                                   theta_band[
+                                                                                                                       1])],
+                                                                                      axis=1), axis=1)
         lfp_spectral_df[gamma_power_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
-            "power_calculation_frequencies"] >=
-            gamma_band[0]) & (x[
-                "power_calculation_frequencies"] <=
-            gamma_band[
-                1])],
-            axis=1), axis=1)
+                                                                                                     "power_calculation_frequencies"] >=
+                                                                                                 gamma_band[0]) & (x[
+                                                                                                                       "power_calculation_frequencies"] <=
+                                                                                                                   gamma_band[
+                                                                                                                       1])],
+                                                                                      axis=1), axis=1)
 
     # Filter theta/gamma for coherence
     coherence_columns = [col for col in lfp_spectral_df.columns if
@@ -1480,21 +1504,21 @@ def calculate_filter_bands(lfp_spectral_df, theta_band,
         theta_coherence_col = f"{brain_region_name}_coherence_theta"
         gamma_coherence_col = f"{brain_region_name}_coherence_gamma"
         lfp_spectral_df[theta_coherence_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
-            "coherence_calculation_frequencies"] >=
-            theta_band[0]) & (
-            x[
-                "coherence_calculation_frequencies"] <=
-            theta_band[
-                1])],
-            axis=1), axis=1)
+                                                                                                         "coherence_calculation_frequencies"] >=
+                                                                                                     theta_band[0]) & (
+                                                                                                            x[
+                                                                                                                "coherence_calculation_frequencies"] <=
+                                                                                                            theta_band[
+                                                                                                                1])],
+                                                                                          axis=1), axis=1)
         lfp_spectral_df[gamma_coherence_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
-            "coherence_calculation_frequencies"] >=
-            gamma_band[0]) & (
-            x[
-                "coherence_calculation_frequencies"] <=
-            gamma_band[
-                1])],
-            axis=1), axis=1)
+                                                                                                         "coherence_calculation_frequencies"] >=
+                                                                                                     gamma_band[0]) & (
+                                                                                                            x[
+                                                                                                                "coherence_calculation_frequencies"] <=
+                                                                                                            gamma_band[
+                                                                                                                1])],
+                                                                                          axis=1), axis=1)
 
     # Filter theta/gamma for granger
     granger_columns = [col for col in lfp_spectral_df.columns if
@@ -1505,24 +1529,26 @@ def calculate_filter_bands(lfp_spectral_df, theta_band,
         theta_granger_col = f"{brain_region_name}_granger_theta"
         gamma_granger_col = f"{brain_region_name}_granger_gamma"
         lfp_spectral_df[theta_granger_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
-            "granger_calculation_frequencies"] >=
-            theta_band[0]) & (x[
-                "granger_calculation_frequencies"] <=
-            theta_band[
-                1])],
-            axis=1), axis=1)
+                                                                                                       "granger_calculation_frequencies"] >=
+                                                                                                   theta_band[0]) & (x[
+                                                                                                                         "granger_calculation_frequencies"] <=
+                                                                                                                     theta_band[
+                                                                                                                         1])],
+                                                                                        axis=1), axis=1)
         lfp_spectral_df[gamma_granger_col] = lfp_spectral_df.apply(lambda x: np.nanmean(x[col][:, (x[
-            "granger_calculation_frequencies"] >=
-            gamma_band[0]) & (x[
-                "granger_calculation_frequencies"] <=
-            gamma_band[
-                1])],
-            axis=1), axis=1)
+                                                                                                       "granger_calculation_frequencies"] >=
+                                                                                                   gamma_band[0]) & (x[
+                                                                                                                         "granger_calculation_frequencies"] <=
+                                                                                                                     gamma_band[
+                                                                                                                         1])],
+                                                                                        axis=1), axis=1)
 
     full_lfp_traces_pkl = f"{output_prefix}_03_spectral_bands.pkl"
     lfp_spectral_df.to_pickle(os.path.join(output_dir, full_lfp_traces_pkl))
     # Debugging
     lfp_spectral_df.to_pickle("test_outputs/filtered_power_df.pkl")
+    return lfp_spectral_df
+
 
 ### START OF NOTEBOOK 4 ##
 
@@ -1552,16 +1578,16 @@ def convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height):
     start_stop_frame_df["average_width"] = start_stop_frame_df.apply(
         lambda row: (row["bottom_width"] + row["top_width"]) / 2, axis=1)
     start_stop_frame_df["width_ratio"] = med_pc_width / \
-        start_stop_frame_df["average_width"]
+                                         start_stop_frame_df["average_width"]
     start_stop_frame_df["height_ratio"] = med_pc_height / \
-        start_stop_frame_df["average_height"]
+                                          start_stop_frame_df["average_height"]
 
     start_stop_frame_df["in_video_subjects"] = start_stop_frame_df["in_video_subjects"].apply(
         lambda x: x.split("_"))
     start_stop_frame_df["subject_to_tracks"] = start_stop_frame_df.apply(
         lambda x: {
             k: v for k,
-            v in x["subject_to_tracks"].items() if k in x["in_video_subjects"]},
+                     v in x["subject_to_tracks"].items() if k in x["in_video_subjects"]},
         axis=1)
     start_stop_frame_df["rescaled_locations"] = start_stop_frame_df.apply(
         lambda x: {
@@ -1570,7 +1596,7 @@ def convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height):
                     value,
                     dimension=0,
                     ratio=x["width_ratio"])) for key,
-            value in x["subject_to_tracks"].items()},
+                                                 value in x["subject_to_tracks"].items()},
         axis=1)
     start_stop_frame_df["rescaled_locations"] = start_stop_frame_df.apply(
         lambda x: {
@@ -1578,7 +1604,7 @@ def convert_pixels_to_cm(start_stop_frame_df, med_pc_width, med_pc_height):
                 value,
                 dimension=1,
                 ratio=x["height_ratio"]) for key,
-            value in x["rescaled_locations"].items()},
+                                             value in x["rescaled_locations"].items()},
         axis=1)
 
     normalized = pd.json_normalize(start_stop_frame_df["corner_to_coordinate"])
@@ -1616,7 +1642,7 @@ def create_individual_pose_tracking_columns(start_stop_frame_df):
     start_stop_frame_df["agent_locations"] = start_stop_frame_df.apply(
         lambda x: x["rescaled_locations"].get(
             x["agent"], np.nan) if x["agent"] else np.nan, axis=1)
-    #start_stop_frame_df = start_stop_frame_df.drop(["sleap_glob", "subject_to_index", "subject_to_tracks", "corner_parts", "corner_to_coordinate", "bottom_width", "top_width", "right_height", "left_height", "average_height", "average_width", "width_ratio", "height_ratio", 'locations', 'track_names', 'sleap_path', 'corner_path', 'all_sleap_data', 'rescaled_locations'], errors="ignore", axis=1)
+    # start_stop_frame_df = start_stop_frame_df.drop(["sleap_glob", "subject_to_index", "subject_to_tracks", "corner_parts", "corner_to_coordinate", "bottom_width", "top_width", "right_height", "left_height", "average_height", "average_width", "width_ratio", "height_ratio", 'locations', 'track_names', 'sleap_path', 'corner_path', 'all_sleap_data', 'rescaled_locations'], errors="ignore", axis=1)
 
     return start_stop_frame_df
 
@@ -1642,11 +1668,11 @@ def calculate_velocity(start_stop_frame_df, window_size,
     start_stop_frame_df["agent_thorax_velocity"] = start_stop_frame_df.apply(
         lambda x: helper_compute_velocity(
             x["agent_locations"][
-                :,
-                x["body_parts"].index("thorax"),
-                :],
+            :,
+            x["body_parts"].index("thorax"),
+            :],
             window_size=frame_rate) *
-        frame_rate if x["agent_locations"] is not np.nan else np.nan,
+                  frame_rate if x["agent_locations"] is not np.nan else np.nan,
         axis=1)
     start_stop_frame_df["agent_thorax_velocity"] = start_stop_frame_df["agent_thorax_velocity"].apply(
         lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
@@ -1668,7 +1694,9 @@ def calculate_distance_to_reward_port(start_stop_frame_df, thorax_index):
     start_stop_frame_df["subject_thorax_to_reward_port"] = start_stop_frame_df["subject_thorax_to_reward_port"].apply(
         lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
     start_stop_frame_df["agent_thorax_to_reward_port"] = start_stop_frame_df.apply(lambda x: np.linalg.norm(
-        x["agent_locations"][:, x["body_parts"].index("thorax"), :] - x["reward_port"], axis=1) if x["agent_locations"] is not np.nan else np.nan, axis=1)
+        x["agent_locations"][:, x["body_parts"].index("thorax"), :] - x["reward_port"], axis=1) if x[
+                                                                                                       "agent_locations"] is not np.nan else np.nan,
+                                                                                   axis=1)
     start_stop_frame_df["agent_thorax_to_reward_port"] = start_stop_frame_df["agent_thorax_to_reward_port"].apply(
         lambda x: x.astype(np.float16) if x is not np.nan else np.nan)
 
@@ -1730,11 +1758,11 @@ def process_sleap_tracks(start_stop_frame_df, sleap_dir,
             "corner.h5").replace(
             ".fixed",
             "").replace(
-                ".round_1",
-                "").replace(
-                    ".1_subj",
-                    "").replace(
-                        ".2_subj",
+            ".round_1",
+            "").replace(
+            ".1_subj",
+            "").replace(
+            ".2_subj",
             ""))
     start_stop_frame_df["corner_parts"] = start_stop_frame_df["corner_path"].apply(
         lambda x: get_node_names_from_sleap(x))
@@ -1743,7 +1771,8 @@ def process_sleap_tracks(start_stop_frame_df, sleap_dir,
     start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df["corner_path"].apply(
         lambda x: get_sleap_tracks_from_h5(x))
     start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df.apply(
-        lambda x: {part: x["corner_to_coordinate"][:, index, :, :] for index, part in enumerate(x["corner_parts"])}, axis=1)
+        lambda x: {part: x["corner_to_coordinate"][:, index, :, :] for index, part in enumerate(x["corner_parts"])},
+        axis=1)
     start_stop_frame_df["corner_to_coordinate"] = start_stop_frame_df.apply(
         lambda x: {k: v[~np.isnan(v)][:2] for k, v in x["corner_to_coordinate"].items()}, axis=1)
 
@@ -2028,7 +2057,7 @@ def combine_spike_data(recording_to_spike_clusters, recording_to_spike_times, re
             merged_df["timestamp_isi"] = merged_df.groupby('spike_clusters')[
                 "spike_times"].diff()
             merged_df["current_isi"] = merged_df["timestamp_isi"] / \
-                sampling_rate
+                                       sampling_rate
 
             if not merged_df.empty:
                 recording_to_spike_df[recording_basename] = merged_df
@@ -2080,13 +2109,13 @@ def calculate_firing_rates(lfp_spectral_df, grouped_df,
         neuron.spikes.calculate_rolling_avg_firing_rate(
             np.array(times[~np.isnan(
                 times)]), stop_time=x[
-                "last_timestamp"] -
-            x[
-                "first_timestamp"],
+                                        "last_timestamp"] -
+                                    x[
+                                        "first_timestamp"],
             window_size=spike_window,
             slide=spike_window)[0] for
         times in x["spike_times"]]),
-        axis=1)
+                                                                 axis=1)
 
     lfp_spectral_df["neuron_average_timestamps"] = lfp_spectral_df.apply(lambda x:
                                                                          neuron.spikes.calculate_rolling_avg_firing_rate(
@@ -2160,20 +2189,22 @@ def main_test_only():
     convert_to_mp4(experiment_dir)
     paths = {}
     session_to_trodes_temp, paths = extract_all_trodes(input_dir)
-    #session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
-    #metadata = create_metadata_df(session_to_trodes_temp, paths)
-    #metadata, state_df, video_df, final_df, pkl_path = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
+    # session_to_trodes_temp = add_video_timestamps(session_to_trodes_temp, input_dir)
+    # metadata = create_metadata_df(session_to_trodes_temp, paths)
+    # metadata, state_df, video_df, final_df, pkl_path = adjust_first_timestamps(metadata, output_dir, experiment_prefix)
 
     print("output from obj creation")
     CHANNEL_MAPPING_DF, SPIKE_DF = load_data(
         channel_map_path=channel_map_path, pickle_path="test_outputs/power_df.pkl")
     calculate_filter_bands(SPIKE_DF, (4, 12), (30, 50),
                            output_dir, experiment_prefix)
-    sleap_df, start_stop_df = process_sleap_data(sleap_dir=sleap_path, output_dir=output_dir, med_pc_width=1, med_pc_height=1,
+    sleap_df, start_stop_df = process_sleap_data(sleap_dir=sleap_path, output_dir=output_dir, med_pc_width=1,
+                                                 med_pc_height=1,
                                                  frame_rate=30, window_size=90, distance_threshold=0.1,
                                                  start_stop_frame_df=pd.read_excel(
                                                      event_path),
-                                                 lfp_spectral_df=pd.read_pickle("test_outputs/filtered_power_df.pkl"), thorax_index=0,
+                                                 lfp_spectral_df=pd.read_pickle("test_outputs/filtered_power_df.pkl"),
+                                                 thorax_index=0,
                                                  output_prefix="test_outputs")
     sleap_df.to_pickle("test_outputs/sleap_df.pkl")
     analyze_sleap_file(
@@ -2185,7 +2216,9 @@ def main_test_only():
         save_plots=True)
 
     # try to create LFPObject
-    #lfp = LFPObject(path=input_dir, channel_map_path=channel_map_path, events_path="test.xlsx", subject="1.4")
+    # lfp = LFPObject(path=input_dir, channel_map_path=channel_map_path, events_path="test.xlsx", subject="1.4")
+
+
 """
     #write out all the dataframes to a text file
     lfp.metadata.to_csv("test_outputs/metadata.txt", sep="\t")
