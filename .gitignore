@@ -9,4 +9,5 @@ trodes/__pycache__/*
 archive/data/*
 *.zip
 *.xlsx
+!input/*
 *.png
