@@ -179,6 +179,10 @@ class LfpRecordingObject:
         os.makedirs(self.output_path, exist_ok=True)
         print("Output path is " + self.output_path)
 
+
+    def add_labels(self):
+        self.labels_and_spectral = make_labels_df(labels_df=self.labels_df, filter_bands_df=self.filter_bands_df)
+
     def __init__(self,
                  path,
                  channel_map_path,
@@ -197,7 +201,7 @@ class LfpRecordingObject:
         self.sleap_path = sleap_path
         self.events_path = events_path
         self.phy_curation_path = phy_curation_path
-        self.labels_path = labels_path
+        self.labels_df = pd.read_excel(labels_path)
         self.experiment_name = experiment_name
         self.events = {}
         self.channel_map = {}
@@ -247,8 +251,12 @@ class LfpRecordingObject:
         self.all_spike_time_df = None
         self.grouped_df = None
 
+        #labels notebook
+        self.labels_and_spectral = None
+
         self.make_output_dir()
         self.make_object()
+
 
         # get channel map and lfp
         # ALL_SESSION_DIR, ECU_STREAM_ID, TRODES_STREAM_ID,
@@ -316,6 +324,42 @@ class LfpRecordingObject:
         self.grouped_df.to_pickle(self.output_path + "/grouped_df.pkl")
         self.all_spike_time_df.to_pickle(self.output_path + "/all_spike_time_df.pkl")
 
+        # label notebook functions
+        self.add_labels()
+        self.labels_and_spectral.to_pickle(self.output_path + "/labels_and_spectral.pkl")
+
+def helper_filter_by_timestamp_range(start, stop, timestamps, items):
+    """
+    Filters an array of timestamps and corresponding items based on a timestamp range.
+
+    Parameters:
+    - start (int or float): The start of the timestamp range.
+    - stop (int or float): The end of the timestamp range.
+    - timestamps (numpy.ndarray): A sorted array of timestamps.
+    - items (numpy.ndarray): An array of items corresponding to the timestamps.
+
+    Returns:
+    - tuple: Two numpy.ndarrays, the filtered timestamps and the corresponding items.
+    """
+    # Create a boolean mask for the timestamps within the range
+    mask = (timestamps >= start) & (timestamps <= stop)
+
+    # Apply the mask to the timestamps
+    filtered_timestamps = timestamps[mask]
+
+    # Apply the mask to the items, adjusting the length if necessary
+    if len(items) > len(mask):
+        # If items is longer than mask, shorten items
+        filtered_items = items[:len(mask)][mask]
+    elif len(items) < len(mask):
+        # If items is shorter than mask, pad items with NaNs
+        padded_items = np.pad(items, (0, len(mask) - len(items)), constant_values=np.nan)
+        filtered_items = padded_items[mask]
+    else:
+        # If items and mask are the same length, just apply the mask
+        filtered_items = items[mask]
+
+    return filtered_timestamps, filtered_items
 
 def helper_find_nearest_indices(array1, array2):
     """
@@ -2228,3 +2272,219 @@ def add_spike_to_phy(phy_curation_path, lfp_spectral_df, sampling_rate,
     all_spike_time_df.to_pickle(output_dir + "/all_spike_time_df.pkl")
 
     return lfp_spectral_df, grouped_df, all_spike_time_df
+
+def make_labels_df(labels_df, filter_bands_df):
+    #TODO: this function can be optimized, for loops
+
+    filter_bands_df["video_name"] = filter_bands_df["video_name"].apply(
+        lambda x: x.strip(".videoTimeStamps.cameraHWSync"))
+    filter_bands_df["current_subject"] = filter_bands_df["current_subject"].astype(str)
+    labels_df["current_subject"] = labels_df["current_subject"].astype(str)
+
+    # merge
+    trial_and_spectral = pd.merge(labels_df, filter_bands_df, on=["current_subject", "video_name"],
+                                  how="inner", suffixes=('', '_y'))
+    # todo: hardcoded values, double check
+    trial_and_spectral["baseline_start_timestamp"] = trial_and_spectral["tone_start_timestamp"] - 30 * 20000
+    trial_and_spectral["baseline_stop_timestamp"] = trial_and_spectral["tone_start_timestamp"] - 20 * 20000
+
+    power_columns = [col for col in trial_and_spectral.columns if
+                     "power" in col and "timestamps" not in col and "calculation" not in col]
+
+    for col in power_columns:
+        brain_region = col.replace("all_windows", "_").strip("_")
+        print(brain_region)
+
+        updated_item_col = "baseline_{}".format(brain_region)
+        updated_timestamp_col = "baseline_power_timestamps".format(brain_region)
+        trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                        helper_filter_by_timestamp_range(
+                                                                            start=x[
+                                                                                "baseline_start_timestamp"],
+                                                                            stop=x[
+                                                                                "baseline_stop_timestamp"],
+                                                                            timestamps=x[
+                                                                                "power_timestamps"],
+                                                                            items=x[col])[1], axis=1)
+    trial_and_spectral[updated_timestamp_col] = trial_and_spectral.apply(lambda x:
+                                                                                 helper_filter_by_timestamp_range(
+                                                                                     start=x[
+                                                                                         "baseline_start_timestamp"],
+                                                                                     stop=x[
+                                                                                         "baseline_stop_timestamp"],
+                                                                                     timestamps=x[
+                                                                                         "power_timestamps"],
+                                                                                     items=x[col])[0], axis=1)
+
+    for col in power_columns:
+        brain_region = col.replace("all_windows", "_").strip("_")
+        print(brain_region)
+
+        updated_item_col = "trial_{}".format(brain_region)
+        updated_timestamp_col = "trial_power_timestamps".format(brain_region)
+        trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                helper_filter_by_timestamp_range(
+                                                                                    start=x["tone_start_timestamp"],
+                                                                                    stop=x["tone_stop_timestamp"],
+                                                                                    timestamps=x["power_timestamps"],
+                                                                                    items=x[col])[1], axis=1)
+    trial_and_spectral[updated_timestamp_col] = trial_and_spectral.apply(lambda x:
+                                                                                 helper_filter_by_timestamp_range(
+                                                                                     start=x["tone_start_timestamp"],
+                                                                                     stop=x["tone_stop_timestamp"],
+                                                                                     timestamps=x["power_timestamps"],
+                                                                                     items=x[col])[0], axis=1)
+
+    coherence_columns = [col for col in trial_and_spectral.columns if
+                         "coherence" in col and "timestamps" not in col and "calculation" not in col]
+    for col in coherence_columns:
+        brain_region = col.replace("all_windows", "_").strip("_")
+        print(brain_region)
+
+        updated_item_col = "baseline_{}".format(brain_region)
+        updated_timestamp_col = "baseline_coherence_timestamps".format(brain_region)
+        trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                helper_filter_by_timestamp_range(
+                                                                                    start=x["baseline_start_timestamp"],
+                                                                                    stop=x["baseline_stop_timestamp"],
+                                                                                    timestamps=x[
+                                                                                        "coherence_timestamps"],
+                                                                                    items=x[col])[1], axis=1)
+    trial_and_spectral[updated_timestamp_col] = trial_and_spectral.apply(lambda x:
+                                                                                 helper_filter_by_timestamp_range(
+                                                                                     start=x[
+                                                                                         "baseline_start_timestamp"],
+                                                                                     stop=x["baseline_stop_timestamp"],
+                                                                                     timestamps=x[
+                                                                                         "coherence_timestamps"],
+                                                                                     items=x[col])[0], axis=1)
+    for col in coherence_columns:
+        brain_region = col.replace("all_windows", "_").strip("_")
+        print(brain_region)
+
+        updated_item_col = "trial_{}".format(brain_region)
+        updated_timestamp_col = "trial_coherence_timestamps".format(brain_region)
+        trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                helper_filter_by_timestamp_range(
+                                                                                    start=x["tone_start_timestamp"],
+                                                                                    stop=x["tone_stop_timestamp"],
+                                                                                    timestamps=x[
+                                                                                        "coherence_timestamps"],
+                                                                                    items=x[col])[1], axis=1)
+    trial_and_spectral[updated_timestamp_col] = trial_and_spectral.apply(lambda x:
+                                                                                 helper_filter_by_timestamp_range(
+                                                                                     start=x["tone_start_timestamp"],
+                                                                                     stop=x["tone_stop_timestamp"],
+                                                                                     timestamps=x[
+                                                                                         "coherence_timestamps"],
+                                                                                     items=x[col])[0], axis=1)
+
+    granger_columns = [col for col in trial_and_spectral.columns if
+                       "granger" in col and "timestamps" not in col and "calculation" not in col]
+
+    for col in granger_columns:
+        brain_region = col.replace("all_windows", "_").strip("_")
+        print(brain_region)
+
+        updated_item_col = "baseline_{}".format(brain_region)
+        updated_timestamp_col = "baseline_granger_timestamps".format(brain_region)
+        trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                helper_filter_by_timestamp_range(
+                                                                                    start=x["baseline_start_timestamp"],
+                                                                                    stop=x["baseline_stop_timestamp"],
+                                                                                    timestamps=x["granger_timestamps"],
+                                                                                    items=x[col])[1], axis=1)
+    trial_and_spectral[updated_timestamp_col] = trial_and_spectral.apply(lambda x:
+                                                                                 helper_filter_by_timestamp_range(
+                                                                                     start=x[
+                                                                                         "baseline_start_timestamp"],
+                                                                                     stop=x["baseline_stop_timestamp"],
+                                                                                     timestamps=x["granger_timestamps"],
+                                                                                     items=x[col])[0], axis=1)
+    for col in granger_columns:
+        brain_region = col.replace("all_windows", "_").strip("_")
+        print(brain_region)
+
+        updated_item_col = "trial_{}".format(brain_region)
+        updated_timestamp_col = "trial_granger_timestamps".format(brain_region)
+        trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                helper_filter_by_timestamp_range(
+                                                                                    start=x["tone_start_timestamp"],
+                                                                                    stop=x["tone_stop_timestamp"],
+                                                                                    timestamps=x["granger_timestamps"],
+                                                                                    items=x[col])[1], axis=1)
+    trial_and_spectral[updated_timestamp_col] = trial_and_spectral.apply(lambda x:
+                                                                                 helper_filter_by_timestamp_range(
+                                                                                     start=x["tone_start_timestamp"],
+                                                                                     stop=x["tone_stop_timestamp"],
+                                                                                     timestamps=x["granger_timestamps"],
+                                                                                     items=x[col])[0], axis=1)
+
+    sleap_columns = [col for col in trial_and_spectral.columns if
+                     "locations" in col or "velocity" in col or "to_reward_port" in col]
+
+    for col in sorted(sleap_columns):
+        updated_item_col = "baseline_{}".format(col)
+        print(updated_item_col)
+        updated_timestamp_col = "baseline_video_timestamps".format(col)
+        if "agent" in col:
+            trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                    helper_filter_by_timestamp_range(
+                                                                                        start=x[
+                                                                                            "baseline_start_timestamp"],
+                                                                                        stop=x[
+                                                                                            "baseline_stop_timestamp"],
+                                                                                        timestamps=x[
+                                                                                            "video_timestamps"],
+                                                                                        items=x[col])[1] if x[
+                                                                                        "agent"] else np.nan, axis=1)
+        else:
+            trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                    helper_filter_by_timestamp_range(
+                                                                                        start=x[
+                                                                                            "baseline_start_timestamp"],
+                                                                                        stop=x[
+                                                                                            "baseline_stop_timestamp"],
+                                                                                        timestamps=x[
+                                                                                            "video_timestamps"],
+                                                                                        items=x[col])[1], axis=1)
+
+    trial_and_spectral[updated_timestamp_col] = trial_and_spectral.apply(lambda x:
+                                                                                 helper_filter_by_timestamp_range(
+                                                                                     start=x[
+                                                                                         "baseline_start_timestamp"],
+                                                                                     stop=x["baseline_stop_timestamp"],
+                                                                                     timestamps=x["video_timestamps"],
+                                                                                     items=x[col])[0], axis=1)
+
+    for col in sorted(sleap_columns):
+        updated_item_col = "trial_{}".format(col)
+        print(updated_item_col)
+        updated_timestamp_col = "trial_video_timestamps".format(col)
+        if "agent" in col:
+            trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                    helper_filter_by_timestamp_range(
+                                                                                        start=x["tone_start_timestamp"],
+                                                                                        stop=x["tone_stop_timestamp"],
+                                                                                        timestamps=x[
+                                                                                            "video_timestamps"],
+                                                                                        items=x[col])[1] if x[
+                                                                                        "agent"] else np.nan, axis=1)
+        else:
+            trial_and_spectral[updated_item_col] = trial_and_spectral.apply(lambda x:
+                                                                                    helper_filter_by_timestamp_range(
+                                                                                        start=x["tone_start_timestamp"],
+                                                                                        stop=x["tone_stop_timestamp"],
+                                                                                        timestamps=x[
+                                                                                            "video_timestamps"],
+                                                                                        items=x[col])[1], axis=1)
+
+    trial_and_spectral[updated_timestamp_col] = trial_and_spectral.apply(lambda x:
+                                                                                 helper_filter_by_timestamp_range(
+                                                                                     start=x["tone_start_timestamp"],
+                                                                                     stop=x["tone_stop_timestamp"],
+                                                                                     timestamps=x["video_timestamps"],
+                                                                                     items=x[col])[0], axis=1)
+
+
+    return trial_and_spectral
