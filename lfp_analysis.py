@@ -341,8 +341,8 @@ class LfpRecordingObject:
         self.labels_and_spectral.to_pickle(
             self.output_path + "/labels_and_spectral.pkl")
 
-        # export notebook functions
-        self.add_label_encoding()
+        # TODO: export notebook functions
+        #self.add_label_encoding()
 
 
 def helper_filter_array_by_values(arr, start_value=0, stop_value=1000000):
@@ -391,7 +391,7 @@ def helper_combine_grouped_rows(df, array_columns):
     def custom_aggregator(x):
         if x.name in array_columns:
             # Reduce the column by overlaying arrays
-            return x.dropna().aggregate(lambda arrays: arrays.reduce(overlay_arrays))
+            return x.dropna().aggregate(lambda arrays: arrays.reduce(helper_overlay_arrays))
         else:
             # For other columns, simply return the first element
             return x.iloc[0]
