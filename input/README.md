@@ -15,12 +15,12 @@
 
 - `labels.xlsx` - Contains the following columns:
   - `tracked_subject` - (List) Name of the subject being tracked.
-  - `box_number` - Box number.
+  - `box_number` - (optional) Box number.
   - `sleap_name` - Name of sleap *.h5 file.
   - `current_subject` - Name of the subject in the video.
   - `tone_start_frame` - Start time of the tone.
   - `tone_stop_frame` - Stop time of the tone.
-  - `condition` - Condition of the subject (id).
+  - `condition` - (Optional, Winner) Condition of the subject (id).
   - `competition_class` - Competition class of the subject (see encoding dict)
   - `notes` - Event notes.
   - `session_dir` - Directory of the session (containing *.rec)
