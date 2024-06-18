@@ -156,19 +156,6 @@ class LfpRecordingObject:
                            output_prefix=self.experiment_name,
                            thorax_index=thorax_index, thorax_plots=True, save_plots=True)
 
-    def add_spike_times(self):
-        # takes lfp spectral and phy dir
-        # lfp_spectral_df, grouped_df, all_spike_time_df
-
-        list_phy_files = glob.glob(os.path.join(self.phy_curation_path, "*"))
-
-        self.power_df, self.grouped_df, self.all_spike_time_df = add_spike_to_phy(
-            lfp_spectral_df=self.filter_bands_df,
-            phy_curation_path=list_phy_files,
-            output_dir=self.output_path,
-            output_prefix=self.experiment_name,
-            sampling_rate=self.sampling_rate)
-
     def make_output_dir(self):
         print("IN MAKE OUTPUT DIR")
         os.makedirs(self.output_path, exist_ok=True)
@@ -190,7 +177,6 @@ class LfpRecordingObject:
                  channel_map_path,
                  sleap_path,
                  events_path,
-                 phy_curation_path,
                  labels_path,
                  experiment_name,
                  subject,
@@ -203,7 +189,6 @@ class LfpRecordingObject:
         self.channel_map_path = channel_map_path
         self.sleap_path = sleap_path
         self.events_path = events_path
-        self.phy_curation_path = phy_curation_path
         self.labels_df = pd.read_excel(labels_path)
         self.experiment_name = experiment_name
         self.events = {}
@@ -248,12 +233,6 @@ class LfpRecordingObject:
         # notebook 4 sleap, events
         self.sleap_df = None
         self.start_stop_df = None
-
-        # notebook 5
-        self.spike_times_df = None
-
-        self.all_spike_time_df = None
-        self.grouped_df = None
 
         # labels notebook
         self.labels_and_spectral = None
@@ -327,14 +306,6 @@ class LfpRecordingObject:
 
         self.analyze_sleap()
         print("Analysis of sleap data has been completed")
-
-        self.add_spike_times()
-        print("Spike times have been added to the phy file at " +
-              self.output_path + "/spike_times_df.pkl")
-        self.spike_times_df.to_pickle(self.output_path + "/spike_times_df.pkl")
-        self.grouped_df.to_pickle(self.output_path + "/grouped_df.pkl")
-        self.all_spike_time_df.to_pickle(
-            self.output_path + "/all_spike_time_df.pkl")
 
         # label notebook functions
         self.add_labels()
@@ -2190,129 +2161,6 @@ def analyze_sleap_file(start_stop_frame_df, plot_output_dir,
                     plot_output_dir,
                     f"{output_prefix}_thorax_tracks.png"))
 
-
-def read_phy_data(all_phy_dir, sampling_rate, lfp_spectral):
-    """
-    Read and process data from Phy.
-    """
-    recording_to_cluster_info = {}
-    print("in read_phy_data")
-    print(all_phy_dir)
-
-    for recording_dir in all_phy_dir:
-        try:
-            recording_basename = os.path.basename(recording_dir).strip(".rec")
-            print(recording_basename)
-
-            # Read cluster info
-            file_path = os.path.join(recording_dir, "phy", "cluster_info.tsv")
-            recording_to_cluster_info[recording_basename] = pd.read_csv(
-                file_path, sep="\t")
-        except Exception as e:
-            print(e)
-
-    recording_to_cluster_info_df = pd.concat(
-        recording_to_cluster_info, names=['recording_name']).reset_index(level=1, drop=True).reset_index()
-
-    good_unit_cluster_info_df = recording_to_cluster_info_df[
-        recording_to_cluster_info_df["group"] == "good"].reset_index(drop=True)
-
-    recording_to_good_unit_ids = good_unit_cluster_info_df.groupby(
-        'recording_name')['cluster_id'].apply(list).to_dict()
-
-    recording_to_spike_clusters = {}
-
-    for recording_dir in all_phy_dir:
-        try:
-            recording_basename = os.path.basename(recording_dir).strip(".rec")
-            file_path = os.path.join(
-                recording_dir, "phy", "spike_clusters.npy")
-            recording_to_spike_clusters[recording_basename] = np.load(
-                file_path)
-        except Exception as e:
-            print(e)
-
-    recording_to_spike_times = {}
-    for recording_dir in all_phy_dir:
-        try:
-            recording_basename = os.path.basename(recording_dir).strip(".rec")
-            file_path = os.path.join(recording_dir, "phy", "spike_times.npy")
-            recording_to_spike_times[recording_basename] = np.load(file_path)
-        except Exception as e:
-            print(e)
-
-    recording_to_spike_df = {}
-
-    for recording_dir in all_phy_dir:
-        print("in line 2033")
-        try:
-            print("in try")
-            recording_basename = os.path.basename(recording_dir).strip(".rec")
-            cluster_info_path = os.path.join(
-                recording_dir, "phy", "cluster_info.tsv")
-            cluster_info_df = pd.read_csv(cluster_info_path, sep="\t")
-
-            spike_clusters_path = os.path.join(
-                recording_dir, "phy", "spike_clusters.npy")
-            spike_clusters = np.load(spike_clusters_path)
-
-            spike_times_path = os.path.join(
-                recording_dir, "phy", "spike_times.npy")
-            spike_times = np.load(spike_times_path)
-
-            curr_spike_df = pd.DataFrame(
-                {'spike_clusters': spike_clusters, 'spike_times': spike_times.T[0]})
-
-            merged_df = curr_spike_df.merge(cluster_info_df, left_on='spike_clusters', right_on='cluster_id',
-                                            how="left")
-            merged_df["recording_name"] = recording_basename
-            print(merged_df.columns)
-            print(merged_df.groupby('spike_clusters')["spike_times"].diff())
-            print(type(merged_df.groupby(
-                'spike_clusters')["spike_times"].diff()))
-            print(merged_df.groupby('spike_clusters')
-                  ["spike_times"].diff().index)
-            print(type(merged_df.groupby('spike_clusters')
-                  ["spike_times"].diff().values))
-            # set timestamp_isi to the list of diff
-            merged_df["timestamp_isi"] = merged_df.groupby(
-                'spike_clusters')["spike_times"].diff().values
-            merged_df["timestamp_isi"] = merged_df["timestamp_isi"].fillna(0)
-            merged_df["timestamp_isi"] = merged_df["timestamp_isi"].astype(
-                float)
-            print("sampling rate is: ", sampling_rate)
-            merged_df["timestamp_isi"] = merged_df["timestamp_isi"].apply(
-                lambda x: float(x) / float(sampling_rate))
-            # divide by sampling rate to get the current isi using lambda function
-
-            merged_df["current_isi"] = merged_df["timestamp_isi"]
-
-            if not merged_df.empty:
-                recording_to_spike_df[recording_basename] = merged_df
-
-        except Exception as e:
-            print(e)
-        print(recording_to_spike_df)
-        all_spike_time_df = pd.concat(recording_to_spike_df.values())
-        all_spike_time_df = all_spike_time_df[all_spike_time_df["group"] == "good"].reset_index(
-            drop=True)
-
-        grouped_df = all_spike_time_df.groupby(['spike_clusters', 'recording_name'])["spike_times"].apply(
-            lambda x: np.array(x)).reset_index()
-        grouped_df = grouped_df.sort_values(
-            by=['recording_name', 'spike_clusters']).reset_index(drop=True)
-        max_number_of_spikes = all_spike_time_df["n_spikes"].max()
-        grouped_df["spike_times"] = grouped_df["spike_times"].apply(
-            lambda x: np.concatenate([x, np.full([max_number_of_spikes - x.shape[0]], np.nan)]))
-        grouped_df = grouped_df.groupby('recording_name').agg(
-            {'spike_clusters': lambda x: list(x), 'spike_times': lambda x: np.array(list(x))}).reset_index()
-
-        lfp_spectral_df = pd.merge(lfp_spectral, grouped_df, left_on='recording', right_on="recording_name",
-                                   how='inner')
-
-    return lfp_spectral_df, grouped_df, all_spike_time_df
-
-
 def filter_good_units(recording_to_cluster_info):
     """
     Filter good units from cluster information.
@@ -2370,90 +2218,6 @@ def calculate_rolling_avg_firing_rate(firing_times, window_size=2000, slide=2000
         window_starts.append(start)
 
     return np.array(avg_firing_rates), np.array(window_starts)
-
-
-def calculate_firing_rates(lfp_spectral_df, grouped_df,
-                           sampling_rate, spike_window):
-    """
-    Calculate firing rates and timestamps for neurons.
-    """
-    print("PRINTING COLS")
-    print("LFP SPECTRAL DF")
-    for col in lfp_spectral_df.columns:
-        print(col)
-    print("\n\n")
-    print("GROUPED DF")
-    for col in grouped_df.columns:
-        print(col)
-    """
-    lfp_spectral_df = pd.merge(
-        lfp_spectral_df,
-        grouped_df,
-        left_on='recording',
-        right_on="recording_name",
-        how='inner')
-        """
-    print("COLUMNS IN MERGED")
-    # check if last_timestamp is in the columns
-    last_timestamp = False
-    for col in lfp_spectral_df.columns:
-        if "last_timestamp" in col:
-            last_timestamp = True
-    if not last_timestamp:
-        lfp_spectral_df["last_timestamp"] = lfp_spectral_df["raw_timestamps"].apply(
-            lambda x: x[-1])
-
-    lfp_spectral_df["neuron_average_fr"] = lfp_spectral_df.apply(
-        lambda x: np.array([calculate_rolling_avg_firing_rate(np.array(times[~np.isnan(times)]),
-                                                              stop_time=x["last_timestamp"] -
-                                                              x["first_timestamp"],
-                                                              window_size=spike_window,
-                                                              slide=spike_window)[0] for times in x["spike_times"][0]]), axis=1)
-
-    lfp_spectral_df["neuron_average_timestamps"] = lfp_spectral_df.apply(lambda x: calculate_rolling_avg_firing_rate(
-        x["spike_times"][0][
-            ~np.isnan(x["spike_times"][0])],
-        stop_time=x["last_timestamp"] - x[
-            "first_timestamp"],
-        window_size=spike_window,
-        slide=spike_window)[1], axis=1)
-
-    lfp_spectral_df["neuron_average_fr"] = lfp_spectral_df.apply(lambda x: x["neuron_average_fr"] * spike_window,
-                                                                 axis=1)
-
-    return lfp_spectral_df
-
-
-def add_spike_to_phy(phy_curation_path, lfp_spectral_df, sampling_rate,
-                     output_dir, output_prefix):
-    """
-    Adds the spike data to the Phy curation file.
-    Args:
-        phy_curation_path (list: str): The path to the Phy curation file.
-        lfp_spectral_df (pandas dataframe): A dataframe containing the LFP data.
-        output_dir (str): Directory where the output data is saved.
-        output_prefix (str): Prefix for the output files.
-    Returns:
-        lfp_spectral_df (pandas dataframe): A dataframe containing the LFP data with the spike data added.
-        grouped_df (pandas dataframe): A dataframe containing the grouped neurons.
-        all_spike_time_df (pandas dataframe): A dataframe containing all the spike times.
-    """
-    # Read Phy curation file with read function
-
-    lfp_spectral_df, grouped_df, all_spike_time_df = read_phy_data(all_phy_dir=phy_curation_path,
-                                                                   lfp_spectral=lfp_spectral_df,
-                                                                   sampling_rate=sampling_rate)
-
-    lfp_spectral_df = calculate_firing_rates(lfp_spectral_df=lfp_spectral_df, grouped_df=grouped_df,
-                                             sampling_rate=sampling_rate, spike_window=1)
-
-    # save the results
-    print("SAVING  IN ADD")
-    lfp_spectral_df.to_pickle(output_dir + "/lfpspectral_df.pkl")
-    grouped_df.to_pickle(output_dir + "/grouped_df.pkl")
-    all_spike_time_df.to_pickle(output_dir + "/all_spike_time_df.pkl")
-
-    return lfp_spectral_df, grouped_df, all_spike_time_df
 
 
 def make_labels_df(labels_df, filter_bands_df):
