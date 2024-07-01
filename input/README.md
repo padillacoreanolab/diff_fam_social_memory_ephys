@@ -4,9 +4,9 @@
 
 
 - `events.xlsx` - Contains the following columns:
-  - `file_path` - Path to the *.h5 file.
-  - `start_frame` - Start time of the event.
-  - `stop_frame` - Stop time of the event.
+  - `file_path` - Path to the *.h5 file - this is not used.
+  - `start_frame` - Start time of that video compared to the recording.
+  - `stop_frame` - Stop time of that video compared to the recording.
   - `tracked_subject` - Name of the subject being tracked.
   - `in_video_subject` - Name of the subject in the video.
   - `box_number` - Box number.
