@@ -2462,6 +2462,8 @@ def make_labels_df(labels_df, filter_bands_df):
 
 
 def encode_labels(filter_bands_df, labels_df, encoding_dict):
+
+    
     # TODO: check, this function (based on 11_rce2_export) is identical to
     # make_labels_df (based on 10_rce2_add_trial_labels)
     filter_bands_df["competition_closeness"] = filter_bands_df["competition_closeness"].map(
