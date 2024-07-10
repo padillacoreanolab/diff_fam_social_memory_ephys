@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from collections import defaultdict
 from scipy.stats import sem, ranksums, fisher_exact, wilcoxon
 from statistics import mean, StatisticsError
 from sklearn.decomposition import PCA
@@ -48,23 +49,26 @@ def get_spiketrain(
     return spiketrain
 
 
-def get_firing_rate(spiketrain, smoothing_window, timebin):
+def get_firing_rate(spiketrain, timebin, smoothing_window):
     """
     calculates firing rate (spikes/second)
 
     Args (3 total, 1 required):
         spiketrain: numpy array, in timebin (ms) bins
         smoothing_window: int, default=250, smoothing average window (ms)
-            min smoothing_window = 1
         timebin: int, default = 1, timebin (ms) of spiketrain
 
     Return (1):
         firing_rate: numpy array of firing rates in timebin sized windows
 
     """
-    weights = np.ones(smoothing_window) / smoothing_window * 1000 / timebin
-    firing_rate = np.convolve(spiketrain, weights, mode="same")
-
+    if smoothing_window is None:
+        firing_rate = spiketrain * 1000 / timebin
+    else:
+        smoothing_bins = int(smoothing_window / timebin)
+        weights = np.ones(smoothing_bins) / smoothing_bins * 1000 / timebin
+        firing_rate = np.convolve(spiketrain, weights, mode="same")
+  
     return firing_rate
 
 
@@ -170,13 +174,16 @@ def get_unit_average_events(unit_event_snippets):
 
 
 def w_assessment(p_value, w):
-    if p_value < 0.05:
-        if w > 0:
-            return "increases"
+    try:
+        if p_value < 0.05:
+            if w > 0:
+                return "increases"
+            else:
+                return "decreases"
         else:
-            return "decreases"
-    else:
-        return "not significant"
+            return "not significant"
+    except TypeError:
+        return 'NaN'
 
 
 def get_indices(repeated_items_list):
@@ -413,6 +420,7 @@ class EphysRecording:
         unit = "spike_clusters.npy"
         timestamps_var = np.load(os.path.join(self.path, timestamps))
         unit_array = np.load(os.path.join(self.path, unit))
+        print(type(unit_array))
         spikes_to_delete = []
         unsorted_clusters = {}
         for spike in range(len(timestamps_var)):
@@ -439,9 +447,9 @@ class EphysRecording:
 
     def get_unit_timestamps(self):
         """
-        creates a dictionary of units to spike timestamps
-        keys are unit ids (int) and values are spike timestamps for
-        that unit (numpy arrays)and assigns dictionary to self.unit_timestamps
+        Creates a dictionary of units to spike timestamps.
+        Keys are unit ids (int) and values are spike timestamps for that unit (numpy arrays),
+        and assigns dictionary to self.unit_timestamps.
 
         Args:
             None
@@ -450,18 +458,14 @@ class EphysRecording:
             None
         """
 
-        unit_timestamps = {}
-        for spike in range(len(self.timestamps_var)):
-            if self.unit_array[spike] in unit_timestamps.keys():
-                timestamp_list = unit_timestamps[self.unit_array[spike]]
-                timestamp_list = np.append(
-                    timestamp_list, self.timestamps_var[spike]
-                )
-                unit_timestamps[self.unit_array[spike]] = timestamp_list
-            else:
-                unit_timestamps[self.unit_array[spike]] = self.timestamps_var[
-                    spike
-                ]
+        # Initialize a defaultdict for holding lists
+        unit_timestamps = defaultdict(list)
+        default_dict = defaultdict(lambda: np.array([]))
+
+        # Loop through each spike only once
+        for spike, unit in enumerate(self.unit_array):
+            # Append the timestamp to the list for the corresponding unit
+            unit_timestamps[unit].append(self.timestamps_var[spike])
 
         self.unit_timestamps = unit_timestamps
 
@@ -540,14 +544,12 @@ class SpikeAnalysis_MultiRecording:
     directory of the collection.
 
     Attributes:
-        smoothing_window: int, default=250, window length (ms) used
-            to calculate firing rates
-        timebin: int, default=1, bin size (in ms) for spike train
+        timebin: int, bin size (in ms) for spike train
             and firing rate arrays
-        ignore_freq: int, default=0, frequency in Hz that a good unit needs
-            to fire at to be included in analysis
-        longest_event: int, length of longest event (ms)
-        event_lengths: lst, length of all events (ms)
+        ignore_freq: int, default=0.1, frequency in Hz, any good unit that fires
+            < than ignore_freq will be excluded from analysis 
+        smoothing_window: int, default=None, window length (ms) used
+            to calculate firing rates, if None, then no smoothing occurs
 
     Methods:
         wilcox_baseline_v_event_collection: Runs a wilcoxon signed rank test on all good units of
@@ -624,14 +626,14 @@ class SpikeAnalysis_MultiRecording:
     def __init__(
         self,
         ephyscollection,
-        smoothing_window=250,
-        timebin=1,
-        ignore_freq=0.01,
+        timebin,
+        ignore_freq=0.1,
+        smoothing_window=None,
     ):
         self.ephyscollection = ephyscollection
-        self.smoothing_window = smoothing_window
         self.timebin = timebin
         self.ignore_freq = ignore_freq
+        self.smoothing_window = smoothing_window
         self.PCA_matrix = None
         self.__all_set__()
 
@@ -771,8 +773,9 @@ class SpikeAnalysis_MultiRecording:
             for unit in recording.unit_spiketrains.keys():
                 unit_firing_rates[unit] = get_firing_rate(
                     recording.unit_spiketrains[unit],
-                    self.smoothing_window,
                     self.timebin,
+                    self.smoothing_window
+                    
                 )
             recording.unit_firing_rates = unit_firing_rates
             recording.unit_firing_rate_array = np.array(
@@ -896,7 +899,7 @@ class SpikeAnalysis_MultiRecording:
         return event_firing_rates
 
     def __wilcox_baseline_v_event_stats__(
-        self, recording, event, equalize, baseline_window, offset,
+        self, recording_name, recording, event, equalize, baseline_window, offset,
         exclude_offset, save
          ):
         """
@@ -935,6 +938,10 @@ class SpikeAnalysis_MultiRecording:
 
         """
         preevent_baselines = np.array([pre_event_window(event, baseline_window, offset) for event in recording.event_dict[event]])
+        if len(recording.event_dict[event]) < 6:
+            print(f"Wilcoxon can't be done on {recording_name} {event}, because <6 samples")
+            return pd.DataFrame({'Wilcoxon Stat': [np.nan], 'p value': [np.nan]})
+            
         unit_baseline_firing_rates = self.__get_unit_event_firing_rates__(recording, preevent_baselines, equalize = (baseline_window + offset), pre_window = 0, post_window= 0)
         if exclude_offset:
             unit_event_firing_rates = self.__get_unit_event_firing_rates__(recording, event, equalize, 0, 0)
@@ -943,19 +950,27 @@ class SpikeAnalysis_MultiRecording:
         unit_averages = {}
         for unit in unit_event_firing_rates.keys():
             try:
-                #calculates a single mean firing rate for each event and baseline 
                 event_averages = [mean(event) for event in unit_event_firing_rates[unit]]
                 preevent_averages = [mean(event) for event in unit_baseline_firing_rates[unit]]
-                # cut preevent averages for any events that have been cut at the end of the recording
                 min_length = min(len(event_averages), len(preevent_averages))
                 preevent_averages = preevent_averages[:min_length]
                 event_averages = event_averages[:min_length]
                 unit_averages[unit] = [event_averages, preevent_averages]
+                if unit_averages[unit][0] == unit_averages[unit][1]:
+                    print(f"Wilcoxon can't be done on {recording_name} {event} {unit}, because baseline = event")
+                    unit_averages[unit] = [np.nan, np.nan]  # Set the unit's values to NaN
             except StatisticsError:
                 print(f'Unit {unit} has {len(recording.unit_timestamps[unit])} spikes')
+        
         wilcoxon_stats = {}
-        for unit in unit_averages.keys(): 
-            wilcoxon_stats[unit] = wilcoxon(unit_averages[unit][0], unit_averages[unit][1], method = 'approx')
+        for unit in unit_averages.keys():
+            if not np.isnan(unit_averages[unit][0]).any():  # Check if data is valid before running Wilcoxon
+                unit_averages_wil_array = np.array(unit_averages[unit][0]) - np.array(unit_averages[unit][1])
+                unit_averages_wil_array_no_z = unit_averages_wil_array[unit_averages_wil_array != 0]
+                wilcoxon_stats[unit] = wilcoxon(unit_averages_wil_array_no_z)
+            else:
+                wilcoxon_stats[unit] = {'Wilcoxon Stat': np.nan, 'p value': np.nan}
+                
         wilcoxon_df = pd.DataFrame.from_dict(wilcoxon_stats, orient='index')
         wilcoxon_df.columns = ['Wilcoxon Stat', 'p value']
         wilcoxon_df['event1 vs event2'] = wilcoxon_df.apply(
@@ -1012,7 +1027,7 @@ class SpikeAnalysis_MultiRecording:
             recording,
         ) in self.ephyscollection.collection.items():
             recording_df = self.__wilcox_baseline_v_event_stats__(
-                recording, event, equalize, baseline_window, offset, 
+                recording_name, recording, event, equalize, baseline_window, offset, 
                 exclude_offset, save
             )
             recording_df = recording_df.reset_index().rename(
@@ -2149,8 +2164,8 @@ class SpikeAnalysis_MultiRecording:
         coefficients = coefficients[:, :no_PCs]
         recording_indices = get_indices(recordings)
         decoder_data = {}
-        #decoder data dict: events for keys, values is a list of len(events)
-        #each element in the list is the transformed matrix
+        # decoder data dict: events for keys, values is a list of len(events)
+        # each element in the list is the transformed matrix
         for i in range(len(recording_indices)):
             #iterate through recordings
             recording = recording_list[i]
@@ -2227,13 +2242,15 @@ class SpikeAnalysis_MultiRecording:
                 label_train = np.concatenate((np.ones(num_pos - (fold + 1) * pos_fold + fold * pos_fold),
                                             np.zeros(num_neg - (fold + 1) * neg_fold + fold * neg_fold)))
                 for timebin in range(T):
-                    model_glm = LogisticRegression(class_weight='balanced')
+                    model_glm = LogisticRegression(class_weight='balanced', max_iter = 1000000)
                     model_glm.fit(data_train[timebin, :, :].T, label_train)
                     pred_glm = model_glm.predict_proba(data_test[timebin, :, :].T)
                     prob_glm.append(pred_glm)
                     auc_glm.append(roc_auc_score(label_test, pred_glm[:, 1]))
                  
-                    model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(class_weight = 'balanced'), n_estimators=50, random_state=0)
+                    model_rf = BaggingClassifier(estimator=DecisionTreeClassifier(class_weight = 'balanced'),
+                                                 n_estimators=100,
+                                                 random_state=0)
                     model_rf.fit(data_train[timebin, :, :].T, label_train)
                     pred_rf = model_rf.predict_proba(data_test[timebin, :, :].T)
                     prob_rf.append(pred_rf)
