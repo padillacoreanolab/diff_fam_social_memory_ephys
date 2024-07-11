@@ -1744,6 +1744,7 @@ class SpikeAnalysis_MultiRecording:
             self.ephyscollection.zscored_events[event_name] = master_df
         if plot:
             self.__zscore_plot__(zscored_dict, event, equalize, baseline_window, offset)
+        return(master_df)
     
     def __zscore_plot__(self, zscored_dict, event, equalize, baseline_window, offset=0):
         """
