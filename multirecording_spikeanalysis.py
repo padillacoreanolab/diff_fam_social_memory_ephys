@@ -819,24 +819,29 @@ class SpikeAnalysis_MultiRecording:
         else:
             events = event
         event_snippets = []
-        pre_window = math.ceil(pre_window * 1000)
-        post_window = math.ceil(post_window * 1000)
+        pre_window = round(pre_window * 1000)
+        post_window = round(post_window * 1000)
         equalize = equalize * 1000
-        e_length = equalize + post_window + pre_window
+        event_len = int((equalize + pre_window + post_window) / self.timebin)
         for i in range(events.shape[0]):
-            pre_event = math.ceil((events[i][0] - pre_window) / self.timebin)
-            post_event = math.ceil(
-                (events[i][0] + post_window + equalize) / self.timebin
-            )
+            pre_event = int((events[i][0] - pre_window)/self.timebin)
+            post_event = pre_event + event_len
             if len(whole_recording.shape) == 1:
                 event_snippet = whole_recording[pre_event:post_event]
-                if len(event_snippet) == e_length / self.timebin:
-                    # cutting events at end of recording
-                    event_snippets.append(event_snippet)
+                # drop events that start before the beginning of the recording
+                # given a long prewindow
+                if pre_event > 0:
+                    # drop events that go beyond the end of the recording
+                    if post_event < whole_recording.shape[0]:
+                        event_snippets.append(event_snippet)
             else:
                 event_snippet = whole_recording[:, pre_event:post_event]
-                if event_snippet.shape[1] == e_length / self.timebin:
-                    event_snippets.append(event_snippet)
+                # drop events that start before the beginning of the recording
+                # given a long prewindow
+                if pre_event > 0:
+                    # drop events that go beyond the end of the recording
+                    if post_event < whole_recording.shape[1]:
+                        event_snippets.append(event_snippet)
         return event_snippets
 
     def __get_unit_event_firing_rates__(
@@ -1847,19 +1852,29 @@ class SpikeAnalysis_MultiRecording:
                 next_recording_key = [recording_name] * PCA_matrix.shape[0]
                 PCA_recording_key = np.concatenate((PCA_recording_key, next_recording_key), axis = 0)
         matrix = np.transpose(PCA_master_matrix)
+        matrix_df = pd.DataFrame(data = matrix, columns = PCA_recording_key, index = PCA_event_key)
+        key = np.array(matrix_df.index.to_list())
         if matrix.shape[0] < matrix.shape[1]:
             print('you have more features (neurons) than samples (time bins)')
             print('this is bad.')
-            print('please choose a larger time window for analysis')
+            print('please choose a smaller time window for analysis')
             print('or a subsample of data (less neurons)')
-        matrix_df = pd.DataFrame(data = matrix, columns = PCA_recording_key, index = PCA_event_key)
-        key = np.array(matrix_df.index.to_list())
-        pca = PCA()
-        pca.fit(matrix_df)
-        transformed_matrix = pca.transform(matrix_df)
-        coefficients = pca.components_
-        explained_variance_ratios = pca.explained_variance_ratio_
-        return matrix_df, transformed_matrix, key, coefficients, explained_variance_ratios
+            return {'raw data': matrix_df, 
+                    'transformed data': None,
+                    'labels': key,
+                    'coefficients': None,
+                    'explained variance': None}
+        else:
+            pca = PCA()
+            pca.fit(matrix_df)
+            transformed_matrix = pca.transform(matrix_df)
+            coefficients = pca.components_
+            exp_var_ratios = pca.explained_variance_ratio_
+            return {'raw data': matrix_df, 
+                    'transformed data': transformed_matrix,
+                    'labels': key,
+                    'coefficients': coefficients,
+                    'explained variance': exp_var_ratios}
 
     def PCA_trajectories(
         self,
@@ -1896,20 +1911,21 @@ class SpikeAnalysis_MultiRecording:
             none
 
         """
-        PCA_matrix, transformed_matrix, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events, recordings)
+        pc_dict = self.PCA_matrix_generation(equalize, pre_window, post_window, events, recordings)
+        transformed_matrix = pc_dict['transformed data']
         if events is not None:
             for i in range(len(events)):
                 if i == 0:
                     PCA_dict_key = events[i]
                 else:
                     PCA_dict_key = PCA_dict_key + events[i]
-        PCA_event_key = key
+        PCA_event_key = pc_dict['labels']
         if save:
             if recordings is None:
                 if PCA_dict_key is None:
-                    self.ephyscollection.PCA_dfs["all"] = transformed_matrix
+                    self.ephyscollection.PCA_dfs["all"] = pc_dict['transformed data']
                 else:
-                    self.ephyscollection.PCA_dfs[PCA_dict_key] = transformed_matrix
+                    self.ephyscollection.PCA_dfs[PCA_dict_key] = pc_dict['transformed data']
         if plot:
             if d == 2:
                 self.__PCA_EDA_plot__(
@@ -1927,7 +1943,7 @@ class SpikeAnalysis_MultiRecording:
                     pre_window,
                     post_window, azim, elev
                 )
-        return transformed_matrix, coefficients, explained_variance_ratios
+        return pc_dict
 
     def __PCA_EDA_plot__(
         self, PCA_matrix, PCA_key, equalize, pre_window, post_window
@@ -2112,7 +2128,11 @@ class SpikeAnalysis_MultiRecording:
         plt.show()
 
     def LOO_PCA(self, equalize, pre_window, percent_var, post_window = 0, events = None):
-        full_PCA_matrix, t_matrix, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
+        pc_dict = self.PCA_matrix_generation(equalize, pre_window, post_window, events)
+        full_PCA_matrix = pc_dict['raw data']
+        key = pc_dict['labels']
+        coefficients = pc_dict['coefficients']
+        explained_variance_ratios = pc_dict['explained variance']
         transformed_subsets = []
         i = 0
         recording_indices = get_indices(full_PCA_matrix.columns.to_list())
@@ -2138,12 +2158,15 @@ class SpikeAnalysis_MultiRecording:
         temp_pairwise_distances = {}
         is_first = True
         for record_name, recording in self.ephyscollection.collection.items():
-            d_mat, t_mat, key, coef, ex_var = self.PCA_matrix_generation(
+            pc_dict = self.PCA_matrix_generation(
                 equalize,
                 pre_window,
                 post_window,
                 events,
                 [record_name])
+            t_mat = pc_dict['transformed data']
+            key = pc_dict['labels']
+            ex_var = pc_dict['explained variance']
             no_pcs = PCs_needed(ex_var, percent_var)
             event_trajectories = event_slice(t_mat, key, no_pcs, mode='single')
             temp_pairwise_distances = geodesic_distances(event_trajectories, mode='single')
@@ -2158,7 +2181,9 @@ class SpikeAnalysis_MultiRecording:
         return pairwise_distances
     
     def __PCA_for_decoding__(self, equalize, pre_window, post_window, no_PCs, events):
-        full_PCA_matrix, t_df, key, coefficients, explained_variance_ratios = self.PCA_matrix_generation(equalize, pre_window, post_window, events = events)
+        pc_dict = self.PCA_matrix_generation(equalize, pre_window, post_window, events = events)
+        full_PCA_matrix = pc_dict['raw data']
+        coefficients = pc_dict['coefficients']
         recordings = full_PCA_matrix.columns.to_list()
         recording_list = np.unique(recordings)
         coefficients = coefficients[:, :no_PCs]
