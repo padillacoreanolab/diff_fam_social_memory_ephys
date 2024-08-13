@@ -1,0 +1,14 @@
+venv/*
+.idea/*
+.DS_Store
+*.rec
+*.pkl
+trodes/__pycache__/*
+*.txt
+!requirements.txt
+archive/data/*
+*.zip
+*.xlsx
+!input/*
+*.png
+__pycache__/*
