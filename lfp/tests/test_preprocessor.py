@@ -59,9 +59,10 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
 
         traces = np.loadtxt("tests/test_data/test_traces.csv", delimiter=",")
         SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
-        brain_regions, traces = preprocessor.map_to_region(traces, SUBJECT_DICT)
-        zscore_traces = preprocessor.zscore(traces)
-        preprocessor.plot_zscore(traces, zscore_traces, OUTPUT_FILE_PATH)
+        brain_regions, processed_traces = preprocessor.map_to_region(traces, SUBJECT_DICT)
+        zscore_traces = preprocessor.zscore(processed_traces)
+        zscore_threshold = preprocessor.filter(zscore_traces, 0.2)
+        preprocessor.plot_zscore(processed_traces, zscore_traces, zscore_threshold, OUTPUT_FILE_PATH)
         self.assertTrue(os.path.exists(OUTPUT_DIR))
 
     def test_filter(self):
