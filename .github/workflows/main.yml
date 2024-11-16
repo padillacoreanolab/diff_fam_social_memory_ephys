@@ -22,10 +22,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          working-directory: diff_fam_social_memory_ephys/lfp
+          working-directory: ./lfp
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run tests
-        working-directory: diff_fam_social_memory_ephys/lfp
+        working-directory: ./lfp
         run: python -m unittest discover
