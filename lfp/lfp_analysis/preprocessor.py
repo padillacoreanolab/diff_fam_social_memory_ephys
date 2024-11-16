@@ -56,8 +56,14 @@ def plot_zscore(processed_traces, zscore_traces, zscore_threshold, file_path=Non
     ax2.set_xlabel("Time")
 
     ax3.plot(zscore_threshold[0])
-    ax3.set_title("Z-score threshhold")
+    ax3.set_title("Z-score threshold")
     ax3.set_ylabel("Amplitude")
+
+    # Share y-axis limits between ax2 and ax3
+    y_min = min(ax2.get_ylim()[0], ax3.get_ylim()[0])
+    y_max = max(ax2.get_ylim()[1], ax3.get_ylim()[1])
+    ax2.set_ylim(y_min, y_max)
+    ax3.set_ylim(y_min, y_max)
 
     plt.tight_layout()
     if file_path:
