@@ -18,10 +18,17 @@ def map_to_region(all_traces, subject_region_dict):
     return brain_region_dict, traces
 
 
+def median_abs_dev(traces):
+    return stats.median_abs_deviation(traces, axis=1)
+
+
 def zscore(traces):
-    print(traces.shape)
-    mads = stats.median_abs_deviation(traces, axis=1)
-    return mads
+    mads = median_abs_dev(traces)
+    # transpose because of broadcasting rules- trailing axis must be same
+    # https://stackoverflow.com/questions/26333005/numpy-subtract-every-row-of-matrix-by-vector
+    temp_traces = (traces.transpose() - np.median(traces, axis=1)).transpose()
+    zscore_traces = SPIKE_GADGETS_MULTIPLIER * (temp_traces.transpose() / mads).transpose()
+    return zscore_traces
 
 
 def plot_zscore():

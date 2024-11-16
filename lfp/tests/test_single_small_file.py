@@ -33,5 +33,7 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         all_traces_arr = np.loadtxt(traces_path, delimiter=",")
         brain_regions, traces = preprocessor.map_to_region(all_traces_arr, SUBJECT_DICT)
         # use scipy median_abs_deviation , put in 5, X array, get an array of 5 by 1
-        mad_list = preprocessor.zscore(traces)
+        mad_list = preprocessor.median_abs_dev(traces)
         self.assertEquals(mad_list.shape[0], traces.shape[0])
+        zscore_traces = preprocessor.zscore(traces)
+        self.assertEquals(traces.shape, zscore_traces.shape)
