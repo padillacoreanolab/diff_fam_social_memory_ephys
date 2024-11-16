@@ -8,6 +8,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+
+### How to run tests like a real coder 
+
+please open terminal and run in this directory
+```
+cd diff_fam_social_memory_ephys/lfp
+python -m unittest discover
+```
+
 ### File Structure
 
 - `archive/` - Old code and data that is no longer used.
