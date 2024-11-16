@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def map_to_region(traces, subject_region_dict):
     traces_dict = {}
     for region, channel in subject_region_dict.items():
@@ -16,3 +19,7 @@ def plot_zscore():
 
 def filter():
     return
+
+
+def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.ndarray:
+    return lfp_traces * voltage_scaling_value

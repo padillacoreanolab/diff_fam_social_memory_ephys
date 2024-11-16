@@ -8,10 +8,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Bidict
 
-### How to run tests like a real coder 
+Bidict is a bi-directional dictionary that allows you to look up the key given the value and vice versa.
+https://bidict.readthedocs.io/en/main/intro.html
+
+### How to run tests like a real coder
 
 please open terminal and run in this directory
+
 ```
 cd diff_fam_social_memory_ephys/lfp
 python -m unittest discover
