@@ -7,8 +7,14 @@ import lfp_analysis.preprocessor as preprocessor
 SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
 SPIKE_GADGETS_MULTIPLIER = 0.6745
 
+OUTPUT_FILE_PATH = os.path.join("tests", "output", "test_zscore.png")
+
 
 class test_lfp_recording_preprocessing(unittest.TestCase):
+    def setUp(self):
+        if os.path.exists(OUTPUT_FILE_PATH):
+            os.remove(OUTPUT_FILE_PATH)
+        os.makedirs(os.path.dirname(OUTPUT_FILE_PATH), exist_ok=False)
 
     def test_map_to_region(self):
         traces_path = os.path.join("tests", "test_data", "test_traces.csv")
@@ -44,3 +50,12 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         brain_regions, traces = preprocessor.map_to_region(all_traces_arr, SUBJECT_DICT)
         rms_traces = preprocessor.root_mean_sqaure(traces)
         self.assertEqual(traces.shape, rms_traces.shape)
+
+    def test_plot_zscore(self):
+        self.assertTrue(os.path.exists(OUTPUT_FILE_PATH))
+        traces = np.loadtxt("tests/test_data/test_traces.csv", delimiter=",")
+        SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
+        brain_regions, traces = preprocessor.map_to_region(traces, SUBJECT_DICT)
+        zscore_traces = preprocessor.zscore(traces)
+        preprocessor.plot_zscore(traces, zscore_traces, OUTPUT_FILE_PATH)
+        self.assertTrue(os.path.exists(OUTPUT_FILE_PATH))

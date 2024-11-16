@@ -1,6 +1,8 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from bidict import bidict
 import scipy.stats as stats
+
 
 SPIKE_GADGETS_MULTIPLIER = 0.6745
 
@@ -31,8 +33,22 @@ def zscore(traces):
     return zscore_traces
 
 
-def plot_zscore():
+def plot_zscore(traces, zscore_traces, file_path=None):
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
+    ax1.plot(traces[0])
+    ax1.set_title("Original Signal")
+    ax1.set_ylabel("Amplitude")
+
+    ax2.plot(zscore_traces[0])
+    ax2.set_title("Z-scored Signal")
+    ax2.set_ylabel("Z-score")
+    ax2.set_xlabel("Time")
+
+    plt.tight_layout()
+    plt.show()
+    if file_path:
+        plt.savefig(file_path)
     return
 
 
@@ -46,3 +62,11 @@ def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.nd
 
 def root_mean_sqaure(traces):
     return traces / np.sqrt(np.mean(traces**2))
+
+
+if __name__ == "__main__":
+    traces = np.loadtxt("tests/test_data/test_traces.csv", delimiter=",")
+    SUBJECT_DICT = {"mPFC": 20, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
+    brain_regions, traces = map_to_region(traces, SUBJECT_DICT)
+    zscore_traces = zscore(traces)
+    plot_zscore(traces, zscore_traces)
