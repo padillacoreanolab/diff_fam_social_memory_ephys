@@ -1,5 +1,8 @@
 import numpy as np
 from bidict import bidict
+import scipy.stats as stats
+
+SPIKE_GADGETS_MULTIPLIER = 0.6745
 
 
 def map_to_region(all_traces, subject_region_dict):
@@ -15,8 +18,10 @@ def map_to_region(all_traces, subject_region_dict):
     return brain_region_dict, traces
 
 
-def zscore():
-    return
+def zscore(traces):
+    print(traces.shape)
+    mads = stats.median_abs_deviation(traces, axis=1)
+    return mads
 
 
 def plot_zscore():
