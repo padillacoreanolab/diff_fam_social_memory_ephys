@@ -32,6 +32,7 @@ def zscore(traces):
 
 
 def plot_zscore():
+
     return
 
 
@@ -41,3 +42,7 @@ def filter():
 
 def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.ndarray:
     return lfp_traces * voltage_scaling_value
+
+
+def root_mean_sqaure(traces):
+    return traces / np.sqrt(np.mean(traces**2))
