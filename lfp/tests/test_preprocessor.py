@@ -3,18 +3,20 @@ import numpy as np
 import unittest
 import bidict
 import lfp_analysis.preprocessor as preprocessor
+import shutil
 
 SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
 SPIKE_GADGETS_MULTIPLIER = 0.6745
 
-OUTPUT_FILE_PATH = os.path.join("tests", "output", "test_zscore.png")
+OUTPUT_DIR = os.path.join("tests", "output")
 
 
 class test_lfp_recording_preprocessing(unittest.TestCase):
-    def setUp(self):
-        if os.path.exists(OUTPUT_FILE_PATH):
-            os.remove(OUTPUT_FILE_PATH)
-        os.makedirs(os.path.dirname(OUTPUT_FILE_PATH), exist_ok=False)
+    @classmethod
+    def setUpClass(cls):
+        if os.path.exists(OUTPUT_DIR):
+            shutil.rmtree(OUTPUT_DIR)
+        os.mkdir(OUTPUT_DIR)
 
     def test_map_to_region(self):
         traces_path = os.path.join("tests", "test_data", "test_traces.csv")
@@ -52,10 +54,21 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         self.assertEqual(traces.shape, rms_traces.shape)
 
     def test_plot_zscore(self):
-        self.assertTrue(os.path.exists(OUTPUT_FILE_PATH))
+        self.assertTrue(os.path.isdir(OUTPUT_DIR))
+        OUTPUT_FILE_PATH = os.path.join(OUTPUT_DIR, "test_zscore.png")
+
         traces = np.loadtxt("tests/test_data/test_traces.csv", delimiter=",")
         SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
         brain_regions, traces = preprocessor.map_to_region(traces, SUBJECT_DICT)
         zscore_traces = preprocessor.zscore(traces)
         preprocessor.plot_zscore(traces, zscore_traces, OUTPUT_FILE_PATH)
-        self.assertTrue(os.path.exists(OUTPUT_FILE_PATH))
+        self.assertTrue(os.path.exists(OUTPUT_DIR))
+
+    def test_filter(self):
+        zscores = np.array([[-5.0, -1.0, 2.0, 3.0, 4.0, 5.0], [-5.0, -1.0, 2.0, 3.0, 4.0, 5.0]])
+        threshold = 3
+        filtered_zscores = preprocessor.filter(zscores, threshold)
+
+        self.assertEqual(filtered_zscores.shape, zscores.shape)
+        self.assertEqual(filtered_zscores[0][0], 0)
+        self.assertEqual(filtered_zscores[0][1], -1.0)

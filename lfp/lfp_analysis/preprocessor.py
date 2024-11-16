@@ -46,14 +46,15 @@ def plot_zscore(traces, zscore_traces, file_path=None):
     ax2.set_xlabel("Time")
 
     plt.tight_layout()
-    plt.show()
     if file_path:
         plt.savefig(file_path)
+    else:
+        plt.show()
     return
 
 
-def filter():
-    return
+def filter(zscore, threshold):
+    return np.where(np.abs(zscore) >= threshold, 0, zscore)
 
 
 def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.ndarray:
