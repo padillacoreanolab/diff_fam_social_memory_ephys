@@ -5,6 +5,16 @@ import scipy.stats as stats
 
 
 SPIKE_GADGETS_MULTIPLIER = 0.6745
+VOLTAGE_SCALING_VALUE = 0.195
+
+
+def preprocess(all_traces, subject_region_dict, threshold, scaling, plot=False):
+    brain_region_dict, traces = map_to_region(all_traces, subject_region_dict)
+    zscored_traces = filter(zscore(scale_voltage(traces, scaling)), threshold)
+    if plot:
+        plot_zscore(traces, zscored_traces)
+    rms_traces = root_mean_sqaure(zscored_traces)
+    return rms_traces, brain_region_dict
 
 
 def map_to_region(all_traces, subject_region_dict):
