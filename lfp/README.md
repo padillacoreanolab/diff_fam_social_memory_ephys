@@ -13,7 +13,20 @@ pip install -r requirements.txt
 Bidict is a bi-directional dictionary that allows you to look up the key given the value and vice versa.
 https://bidict.readthedocs.io/en/main/intro.html
 
-### How to run tests like a real coder
+# Developer installation
+
+## How to run tests like a real coder
+
+### Download test data
+
+We're going to use this small recording from trodes:
+https://docs.spikegadgets.com/en/latest/basic/BasicUsage.html
+
+There is a helper script that downloads it and unzips it into `tests/test_data/`.
+
+```
+python -m tests.utils download_test_data
+```
 
 please open terminal and run in this directory
 
@@ -28,7 +41,7 @@ python -m unittest discover
 For example, to turn a dataset into a test:
 
 ```
-python -m tests.utils
+python -m tests.utils create /Volumes/SheHulk/cups/data/11_cups_p4.rec/11_cups_p4_merged.rec
 ```
 
 This is nice because it allows all imports to be relative to the root directory.

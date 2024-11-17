@@ -10,3 +10,4 @@ spectral_connectivity==1.1.2
 spikeinterface==0.100.6
 ipykernel==6.29.5
 bidict==0.23.1
+requests==2.31.0

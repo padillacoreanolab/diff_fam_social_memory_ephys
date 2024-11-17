@@ -140,3 +140,7 @@ dmypy.json
 *.xlsx
 *.pkl
 *.png
+
+.DS_Store
+**/.DS_Store
+**/__MACOSX/

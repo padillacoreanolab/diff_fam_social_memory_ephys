@@ -4,6 +4,12 @@ import spikeinterface.extractors as se
 import spikeinterface.preprocessing as sp
 import lfp_analysis.preprocessor as preprocessor
 import argparse
+import requests
+import zipfile
+from io import BytesIO
+
+
+TEST_DATA_DIR = os.path.join("tests", "test_data")
 
 
 def load_test_traces():
@@ -50,6 +56,25 @@ def create_test_data(recording_path):
     np.savetxt(save_path, traces, delimiter=",")
 
 
+def download_test_rec_from_trodes():
+    url = "https://bitbucket.org/mkarlsso/trodes/downloads/Example_Recording.zip"
+
+    # Create test_data directory if it doesn't exist
+    os.makedirs(TEST_DATA_DIR, exist_ok=True)
+
+    # Download the zip file
+    print("Downloading Example Recording...")
+    response = requests.get(url)
+    response.raise_for_status()
+
+    # Extract the zip file
+    print("Extracting files...")
+    with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
+        zip_ref.extractall(TEST_DATA_DIR)
+
+    print("Download and extraction complete!")
+
+
 def main():
     parser = argparse.ArgumentParser(description="LFP Test Data Utility")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
@@ -64,6 +89,9 @@ def main():
     create_parser = subparsers.add_parser("create", help="Create test data")
     create_parser.add_argument("recording_path", help="Path to the recording file")
 
+    # Add download command
+    subparsers.add_parser("download_test_data", help="Download example recording from Trodes")
+
     args = parser.parse_args()
 
     if args.command == "load":
@@ -75,6 +103,8 @@ def main():
             print("Loaded test traces with shape:", traces.shape)
     elif args.command == "create":
         create_test_data(args.recording_path)
+    elif args.command == "download_test_data":
+        download_test_rec_from_trodes()
     else:
         parser.print_help()
 
