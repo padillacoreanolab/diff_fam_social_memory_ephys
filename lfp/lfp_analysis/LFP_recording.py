@@ -60,6 +60,7 @@ class LFPRecording:
         self.halfbandwidth = halfbandwidth
         self.timewindow = timewindow
         self.timestep = timestep
+        self.read_trodes()
 
     def read_trodes(self):
         recording = se.read_spikegadgets(self.merged_rec, stream_id="trodes")
