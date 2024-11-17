@@ -1,18 +1,3 @@
-import glob
-import subprocess
-import os
-import warnings
-from collections import defaultdict
-import trodes.read_exported
-import pandas as pd
-import numpy as np
-from scipy import stats
-from spectral_connectivity import Multitaper, Connectivity
-import logging
-import h5py
-from scipy.interpolate import interp1d
-from scipy.signal import savgol_filter
-import matplotlib.pyplot as plt
 import spikeinterface.extractors as se
 import spikeinterface.preprocessing as sp
 import lfp_analysis.preprocessor as preprocessor
@@ -32,7 +17,7 @@ class LFPRecording:
         subject,
         behavior_dict,
         channel_dict,
-        merged_rec,
+        merged_rec_path,
         elec_noise_freq=60,
         sampling_rate=20000,
         min_freq=0.5,
@@ -45,7 +30,7 @@ class LFPRecording:
         timewindow=1,
         timestep=0.5,
     ):
-        self.merged_rec = merged_rec
+        self.merged_rec_path = merged_rec_path
         self.sampling_rate = sampling_rate
         self.subject = subject
         self.behavior_dict = behavior_dict
@@ -60,19 +45,22 @@ class LFPRecording:
         self.halfbandwidth = halfbandwidth
         self.timewindow = timewindow
         self.timestep = timestep
-        self.read_trodes()
+        self._read_trodes()
 
-    def read_trodes(self):
-        recording = se.read_spikegadgets(self.merged_rec, stream_id="trodes")
-        recording = se.read_spikegadgets(self.merged_rec, stream_id="trodes")
+    def _read_trodes(self):
+        recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
+        recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
         recording = sp.notch_filter(recording, freq=self.elec_noise_freq)
         recording = sp.bandpass_filter(recording, freq_min=self.min_freq, freq_max=self.max_freq)
         recording = sp.resample(recording, resample_rate=self.resample_rate)
         self.recording = recording
 
-    def get_selected_traces(self):
+    def _get_selected_traces(self):
         self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_map)
+        sorted_channels = [str(channel) for channel in sorted_channels]
+        # Channel ids are the "names" of the channels as strings
         self.traces = self.recording.get_traces(channel_ids=sorted_channels).T
+        return self.traces
 
     def plot_to_find_threshold(self, threshold, file_path=None):
         zscore_traces = preprocessor.zscore(self.traces, threshold, scaling=self.voltage_scaling)
@@ -90,3 +78,6 @@ class LFPRecording:
                     self.rms_traces, self.sampling_rate, self.halfbandwidth, self.timewindow, self.timestep
                 )
             )
+
+    def find_start_recording_time(self):
+        return
