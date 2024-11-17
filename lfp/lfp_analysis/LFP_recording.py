@@ -31,7 +31,6 @@ class LFPRecording:
         behavior_dict,
         channel_dict,
         merged_rec,
-        rec,
         elec_noise_freq=60,
         sampling_rate=20000,
         min_freq=0.5,
@@ -39,10 +38,10 @@ class LFPRecording:
         resample_rate=1000,
         voltage_scaling=0.195,
         spike_gadgets_multiplier=0.675,
+        threshold=None,
     ):
         self.merged_rec = merged_rec
         self.sampling_rate = sampling_rate
-        self.rec = rec
         self.subject = subject
         self.behavior_dict = behavior_dict
         self.channel_map = channel_dict
