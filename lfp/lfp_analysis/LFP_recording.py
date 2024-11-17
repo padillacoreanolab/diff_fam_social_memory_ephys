@@ -49,6 +49,7 @@ class LFPRecording:
         self.timestep = timestep
         self.rec_path = os.path.dirname(merged_rec_path)
         self._read_trodes()
+        self._get_selected_traces()
 
     def _read_trodes(self):
         recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
