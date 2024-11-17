@@ -10,6 +10,8 @@ from io import BytesIO
 
 
 TEST_DATA_DIR = os.path.join("tests", "test_data")
+EXAMPLE_RECORDING_DIR = os.path.join(TEST_DATA_DIR, "Example_Recording")
+EXAMPLE_RECORDING_FILEPATH = os.path.join(EXAMPLE_RECORDING_DIR, "example_recording_merged.rec")
 
 
 def load_test_traces():
@@ -71,6 +73,19 @@ def download_test_rec_from_trodes():
     print("Extracting files...")
     with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
         zip_ref.extractall(TEST_DATA_DIR)
+
+    # Rename the extracted files
+    files_to_rename = [
+        ("example_recording.rec", "example_recording_merged.rec"),
+        ("example_recording.trodesconf", "example_recording_merged.trodesconf"),
+    ]
+
+    for old_name, new_name in files_to_rename:
+        old_path = os.path.join(TEST_DATA_DIR, old_name)
+        new_path = os.path.join(TEST_DATA_DIR, new_name)
+        if os.path.exists(old_path):
+            os.rename(old_path, new_path)
+            print(f"Renamed file to: {new_path}")
 
     print("Download and extraction complete!")
 

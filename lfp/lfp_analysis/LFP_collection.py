@@ -1,44 +1,55 @@
-class LFPCollection:
-    def __init__(self, recording_to_behavior_dict, subject_to_channel_dict, data_path, **kwargs):
-        """Initialize LFPCollection object.
+from pathlib import Path
 
-        Args:
-            recording_to_behavior_dict: Dictionary mapping recordings to behavior data
-            subject_to_channel_dict: Dictionary mapping subjects to channel configurations
-            data_path: Path to data directory
-            **kwargs: Optional parameters:
-                elec_noise_freq (int): Electrical noise frequency (default: 60)
-                sampling_rate (int): Recording sampling rate (default: 20000)
-                min_freq (float): Minimum frequency for filtering (default: 0.5)
-                max_freq (float): Maximum frequency for filtering (default: 300)
-                resample_rate (int): Rate to resample data to (default: 1000)
-                voltage_scaling (float): Voltage scaling factor (default: 0.195)
-                spike_gadgets_multiplier (float): Spike gadgets multiplier (default: 0.675)
-                threshold (float): Threshold value (default: None)
-                halfbandwidth (float): Half bandwidth value (default: 2)
-                timewindow (float): Time window size (default: 1)
-                timestep (float): Time step size (default: 0.5)
-        """
+from lfp_analysis.LFP_recording import LFPRecording
+
+DEFAULT_KWARGS = {
+    "sampling_rate": 20000,
+    "voltage_scaling": 0.195,
+    "spike_gadgets_multiplier": 0.675,
+    "elec_noise_freq": 60,
+    "min_freq": 0.5,
+    "max_freq": 300,
+    "resample_rate": 1000,
+    "halfbandwidth": 2,
+    "timewindow": 1,
+    "timestep": 0.5,
+}
+
+
+class LFPCollection:
+    def __init__(
+        self,
+        recording_to_behavior_dict: dict,
+        subject_to_channel_dict: dict,
+        data_path: str,
+        recording_to_sujbect_dict: dict,
+        threshold: int,
+        **kwargs
+    ):
+        """Initialize LFPCollection object."""
         # Required parameters
         self.data_path = data_path
         self.recording_to_behavior_dict = recording_to_behavior_dict
         self.subject_to_channel_dict = subject_to_channel_dict
 
-        # Optional parameters with defaults
-        self.sampling_rate = kwargs.get("sampling_rate", 20000)
-        self.voltage_scaling = kwargs.get("voltage_scaling", 0.195)
-        self.spike_gadgets_multiplier = kwargs.get("spike_gadgets_multiplier", 0.675)
-        self.elec_noise_freq = kwargs.get("elec_noise_freq", 60)
-        self.min_freq = kwargs.get("min_freq", 0.5)
-        self.max_freq = kwargs.get("max_freq", 300)
-        self.resample_rate = kwargs.get("resample_rate", 1000)
-        self.threshold = kwargs.get("threshold", None)
-        self.halfbandwidth = kwargs.get("halfbandwidth", 2)
-        self.timewindow = kwargs.get("timewindow", 1)
-        self.timestep = kwargs.get("timestep", 0.5)
+        self.kwargs = {}
+        for key, default_value in DEFAULT_KWARGS.items():
+            self.kwargs[key] = kwargs.get(key, default_value)
+
+        self.kwargs["threshold"] = threshold
 
         # Initialize recordings
-        self.make_recordings()
+        self.lfp_recordings = self._make_recordings()
 
-    def make_recordings():
-        return
+    def _make_recordings(self):
+        lfp_recordings = []
+        for data_directory in Path(self.data_path).glob("*"):
+            if data_directory.is_dir():
+                for rec_file in data_directory.glob("*merged.rec"):
+                    subject = self.recording_to_sujbect_dict[rec_file.name]
+                    behavior_dict = self.recording_to_behavior_dict[rec_file.name]
+                    channel_dict = self.subject_to_channel_dict[subject]
+                    lfp_rec = LFPRecording(subject, behavior_dict, channel_dict, rec_file, **self.kwargs)
+                    lfp_recordings.append(lfp_rec)
+
+        return lfp_recordings

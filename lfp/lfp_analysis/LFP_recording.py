@@ -16,10 +16,10 @@ EPHYS_SAMPLING_RATE = 20000
 class LFPRecording:
     def __init__(
         self,
-        subject,
-        behavior_dict,
-        channel_dict,
-        merged_rec_path,
+        subject: str,
+        behavior_dict: dict,
+        channel_dict: dict,
+        merged_rec_path: str,
         elec_noise_freq=60,
         sampling_rate=20000,
         min_freq=0.5,
