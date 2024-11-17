@@ -8,26 +8,22 @@ SPIKE_GADGETS_MULTIPLIER = 0.6745
 VOLTAGE_SCALING_VALUE = 0.195
 
 
-def preprocess(all_traces, subject_region_dict, threshold, scaling, plot=False):
-    brain_region_dict, traces = map_to_region(all_traces, subject_region_dict)
+def preprocess(traces, threshold, scaling):
+    # brain_region_dict, traces = map_to_region(all_traces, subject_region_dict)
     zscored_traces = filter(zscore(scale_voltage(traces, scaling)), threshold)
-    if plot:
-        plot_zscore(traces, zscored_traces)
     rms_traces = root_mean_sqaure(zscored_traces)
-    return rms_traces, brain_region_dict
+    return rms_traces
 
 
-def map_to_region(all_traces, subject_region_dict):
+def map_to_region(subject_region_dict):
     # sort brain regions by channel in incresing order
     sorted_regions = [k for k, v in sorted(subject_region_dict.items(), key=lambda x: x[1])]
     # sort associated selected channels in incresing order
     sorted_channels = [v for k, v in sorted(subject_region_dict.items(), key=lambda x: x[1])]
-    # select only desired traces
-    traces = all_traces[sorted_channels, ...]
     # create a bidict for brain region to index of new trace array
     brain_region_dict = bidict({region: idx for idx, region in enumerate(sorted_regions)})
-
-    return brain_region_dict, traces
+    # return brain_region_dict, traces
+    return brain_region_dict, sorted_channels
 
 
 def median_abs_dev(traces):
