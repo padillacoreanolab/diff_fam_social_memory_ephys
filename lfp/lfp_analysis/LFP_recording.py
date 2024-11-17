@@ -68,7 +68,7 @@ class LFPRecording:
         return self.traces
 
     def plot_to_find_threshold(self, threshold, file_path=None):
-        zscore_traces = preprocessor.zscore(self.traces, threshold, scaling=self.voltage_scaling)
+        zscore_traces = preprocessor.zscore(preprocessor.scale_voltage(self.traces), threshold)
         preprocessor.plot_zscore(self.traces, zscore_traces, file_path)
 
     def process(self, threshold=None):
