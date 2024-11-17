@@ -1,7 +1,3 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from bidict import bidict
-import scipy.stats as stats
 from spectral_connectivity import Multitaper, Connectivity
 
 
