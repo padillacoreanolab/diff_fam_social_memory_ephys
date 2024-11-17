@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 import spikeinterface.extractors as se
 import spikeinterface.preprocessing as sp
 import lfp_analysis.preprocessor as preprocessor
+import lfp_analysis.connectivity_wrapper as connectivity_wrapper
+
 
 LFP_FREQ_MIN = 0.5
 LFP_FREQ_MAX = 300
@@ -39,6 +41,9 @@ class LFPRecording:
         voltage_scaling=0.195,
         spike_gadgets_multiplier=0.675,
         threshold=None,
+        halfbandwidth=2,
+        timewindow=1,
+        timestep=0.5,
     ):
         self.merged_rec = merged_rec
         self.sampling_rate = sampling_rate
@@ -47,10 +52,14 @@ class LFPRecording:
         self.channel_map = channel_dict
         self.voltage_scaling = voltage_scaling
         self.spike_gadgets_multiplier = spike_gadgets_multiplier
-        self.elec_noise_freq = (elec_noise_freq,)
-        self.min_freq = (min_freq,)
-        self.max_freq = (max_freq,)
+        self.elec_noise_freq = elec_noise_freq
+        self.min_freq = min_freq
+        self.max_freq = max_freq
         self.resample_rate = resample_rate
+        self.threshold = threshold
+        self.halfbandwidth = halfbandwidth
+        self.timewindow = timewindow
+        self.timestep = timestep
 
     def read_trodes(self):
         recording = se.read_spikegadgets(self.merged_rec, stream_id="trodes")
@@ -62,11 +71,21 @@ class LFPRecording:
 
     def get_selected_traces(self):
         self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_map)
-        self.traces = self.recording.get_traces(sorted_channels).T
+        self.traces = self.recording.get_traces(channel_ids=sorted_channels).T
 
     def plot_to_find_threshold(self, threshold, file_path=None):
         zscore_traces = preprocessor.zscore(self.traces, threshold, scaling=self.voltage_scaling)
         preprocessor.plot_zscore(self.traces, zscore_traces, file_path)
 
-    def process(self, threshold):
-        self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling, plot=False)
+    def process(self, threshold=None):
+        if (threshold is None) & (self.threshold is None):
+            print("Please choose a threshold")
+        else:
+            if (threshold is None) & (self.threshold is not None):
+                threshold = self.threshold
+            self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling, plot=False)
+            self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
+                connectivity_wrapper.connectivity_wrapper(
+                    self.rms_traces, self.sampling_rate, self.halfbandwidth, self.timewindow, self.timestep
+                )
+            )
