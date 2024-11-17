@@ -2,7 +2,9 @@ import spikeinterface.extractors as se
 import spikeinterface.preprocessing as sp
 import lfp_analysis.preprocessor as preprocessor
 import lfp_analysis.connectivity_wrapper as connectivity_wrapper
-
+import trodes.read_exported as trodes
+import os
+from pathlib import Path
 
 LFP_FREQ_MIN = 0.5
 LFP_FREQ_MAX = 300
@@ -45,6 +47,7 @@ class LFPRecording:
         self.halfbandwidth = halfbandwidth
         self.timewindow = timewindow
         self.timestep = timestep
+        self.rec_path = os.path.dirname(merged_rec_path)
         self._read_trodes()
 
     def _read_trodes(self):
@@ -79,5 +82,19 @@ class LFPRecording:
                 )
             )
 
+    def export_trodes_timestamps(self, trodes_directory):
+        trodes.trodes_extract_single_file(trodes_directory, self.merged_rec_path, mode="-time")
+        # need to go to merged.time folder and read merged.timestamps.dat file
+
     def find_start_recording_time(self):
+        timestamps_path = str(Path(self.merged_rec_path).with_suffix(".time"))
+        if os.path.exists(timestamps_path):
+            for file in os.listdir(timestamps_path):
+                if file.endswith(".timestamps.dat"):
+                    timestamps_file_path = os.path.join(timestamps_path, file)
+                    timestamps = trodes.read_trodes_extracted_data_file(timestamps_file_path)
+                    self.first_timestamp = timestamps["first_timestamp"]
+        else:
+            print("Please run export_trodes_timestamps()")
+            print("Trodes installation necessary for this step")
         return
