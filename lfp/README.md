@@ -18,6 +18,7 @@ https://bidict.readthedocs.io/en/main/intro.html
 please open terminal and run in this directory
 
 ```
+python -m tests.util
 cd diff_fam_social_memory_ephys/lfp
 python -m unittest discover
 ```

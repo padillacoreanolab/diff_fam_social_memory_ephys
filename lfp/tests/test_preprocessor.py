@@ -20,10 +20,10 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         os.mkdir(OUTPUT_DIR)
 
     def test_map_to_region(self):
-        all_traces_arr = utils.load_test_traces()
-        self.assertIs(type(all_traces_arr), np.ndarray)
+        traces = utils.load_test_traces()
+        self.assertIs(type(traces), np.ndarray)
 
-        brain_regions, traces = preprocessor.map_to_region(all_traces_arr, SUBJECT_DICT)
+        brain_regions, sorted_channels = preprocessor.map_to_region(SUBJECT_DICT)
         # brain regions is a bidict: {brain_region: brainregion_index}
         self.assertIs(type(brain_regions), bidict.bidict)
         self.assertCountEqual(brain_regions.keys(), ["mPFC", "vHPC", "BLA", "NAc", "MD"])
@@ -37,8 +37,8 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         self.assertEqual(brain_regions["vHPC"], 4)
 
     def test_zscore(self):
-        all_traces_arr = utils.load_test_traces()
-        brain_regions, traces = preprocessor.map_to_region(all_traces_arr, SUBJECT_DICT)
+        traces = utils.load_test_traces()
+        brain_regions, sorted_channels = preprocessor.map_to_region(SUBJECT_DICT)
         # use scipy median_abs_deviation , put in 5, X array, get an array of 5 by 1
         mad_list = preprocessor.median_abs_dev(traces)
         self.assertEqual(mad_list.shape[0], traces.shape[0])
@@ -46,9 +46,8 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         self.assertEqual(traces.shape, zscore_traces.shape)
 
     def test_rms(self):
-        traces_path = os.path.join("tests", "test_data", "test_traces.csv")
-        all_traces_arr = np.loadtxt(traces_path, delimiter=",")
-        brain_regions, traces = preprocessor.map_to_region(all_traces_arr, SUBJECT_DICT)
+        traces = utils.load_test_traces()
+        brain_regions, sorted_channels = preprocessor.map_to_region(SUBJECT_DICT)
         rms_traces = preprocessor.root_mean_sqaure(traces)
         self.assertEqual(traces.shape, rms_traces.shape)
 
@@ -58,10 +57,10 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
 
         traces = np.loadtxt("tests/test_data/test_traces.csv", delimiter=",")
         SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
-        brain_regions, processed_traces = preprocessor.map_to_region(traces, SUBJECT_DICT)
-        zscore_traces = preprocessor.zscore(processed_traces)
+        brain_regions, sorted_channels = preprocessor.map_to_region(SUBJECT_DICT)
+        zscore_traces = preprocessor.zscore(traces)
         zscore_threshold = preprocessor.filter(zscore_traces, 2)
-        preprocessor.plot_zscore(processed_traces, zscore_traces, zscore_threshold, OUTPUT_FILE_PATH)
+        preprocessor.plot_zscore(traces, zscore_traces, zscore_threshold, OUTPUT_FILE_PATH)
         self.assertTrue(os.path.exists(OUTPUT_DIR))
 
     def test_filter(self):
