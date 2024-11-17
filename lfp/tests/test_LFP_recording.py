@@ -43,3 +43,15 @@ class TestLFPRecordingTimestampsFile(unittest.TestCase):
 
         self.assertIsNotNone(lfp_rec.first_timestamp)
         self.assertEqual(lfp_rec.first_timestamp, 800146)
+
+    def test_get_traces_sets_timestamp(self):
+        lfp_rec = helper()
+        traces_before_trim = lfp_rec.recording.get_traces().T
+
+        lfp_rec._get_selected_traces()
+
+        self.assertIsNotNone(lfp_rec.first_timestamp)
+        self.assertEqual(lfp_rec.first_timestamp, 800146)
+        lfp_rec.traces
+        self.assertIsNotNone(lfp_rec.traces)
+        self.assertTrue(lfp_rec.traces.shape[0] < traces_before_trim.shape[0])

@@ -59,10 +59,11 @@ class LFPRecording:
         self.recording = recording
 
     def _get_selected_traces(self):
+        start_frame = self.find_start_recording_time()
         self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_map)
         sorted_channels = [str(channel) for channel in sorted_channels]
         # Channel ids are the "names" of the channels as strings
-        self.traces = self.recording.get_traces(channel_ids=sorted_channels).T
+        self.traces = self.recording.get_traces(channel_ids=sorted_channels, start_frame=start_frame).T
         return self.traces
 
     def plot_to_find_threshold(self, threshold, file_path=None):
