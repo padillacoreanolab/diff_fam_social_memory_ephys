@@ -70,31 +70,36 @@ class LFPRecording:
         preprocessor.plot_zscore(self.traces, zscore_traces, file_path)
 
     def process(self, threshold=None):
-        if (threshold is None) & (self.threshold is None):
+        if (threshold is None) and (self.threshold is None):
             print("Please choose a threshold")
-        else:
-            if (threshold is None) & (self.threshold is not None):
-                threshold = self.threshold
-            self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling, plot=False)
-            self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
-                connectivity_wrapper.connectivity_wrapper(
-                    self.rms_traces, self.sampling_rate, self.halfbandwidth, self.timewindow, self.timestep
-                )
+            raise ValueError("Threshold is not set")
+
+        if threshold is None:
+            threshold = self.threshold
+
+        self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling, plot=False)
+        self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
+            connectivity_wrapper.connectivity_wrapper(
+                self.rms_traces, self.sampling_rate, self.halfbandwidth, self.timewindow, self.timestep
             )
+        )
 
     def export_trodes_timestamps(self, trodes_directory):
         trodes.trodes_extract_single_file(trodes_directory, self.merged_rec_path, mode="-time")
         # need to go to merged.time folder and read merged.timestamps.dat file
 
     def find_start_recording_time(self):
+        """If the timestamps file is found at self.merged_rec_path, then use it. Otherwise ask user to create it"""
         timestamps_path = str(Path(self.merged_rec_path).with_suffix(".time"))
         if os.path.exists(timestamps_path):
             for file in os.listdir(timestamps_path):
                 if file.endswith(".timestamps.dat"):
                     timestamps_file_path = os.path.join(timestamps_path, file)
                     timestamps = trodes.read_trodes_extracted_data_file(timestamps_file_path)
-                    self.first_timestamp = timestamps["first_timestamp"]
+                    self.first_timestamp = int(timestamps["first_timestamp"])
         else:
+            print(f"Timestamps file not found at {timestamps_path}")
             print("Please run export_trodes_timestamps()")
             print("Trodes installation necessary for this step")
+            raise ValueError(f"Timestamps file not found at {timestamps_path}")
         return

@@ -2,6 +2,7 @@ import unittest
 import os
 from lfp_analysis.LFP_recording import LFPRecording
 import numpy.testing as npt
+from pathlib import Path
 
 CHANNEL_DICT = {"mPFC": 1, "vHPC": 9, "BLA": 11, "NAc": 27, "MD": 3}
 
@@ -33,3 +34,12 @@ class TestLFPRecording(unittest.TestCase):
         lfp_rec_1 = LFPRecording("test subject 2", {}, {"BLA": 7}, EXAMPLE_REC_PATH)
         traces_1 = lfp_rec_1._get_selected_traces()
         npt.assert_array_equal(traces_0[1], traces_1[0])
+
+
+class TestLFPRecordingTimestampsFile(unittest.TestCase):
+    def test_can_find_timestamps_file(self):
+        lfp_rec = helper()
+        lfp_rec.find_start_recording_time()
+
+        self.assertIsNotNone(lfp_rec.first_timestamp)
+        self.assertEqual(lfp_rec.first_timestamp, 800146)
