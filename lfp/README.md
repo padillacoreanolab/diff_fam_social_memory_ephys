@@ -22,6 +22,16 @@ cd diff_fam_social_memory_ephys/lfp
 python -m unittest discover
 ```
 
+## How to run single files as modules
+
+For example, to turn a dataset into a test:
+
+```
+python -m tests.utils
+```
+
+This is nice because it allows all imports to be relative to the root directory.
+
 ### File Structure
 
 - `archive/` - Old code and data that is no longer used.
