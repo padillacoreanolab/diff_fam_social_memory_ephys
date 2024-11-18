@@ -70,7 +70,7 @@ def download_test_rec_from_trodes():
     response.raise_for_status()
 
     # Extract the zip file
-    print("Extracting files...")
+    print(f"Extracting files to... {TEST_DATA_DIR}")
     with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
         zip_ref.extractall(TEST_DATA_DIR)
 
@@ -81,8 +81,8 @@ def download_test_rec_from_trodes():
     ]
 
     for old_name, new_name in files_to_rename:
-        old_path = os.path.join(TEST_DATA_DIR, old_name)
-        new_path = os.path.join(TEST_DATA_DIR, new_name)
+        old_path = os.path.join(EXAMPLE_RECORDING_DIR, old_name)
+        new_path = os.path.join(EXAMPLE_RECORDING_DIR, new_name)
         if os.path.exists(old_path):
             os.rename(old_path, new_path)
             print(f"Renamed file to: {new_path}")
