@@ -109,7 +109,7 @@ def trodes_extract_single_file(trodes_directory, file, mode="-raw"):
     Returns:
         none
     """
-    command = "trodesexport " + mode + " -rec " + file
+    command = "trodesexport " + mode + " -rec " + str(file)
     subprocess.Popen(command, shell=True, cwd=trodes_directory).wait()
     print("files successfully extracted")
 

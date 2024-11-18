@@ -20,6 +20,7 @@ class LFPRecording:
         behavior_dict: dict,
         channel_dict: dict,
         merged_rec_path: str,
+        trodes_directory: str,
         elec_noise_freq=60,
         sampling_rate=20000,
         min_freq=0.5,
@@ -47,6 +48,7 @@ class LFPRecording:
         self.halfbandwidth = halfbandwidth
         self.timewindow = timewindow
         self.timestep = timestep
+        self.trodes_directory = trodes_directory
         self.rec_path = os.path.dirname(merged_rec_path)
         self.recording = self._read_trodes()
         self.traces = self._get_selected_traces()
@@ -101,8 +103,9 @@ class LFPRecording:
                     timestamps = trodes.read_trodes_extracted_data_file(timestamps_file_path)
                     self.first_timestamp = int(timestamps["first_timestamp"])
         else:
-            print(f"Timestamps file not found at {timestamps_path}")
-            print("Please run export_trodes_timestamps()")
-            print("Trodes installation necessary for this step")
-            raise ValueError(f"Timestamps file not found at {timestamps_path}")
+            self.export_trodes_timestamps(self.trodes_directory)
+            # print(f"Timestamps file not found at {timestamps_path}")
+            # print("Please run export_trodes_timestamps()")
+            # print("Trodes installation necessary for this step")
+            # raise ValueError(f"Timestamps file not found at {timestamps_path}")
         return
