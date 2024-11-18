@@ -39,7 +39,7 @@ class LFPCollection:
             self.kwargs[key] = kwargs.get(key, default_value)
 
         self.kwargs["threshold"] = threshold
-
+        self.threshold = threshold
         # Initialize recordings
         self.lfp_recordings = self._make_recordings()
 

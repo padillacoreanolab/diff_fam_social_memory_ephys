@@ -35,6 +35,7 @@ class LFPRecording:
     ):
         self.merged_rec_path = merged_rec_path
         self.sampling_rate = sampling_rate
+        self.recording_name = os.path.basename(merged_rec_path).split('/')[-1]
         self.subject = subject
         self.behavior_dict = behavior_dict
         self.channel_map = channel_dict
@@ -54,6 +55,7 @@ class LFPRecording:
         self.traces = self._get_selected_traces()
 
     def _read_trodes(self):
+        print(f'Processing {self.recording_name}')
         recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
         recording = sp.notch_filter(recording, freq=self.elec_noise_freq)
         recording = sp.bandpass_filter(recording, freq_min=self.min_freq, freq_max=self.max_freq)
@@ -75,6 +77,7 @@ class LFPRecording:
         preprocessor.plot_zscore(scaled_traces, zscore_traces, thresholded_traces, file_path)
 
     def process(self, threshold=None):
+        print(f"processing {self.recording_name}")
         if (threshold is None) and (self.threshold is None):
             print("Please choose a threshold")
             raise ValueError("Threshold is not set")
@@ -83,12 +86,13 @@ class LFPRecording:
             threshold = self.threshold
 
         self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
-        self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
+        print(f"RMS Traces calculated")
+        self.connectivity, self.frequencies, self.power, self.coherence = (
             connectivity_wrapper.connectivity_wrapper(
-                self.rms_traces, self.sampling_rate, self.halfbandwidth, self.timewindow, self.timestep
+                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
             )
         )
-
+        
     def export_trodes_timestamps(self, trodes_directory):
         trodes.trodes_extract_single_file(trodes_directory, self.merged_rec_path, mode="-time")
         # need to go to merged.time folder and read merged.timestamps.dat file
@@ -102,8 +106,16 @@ class LFPRecording:
                     timestamps_file_path = os.path.join(timestamps_path, file)
                     timestamps = trodes.read_trodes_extracted_data_file(timestamps_file_path)
                     self.first_timestamp = int(timestamps["first_timestamp"])
+                    print("Found first timestamp")
         else:
             self.export_trodes_timestamps(self.trodes_directory)
+            timestamps_path = str(Path(self.merged_rec_path).with_suffix(".time"))
+            for file in os.listdir(timestamps_path):
+                if file.endswith(".timestamps.dat"):
+                    timestamps_file_path = os.path.join(timestamps_path, file)
+                    timestamps = trodes.read_trodes_extracted_data_file(timestamps_file_path)
+                    self.first_timestamp = int(timestamps["first_timestamp"])
+                    print("Extracted first timestamp")
             # print(f"Timestamps file not found at {timestamps_path}")
             # print("Please run export_trodes_timestamps()")
             # print("Trodes installation necessary for this step")
