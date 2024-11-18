@@ -39,7 +39,7 @@ def zscore(traces):
     return zscore_traces
 
 
-def plot_zscore(processed_traces, zscore_traces, zscore_threshold, file_path=None):
+def plot_zscore(processed_traces, zscore_traces, thresholded_zscore_traces, file_path=None):
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 8))
 
     ax1.plot(processed_traces[0])
@@ -51,7 +51,7 @@ def plot_zscore(processed_traces, zscore_traces, zscore_threshold, file_path=Non
     ax2.set_ylabel("Z-score")
     ax2.set_xlabel("Time")
 
-    ax3.plot(zscore_threshold[0])
+    ax3.plot(thresholded_zscore_traces[0])
     ax3.set_title("Z-score threshold")
     ax3.set_ylabel("Amplitude")
 

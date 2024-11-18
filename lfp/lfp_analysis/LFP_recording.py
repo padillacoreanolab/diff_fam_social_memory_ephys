@@ -48,28 +48,29 @@ class LFPRecording:
         self.timewindow = timewindow
         self.timestep = timestep
         self.rec_path = os.path.dirname(merged_rec_path)
-        self._read_trodes()
-        self._get_selected_traces()
+        self.recording = self._read_trodes()
+        self.traces = self._get_selected_traces()
 
     def _read_trodes(self):
-        recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
         recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
         recording = sp.notch_filter(recording, freq=self.elec_noise_freq)
         recording = sp.bandpass_filter(recording, freq_min=self.min_freq, freq_max=self.max_freq)
         recording = sp.resample(recording, resample_rate=self.resample_rate)
-        self.recording = recording
+        return recording
 
     def _get_selected_traces(self):
         start_frame = self.find_start_recording_time()
         self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_map)
         sorted_channels = [str(channel) for channel in sorted_channels]
         # Channel ids are the "names" of the channels as strings
-        self.traces = self.recording.get_traces(channel_ids=sorted_channels, start_frame=start_frame).T
-        return self.traces
+        traces = self.recording.get_traces(channel_ids=sorted_channels, start_frame=start_frame).T
+        return traces
 
     def plot_to_find_threshold(self, threshold, file_path=None):
-        zscore_traces = preprocessor.zscore(preprocessor.scale_voltage(self.traces), threshold)
-        preprocessor.plot_zscore(self.traces, zscore_traces, file_path)
+        scaled_traces = preprocessor.scale_voltage(self.traces, voltage_scaling_value=self.voltage_scaling)
+        zscore_traces = preprocessor.zscore(scaled_traces)
+        thresholded_traces = preprocessor.filter(zscore_traces, threshold)
+        preprocessor.plot_zscore(scaled_traces, zscore_traces, thresholded_traces, file_path)
 
     def process(self, threshold=None):
         if (threshold is None) and (self.threshold is None):
@@ -79,7 +80,7 @@ class LFPRecording:
         if threshold is None:
             threshold = self.threshold
 
-        self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling, plot=False)
+        self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
         self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
             connectivity_wrapper.connectivity_wrapper(
                 self.rms_traces, self.sampling_rate, self.halfbandwidth, self.timewindow, self.timestep
