@@ -35,7 +35,7 @@ class LFPRecording:
     ):
         self.merged_rec_path = merged_rec_path
         self.sampling_rate = sampling_rate
-        self.recording_name = os.path.basename(merged_rec_path).split('/')[-1]
+        self.recording_name = os.path.basename(merged_rec_path).split("/")[-1]
         self.subject = subject
         self.behavior_dict = behavior_dict
         self.channel_map = channel_dict
@@ -55,7 +55,7 @@ class LFPRecording:
         self.traces = self._get_selected_traces()
 
     def _read_trodes(self):
-        print(f'Processing {self.recording_name}')
+        print(f"Processing {self.recording_name}")
         recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
         recording = sp.notch_filter(recording, freq=self.elec_noise_freq)
         recording = sp.bandpass_filter(recording, freq_min=self.min_freq, freq_max=self.max_freq)
@@ -87,12 +87,10 @@ class LFPRecording:
 
         self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
         print(f"RMS Traces calculated")
-        self.connectivity, self.frequencies, self.power, self.coherence = (
-            connectivity_wrapper.connectivity_wrapper(
-                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
-            )
+        self.connectivity, self.frequencies, self.power, self.coherence = connectivity_wrapper.connectivity_wrapper(
+            self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
         )
-        
+
     def export_trodes_timestamps(self, trodes_directory):
         trodes.trodes_extract_single_file(trodes_directory, self.merged_rec_path, mode="-time")
         # need to go to merged.time folder and read merged.timestamps.dat file
