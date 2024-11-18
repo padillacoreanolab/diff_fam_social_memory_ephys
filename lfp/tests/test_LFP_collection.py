@@ -34,6 +34,7 @@ class TestLFPCollection(unittest.TestCase):
             self.data_path,
             {},
             4,
+            "testing_trodes_directory/",
             **custom_params,
         )
 
@@ -47,7 +48,12 @@ class TestLFPCollection(unittest.TestCase):
     def test_make_recordings(self):
         """Test LFPCollection make_recordings method"""
         lfp_collection = LFPCollection(
-            self.recording_to_behavior_dict, self.subject_to_channel_dict, self.data_path, {}, 0.75
+            self.recording_to_behavior_dict,
+            self.subject_to_channel_dict,
+            self.data_path,
+            {},
+            0.75,
+            "testing_trodes_directory/",
         )
 
 
