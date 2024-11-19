@@ -13,6 +13,12 @@ pip install -r requirements.txt
 Bidict is a bi-directional dictionary that allows you to look up the key given the value and vice versa.
 https://bidict.readthedocs.io/en/main/intro.html
 
+## Running with GPU acceleration (Megatron)
+
+1. install the gpu requirements: `pip install -r requirements-gpu.txt`
+2. Set the enviornment variable: `SPECTRAL_CONNECTIVITY_ENABLE_GPU=true`: go to control panel > search for "Environment variables", then add a new user variable:
+
+!(image)[.\lfp\readme_images\SPECTRAL_CONNECTIVITY_ENV_VAR.png]
 # Developer installation
 
 ## How to run tests like a real coder
