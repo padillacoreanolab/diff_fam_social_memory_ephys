@@ -5,8 +5,8 @@ def connectivity_wrapper(rms_traces, downsample_rate, halfbandwidth, timewindow,
     connectivity, frequencies = calculate_multitaper(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
     power = calculate_power(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
     coherence = calculate_coherence(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
-    # granger = calculate_grangers(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
-    return connectivity, frequencies, power, coherence  # , granger
+    granger = calculate_grangers(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
+    return connectivity, frequencies, power, coherence, granger
 
 
 def calculate_multitaper(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep):
@@ -18,10 +18,6 @@ def calculate_multitaper(rms_traces, downsample_rate, halfbandwidth, timewindow,
         time_window_duration=timewindow,
         time_window_step=timestep,
     )
-    print("sampling freq", downsample_rate)
-    print("half bandwidth", halfbandwidth)
-    print("duration", timewindow)
-    print("step", timestep)
     connectivity = Connectivity.from_multitaper(multi_t)
     frequencies = connectivity.frequencies
     return connectivity, frequencies

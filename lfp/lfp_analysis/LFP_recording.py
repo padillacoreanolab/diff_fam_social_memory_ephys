@@ -87,7 +87,7 @@ class LFPRecording:
 
         self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
         print(f"RMS Traces calculated")
-        self.connectivity, self.frequencies, self.power, self.coherence = connectivity_wrapper.connectivity_wrapper(
+        self.connectivity, self.frequencies, self.power, self.coherence, self.grangers= connectivity_wrapper.connectivity_wrapper(
             self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
         )
 
@@ -107,7 +107,6 @@ class LFPRecording:
                     print("Found first timestamp")
         else:
             self.export_trodes_timestamps(self.trodes_directory)
-            timestamps_path = str(Path(self.merged_rec_path).with_suffix(".time"))
             for file in os.listdir(timestamps_path):
                 if file.endswith(".timestamps.dat"):
                     timestamps_file_path = os.path.join(timestamps_path, file)
