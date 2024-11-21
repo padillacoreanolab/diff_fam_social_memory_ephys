@@ -14,7 +14,7 @@ class test_lfp_recording_power(unittest.TestCase):
         traces = utils.load_test_traces()
         rms_traces = preprocessor.preprocess(traces, 0.2, 0.195)
 
-        connectivity, frequencies, power, coherence = connectivity_wrapper.connectivity_wrapper(
+        connectivity, frequencies, power, coherence, granger = connectivity_wrapper.connectivity_wrapper(
             rms_traces, 200, 2, 1, 0.5
         )
 
