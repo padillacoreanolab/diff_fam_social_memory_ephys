@@ -41,6 +41,19 @@ def zscore(traces):
     return zscore_traces
 
 
+def filter(zscore, voltage_scaled, threshold):
+    mask = np.abs(zscore) < threshold
+    return np.where(mask, voltage_scaled, np.nan)
+
+
+def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.ndarray:
+    return lfp_traces * voltage_scaling_value
+
+
+def root_mean_square(traces):
+    return traces / np.sqrt(np.nanmean(traces**2))
+
+
 def plot_zscore(processed_traces, zscore_traces, thresholded_zscore_traces, file_path=None):
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 8))
 
@@ -69,19 +82,6 @@ def plot_zscore(processed_traces, zscore_traces, thresholded_zscore_traces, file
     else:
         plt.show()
     return
-
-
-def filter(zscore, voltage_scaled, threshold):
-    mask = np.abs(zscore) < threshold
-    return np.where(mask, voltage_scaled, np.nan)
-
-
-def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.ndarray:
-    return lfp_traces * voltage_scaling_value
-
-
-def root_mean_square(traces):
-    return traces / np.sqrt(np.nanmean(traces**2))
 
 
 if __name__ == "__main__":

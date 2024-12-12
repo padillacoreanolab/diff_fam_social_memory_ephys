@@ -59,7 +59,7 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
         brain_regions, sorted_channels = preprocessor.map_to_region(SUBJECT_DICT)
         zscore_traces = preprocessor.zscore(traces)
-        scaled_traces = preprocessor.scale_voltage(traces)
+        scaled_traces = preprocessor.scale_voltage(traces, 0.195)
         zscore_threshold = preprocessor.filter(zscore_traces, scaled_traces, 2)
         preprocessor.plot_zscore(traces, zscore_traces, zscore_threshold, OUTPUT_FILE_PATH)
         self.assertTrue(os.path.exists(OUTPUT_DIR))
@@ -72,5 +72,5 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         threshold = 3
         filtered_zscores = preprocessor.filter(zscores, voltage_scaled, threshold)
         self.assertEqual(filtered_zscores.shape, zscores.shape)
-        self.assertTrue(np.isnan(filtered_zscores[1]))
-        self.assertEqual(filtered_zscores[0][1], -0.0195)
+        self.assertTrue(np.isnan(filtered_zscores[0][0]))
+        self.assertEqual(filtered_zscores[0][1], -0.195)
