@@ -10,8 +10,10 @@ VOLTAGE_SCALING_VALUE = 0.195
 
 def preprocess(traces, threshold, scaling):
     # brain_region_dict, traces = map_to_region(all_traces, subject_region_dict)
-    zscored_traces = filter(zscore(scale_voltage(traces, scaling)), threshold)
-    rms_traces = root_mean_sqaure(zscored_traces)
+    voltage_scaled_traces = scale_voltage(traces, scaling)
+    zscored_traces = zscore(voltage_scaled_traces)
+    filtered_traces = filter(zscored_traces, voltage_scaled_traces, threshold)
+    rms_traces = root_mean_square(filtered_traces)
     return rms_traces
 
 
@@ -69,16 +71,17 @@ def plot_zscore(processed_traces, zscore_traces, thresholded_zscore_traces, file
     return
 
 
-def filter(zscore, threshold):
-    return np.where(np.abs(zscore) >= threshold, 0, zscore)
+def filter(zscore, voltage_scaled, threshold):
+    mask = np.abs(zscore) < threshold
+    return np.where(mask, voltage_scaled, np.nan)
 
 
 def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.ndarray:
     return lfp_traces * voltage_scaling_value
 
 
-def root_mean_sqaure(traces):
-    return traces / np.sqrt(np.mean(traces**2))
+def root_mean_square(traces):
+    return traces / np.sqrt(np.nanmean(traces**2))
 
 
 if __name__ == "__main__":
