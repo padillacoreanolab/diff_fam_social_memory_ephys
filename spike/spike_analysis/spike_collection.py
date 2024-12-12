@@ -1,5 +1,9 @@
-import os 
+import os
 from spike_recording import SpikeRecording
+
+# to do need to not add recordings that have no good neurons
+
+
 class SpikeCollection:
     """
     This class initializes and reads in phy folders as EphysRecording
@@ -43,9 +47,9 @@ class SpikeCollection:
                         os.path.join(self.path, directory, "phy"),
                         self.sampling_rate,
                     )
-
+                if "good" not in tempobject.labels_dict:
+                    print(f"{directory} has no good units")
+                    print("and will not be included in the collection")
+                else:
                     collection[directory] = tempobject
         self.collection = collection
-
-    def get_by_name(self, name):
-        return self.collection[name]

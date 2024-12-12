@@ -2,13 +2,13 @@ import unittest
 import numpy as np
 import io
 from unittest.mock import patch
-from spike_analysis.spike_recording import EphysRecording
+from spike_analysis.spike_recording import SpikeRecording
 
 
 class TestSpikeRecording(unittest.TestCase):
     def test_cluster_dict(self):
         data_path = r"tests/test_data/test_recording_merged.rec/phy"
-        test_recording = EphysRecording(data_path)
+        test_recording = SpikeRecording(data_path)
         try:
             test_recording.labels_dict
             self.assertIsInstance(test_recording.labels_dict, dict)
@@ -24,13 +24,13 @@ class TestSpikeRecording(unittest.TestCase):
 
     def test_delete_noise(self):
         data_path = r"tests/test_data/test_recording_merged.rec/phy"
-        test_recording = EphysRecording(data_path)
+        test_recording = SpikeRecording(data_path)
         self.assertIsInstance(test_recording.unit_array, np.ndarray)
         self.assertNotIn("224", test_recording.unit_array)
 
     def test_unsorted_clusters(self):
         data_path = r"tests/test_data/test_recording_merged.rec/phy"
-        test_recording = EphysRecording(data_path)
+        test_recording = SpikeRecording(data_path)
         self.assertNotIn("169", test_recording.labels_dict)
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
             test_recording.get_spike_specs()
@@ -43,7 +43,7 @@ class TestSpikeRecording(unittest.TestCase):
 
     def test_unit_dict(self):
         data_path = r"tests/test_data/test_recording_merged.rec/phy"
-        test_recording = EphysRecording(data_path)
+        test_recording = SpikeRecording(data_path)
         self.assertEqual(len(test_recording.unit_timestamps.keys()), 26)
         for key, value in test_recording.unit_timestamps.items():
             self.assertIsInstance(key, int, f"Key {key} is not an integer")
