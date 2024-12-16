@@ -87,8 +87,10 @@ class LFPRecording:
 
         self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
         print(f"RMS Traces calculated")
-        self.connectivity, self.frequencies, self.power, self.coherence, self.grangers= connectivity_wrapper.connectivity_wrapper(
-            self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+        self.connectivity, self.frequencies, self.power, self.coherence, self.grangers = (
+            connectivity_wrapper.connectivity_wrapper(
+                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+            )
         )
 
     def export_trodes_timestamps(self, trodes_directory):

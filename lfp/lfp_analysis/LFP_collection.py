@@ -51,11 +51,9 @@ class LFPCollection:
                     subject = self.recording_to_subject_dict[rec_file.name]
                     behavior_dict = self.recording_to_behavior_dict[rec_file.name]
                     channel_dict = self.subject_to_channel_dict[subject]
-                    lfp_rec = LFPRecording(subject, behavior_dict,
-                                           channel_dict,
-                                           rec_file,
-                                           self.trodes_directory,
-                                           **self.kwargs)
+                    lfp_rec = LFPRecording(
+                        subject, behavior_dict, channel_dict, rec_file, self.trodes_directory, **self.kwargs
+                    )
                     lfp_recordings.append(lfp_rec)
 
         return lfp_recordings

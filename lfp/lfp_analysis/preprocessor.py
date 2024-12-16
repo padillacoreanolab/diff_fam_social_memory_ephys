@@ -4,7 +4,8 @@ from bidict import bidict
 import scipy.stats as stats
 
 
-SPIKE_GADGETS_MULTIPLIER = 0.6745
+MEDIAN_ZSCORE_MULTIPLIER = 0.6745
+# median zscore constant came from here https://cloudxlab.com/assessment/displayslide/6286/robust-z-score-method
 VOLTAGE_SCALING_VALUE = 0.195
 
 
@@ -37,7 +38,7 @@ def zscore(traces):
     # transpose because of broadcasting rules- trailing axis must be same
     # https://stackoverflow.com/questions/26333005/numpy-subtract-every-row-of-matrix-by-vector
     temp_traces = (traces.transpose() - np.median(traces, axis=1)).transpose()
-    zscore_traces = SPIKE_GADGETS_MULTIPLIER * (temp_traces.transpose() / mads).transpose()
+    zscore_traces = MEDIAN_ZSCORE_MULTIPLIER * (temp_traces.transpose() / mads).transpose()
     return zscore_traces
 
 
