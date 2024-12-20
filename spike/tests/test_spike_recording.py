@@ -35,7 +35,7 @@ class TestSpikeRecording(unittest.TestCase):
             data_path = r"tests/test_data/test_recording_merged.rec/phy"
             test_recording = SpikeRecording(data_path)
             self.assertNotIn("169", test_recording.labels_dict)
-            test_recording.get_spike_specs()
+            test_recording.spike_specs()
             # Get what was printed
             printed_output = fake_stdout.getvalue()
             # Assert the expected message is in the output
@@ -52,3 +52,39 @@ class TestSpikeRecording(unittest.TestCase):
                 self.assertIsInstance(key, str, f"Key {key} is not a string")
                 self.assertIsInstance(value, np.ndarray, f"Key {key} is not a numpy array")
             self.assertEqual(len(test_recording.unit_timestamps["23"]), 25339)
+
+    # def test_analyze(self):
+    # def test_check(self):
+
+    def test_event_snippets(self):
+        data_path = r"tests/test_data/test_recording_merged.rec/phy"
+        recording = SpikeRecording(data_path)
+        recording.event_dict = {"event": np.array([[0, 2000], [3000, 8000], [2338650, 2341650]])}
+        recording.subject = 1
+        recording.analyze(timebin=50, ignore_freq=0.5)
+        whole_rec = recording.unit_firing_rate_array
+        event_snippets = recording.__event_snippets__("event", whole_rec, 2)
+        self.assertEqual(len(event_snippets), 3)
+        self.assertEqual(len(event_snippets[0]), 40)
+
+    def test_early_event_snippets(self):
+        data_path = r"tests/test_data/test_recording_merged.rec/phy"
+        recording = SpikeRecording(data_path)
+        recording.event_dict = {"event": np.array([[0, 2000], [3000, 8000], [2338650, 2341650]])}
+        recording.subject = 1
+        recording.analyze(timebin=50, ignore_freq=0.5)
+        whole_rec = recording.unit_firing_rate_array
+        event_snippets = recording.__event_snippets__("event", whole_rec, 2, 1)
+        self.assertEqual(len(event_snippets), 2)
+        self.assertEqual(len(event_snippets[1]), 60)
+
+    def test_late_event_snippets(self):
+        data_path = r"tests/test_data/test_rec_fewgoodunits_merged.rec/phy"
+        recording = SpikeRecording(data_path)
+        recording.event_dict = {"event": np.array([[0, 2000], [3000, 8000], [2338650, 2341650]])}
+        recording.subject = 1
+        recording.analyze(timebin=50, ignore_freq=0.5)
+        whole_rec = recording.unit_firing_rate_array
+        event_snippets = recording.__event_snippets__("event", whole_rec, 4)
+        self.assertEqual(len(event_snippets), 2)
+        self.assertEqual(len(event_snippets[0]), 80)
