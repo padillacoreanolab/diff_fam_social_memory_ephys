@@ -1,30 +1,9 @@
-import h5py
-import pandas
-import numpy
-import os
-import glob
-from collections import defaultdict
-import trodes.read_exported
-import pandas as pd
 import numpy as np
 from scipy import stats
-from spectral_connectivity import Multitaper, Connectivity
-import logging
-import h5py
-import pickle
 import math
-from scipy.interpolate import interp1d
-from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
-from itertools import combinations
 from itertools import permutations
-import spikeinterface.extractors as se
-import spikeinterface.preprocessing as sp
 import seaborn as sns
-
-# from dPCA import dPCA
-import re
-import warnings
 from bidict import bidict
 
 

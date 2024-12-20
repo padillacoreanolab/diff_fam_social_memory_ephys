@@ -55,6 +55,7 @@ class SpikeRecording:
             None
         """
         self.path = path
+        self.name = os.path.basename(path).split("/")[-1]
         self.sampling_rate = sampling_rate
         self.zscored_events = {}
         self.wilcox_dfs = {}
@@ -136,7 +137,8 @@ class SpikeRecording:
         # Loop through each spike only once
         for spike, unit in enumerate(self.unit_array):
             # Append the timestamp to the list for the corresponding unit
-            unit_timestamps[int(unit)].append(self.timestamps_var[spike])
+            unit_timestamps[str(unit)].append(self.timestamps_var[spike])
+        # convert lists to numpy arrays once complete
         for unit, timestamps in unit_timestamps.items():
-            unit_timestamps[unit] = np.array(timestamps)
+            unit_timestamps[str(unit)] = np.array(timestamps)
         self.unit_timestamps = unit_timestamps
