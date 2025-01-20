@@ -55,6 +55,7 @@ class LFPRecording:
         self.traces = self._get_selected_traces()
 
     def _read_trodes(self):
+        # FUCK FUCK FuCK i  think i need a 20 for resample rate
         print(f"Processing {self.recording_name}")
         recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
         recording = sp.notch_filter(recording, freq=self.elec_noise_freq)

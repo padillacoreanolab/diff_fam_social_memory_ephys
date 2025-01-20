@@ -168,6 +168,7 @@ class SpikeRecording:
                 unit_freq = no_spikes / last_timestamp * sampling_rate
                 freq_dict[unit] = unit_freq
         self.freq_dict = freq_dict
+        self.good_neurons = len(freq_dict.keys())
 
     def __whole_spiketrain__(self):
         """
@@ -186,8 +187,10 @@ class SpikeRecording:
         sampling_rate = self.sampling_rate
         last_timestamp = self.timestamps_var[-1]
         unit_spiketrains = {}
+        i = 0
         for unit in self.freq_dict.keys():
             if self.freq_dict[unit] > self.ignore_freq:
+                i += 1
                 unit_spiketrains[unit] = fr.get_spiketrain(
                     self.unit_timestamps[unit],
                     last_timestamp,
@@ -195,6 +198,7 @@ class SpikeRecording:
                     sampling_rate,
                 )
         self.unit_spiketrains = unit_spiketrains
+        self.analyzed_neurons = i
 
     def __unit_firing_rates__(self):
         """
@@ -242,13 +246,11 @@ class SpikeRecording:
             post_window = round(post_window * 1000)
             event_length = event_length * 1000
             event_len = int((event_length + pre_window + post_window) / self.timebin)
-            print("event len", event_len)
             for i in range(events.shape[0]):
                 pre_event = int((events[i][0] - pre_window) / self.timebin)
                 post_event = pre_event + event_len
                 if len(whole_self.shape) == 1:
                     event_snippet = whole_self[pre_event:post_event]
-                    print("single unit start and stop", pre_event, post_event)
                     # drop events that start before the beginning of the self
                     # given a long prewindow
                     if pre_event >= 0:
@@ -258,17 +260,14 @@ class SpikeRecording:
                             event_snippets.append(event_snippet)
                 else:
                     event_snippet = whole_self[pre_event:post_event, ...]
-                    print("self array start and stop", pre_event, post_event)
                     # drop events that start before the beginning of the self
                     # given a long prewindow
                     if pre_event >= 0:
                         # drop events that go beyond the end of the self
                         if post_event < whole_self.shape[0]:
                             event_snippets.append(event_snippet)
-
-            print(np.array(event_snippets).shape)
             # event_snippets = [trial, timebins, units] or [trial, timebin] per unit
-            return event_snippets
+            return np.array(event_snippets)
         else:
             self.check()
             return None
@@ -323,6 +322,7 @@ class SpikeRecording:
             event_firing_rates = self.__event_snippets__(
                 event, self.unit_firing_rate_array, event_length, pre_window, post_window
             )
+            # event_snippets = [trial, timebins, units]
             return event_firing_rates
         else:
             self.check()

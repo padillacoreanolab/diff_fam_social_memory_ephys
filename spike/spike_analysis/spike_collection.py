@@ -1,6 +1,5 @@
 import os
 from spike_analysis.spike_recording import SpikeRecording
-import spike_analysis.firing_rate_calculations as fr
 import numpy as np
 
 
@@ -66,8 +65,14 @@ class SpikeCollection:
         self.ignore_freq = ignore_freq
         self.smoothing_window = smoothing_window
         self.mode = mode
+        analyzed_neurons = 0
+        good_neurons = 0
         for recording in self.collection:
             recording.analyze(timebin, ignore_freq, smoothing_window, mode)
+            analyzed_neurons += recording.analyzed_neurons
+            good_neurons += recording.good_neurons
+        self.good_neurons = good_neurons
+        self.analyzed_neurons = analyzed_neurons
         self.__all_set__()
 
     def __all_set__(self):

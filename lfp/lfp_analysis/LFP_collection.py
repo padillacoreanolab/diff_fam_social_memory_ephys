@@ -25,7 +25,7 @@ class LFPCollection:
         recording_to_subject_dict: dict,
         threshold: int,
         trodes_directory: str,
-        **kwargs
+        **kwargs,
     ):
         """Initialize LFPCollection object."""
         # Required parameters
@@ -61,3 +61,71 @@ class LFPCollection:
     def process(self):
         for recording in tqdm(self.lfp_recordings):
             recording.process(self.threshold)
+
+
+# TO DO
+def combine_collections(list_of_collections):
+    attr_match = check_attributes_match(list_of_collections)
+    complete_recordings = []
+    if attr_match:
+        for collection in list_of_collections:
+            complete_recordings.extend(collection.collection)
+        list_of_collections[0].collection = complete_recordings
+        return list_of_collections[0]
+
+
+def check_attributes_match(instances):
+    """
+    Check if specified attributes match across all instances.
+    Issues warnings for any mismatched attributes.
+
+    Args:
+        instances: List of class instances to compare
+        attributes: List of attribute names to check
+
+    Returns:
+        bool: True if all specified attributes match across instances, False otherwise
+    """
+    attributes = [
+        "timebin",
+        "sampling_rate",
+        "voltage_scaling",
+        "spike_gadgets_multiplier",
+        "elec_noise_freq",
+        "min_freq",
+        "max_freq",
+        "resample_rate",
+        "halfbandwidth",
+        "timewindow",
+        "timestep",
+        "threshold",
+    ]
+
+    if not instances or len(instances) < 2:
+        return True
+
+    all_match = True
+    first_instance = instances[0]
+
+    for attr in attributes:
+        # Get the value from first instance
+        try:
+            reference_value = getattr(first_instance, attr)
+        except AttributeError:
+            print(f"Warning: Attribute '{attr}' not found in {type(first_instance).__name__}")
+            all_match = False
+            continue
+
+        # Compare with all other instances
+        for i, instance in enumerate(instances[1:], 2):  # Start enum at 2 for clearer warnings
+            try:
+                current_value = getattr(instance, attr)
+                if current_value != reference_value:
+                    print(f"Warning: {attr} mismatch detected:")
+                    print(f"  Instance 1: {reference_value}")
+                    print(f"  Instance {i}: {current_value}")
+                    all_match = False
+            except AttributeError:
+                print(f"Warning: Attribute '{attr}' not found in instance {i}")
+                all_match = False
+    return all_match
