@@ -55,7 +55,80 @@ class TestSpikeRecording(unittest.TestCase):
 
     # def test_analyze(self):
     # def test_check(self):
+    # rewrite for recordings not for collection
+    # def test_unit_keys(self):
+    #     with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
+    #         test_collection = SpikeCollection(r"tests/test_data")
+    #         i = 0
+    #         for recording in test_collection.collection.values():
+    #             recording.event_dict = {"event": [i, i + 1]}
+    #             recording.subject = i
+    #             i += 1
+    #         test_collection.analyze(timebin=50, ignore_freq=0.5)
+    #         # Get what was printed
+    #         printed_output = fake_stdout.getvalue()
+    #         # Assert the expected message is in the output
+    #         self.assertIn("All set to analyze", printed_output)
 
+    # def test_freq_dict(self):
+    #     with patch("sys.stdout", new=io.StringIO()):
+    #         test_collection = SpikeCollection(r"tests/test_data")
+    #         i = 0
+    #         for name, recording in test_collection.collection.items():
+    #             recording.event_dict = {"event": [i, i + 1]}
+    #             recording.subject = i
+    #             i += 1
+    #         test_collection.analyze(timebin=50, ignore_freq=0.5)
+    #         for key in recording.freq_dict.keys():
+    #             self.assertIsInstance(key, str, f"Key {key} is not a string in freq_dict")
+    #             if name == "test_recording_fewgoodunits_merged.rec":
+    #                 self.assertEqual(len(recording.freq_dict.keys()), 2)
+    #                 self.assertEqual(recording.freq_dict["3"], 2.74)
+
+    # def test_whole_spiketrain(self):
+    #     with patch("sys.stdout", new=io.StringIO()):
+    #         test_collection = SpikeCollection(r"tests/test_data")
+    #         i = 0
+    #         for name, recording in test_collection.collection.items():
+    #             recording.event_dict = {"event": [i, i + 1]}
+    #             recording.subject = i
+    #             i += 1
+    #         test_collection.analyze(timebin=50, ignore_freq=0.5)
+    #         self.assertEqual(len(recording.spiketrain), 46833)
+
+    # def test_unit_spiketrain(self):
+    #     with patch("sys.stdout", new=io.StringIO()):
+    #         test_collection = SpikeCollection(r"tests/test_data")
+    #         i = 0
+    #         for name, recording in test_collection.collection.items():
+    #             recording.event_dict = {"event": [i, i + 1]}
+    #             recording.subject = i
+    #             i += 1
+    #         test_collection.analyze(timebin=50, ignore_freq=0.5)
+    #         for key, value in recording.unit_spiketrains.items():
+    #             self.assertIsInstance(key, str, f"Key {key} is not a string in unit_spiketrains")
+    #             self.assertIsInstance(value, np.ndarray)
+    #             if name == "test_recording_fewgoodunits_merged.rec":
+    #                 self.assertEqual(len(recording.unit_spiketrains.keys()), 2)
+    #                 self.assertEqual(len(recording.unit_spiketrains["3"], 46833))
+
+    # def test_unit_firingrates(self):
+    #     with patch("sys.stdout", new=io.StringIO()):
+    #         test_collection = SpikeCollection(r"tests/test_data")
+    #         i = 0
+    #         for name, recording in test_collection.collection.items():
+    #             recording.event_dict = {"event": [i, i + 1]}
+    #             recording.subject = i
+    #             i += 1
+    #         test_collection.analyze(timebin=50, ignore_freq=0.5)
+    #         for key, value in recording.unit_firing_rates.items():
+    #             self.assertIsInstance(key, str, f"Key {key} is not a string in unit_firing_rates")
+    #             self.assertIsInstance(value, np.ndarray)
+    #             if name == "test_recording_fewgoodunits_merged.rec":
+    #                 self.assertEqual(len(recording.unit_firing_rates.keys()), 2)
+    #                 self.assertEqual(len(recording.unit_firing_rates["3"]), 46833)
+    #                 self.assertEqual(recording.unit_firing_rates["3"][0], 0)
+    #                 self.assertEqual(recording.unit_firing_rate_array.shape, (46833, 2))
     def test_event_snippets(self):
         data_path = r"tests/test_data/test_recording_merged.rec/phy"
         recording = SpikeRecording(data_path)
