@@ -437,8 +437,6 @@ class EphysRecording:
 
         # Initialize a defaultdict for holding lists
         unit_timestamps = defaultdict(list)
-        default_dict = defaultdict(lambda: np.array([]))
-
         # Loop through each spike only once
         for spike, unit in enumerate(self.unit_array):
             # Append the timestamp to the list for the corresponding unit
@@ -490,7 +488,10 @@ class EphysRecordingCollection:
                         os.path.join(self.path, directory, "phy"),
                         self.sampling_rate,
                     )
-
+                if "good" not in tempobject.labels_dict:
+                    print(f"{directory} has not good units")
+                    print("and will not be included in the collection")
+                else:
                     collection[directory] = tempobject
         self.collection = collection
 
@@ -534,7 +535,7 @@ class SpikeAnalysis_MultiRecording:
                     subject and the event + baselien given. Dataframe is saved if save mode is True
                     in the collections attribute wilcox_dfs dictionary, key is
                     '{event} vs {baseline_window}second baseline'. Option to save this dataframe for export.
-        fishers_exact_wilcox: Calculates and returns odds ratio, p value, and contingency matrix using fisher's exact test
+        fishers_exact_wilcox: Calculates and returns odds ratio, p value, and contingency matrix using fisher exact test
                     The contigency matrix is made up of number of significant units
                     (from wilcoxon signed rank test of baseline_window vs event) vs non-significant
                     units for event1 and event12. Option to save output stats for export.
@@ -575,8 +576,8 @@ class SpikeAnalysis_MultiRecording:
                     of two windows: event vs baseline where baseline is an amount of time immediately
                     prior to the event. Creates a dataframe of wilcoxon stats and p values for every unit.
                     Save for export optional.
-        __wilcox_baseline_v_event_plots__: plots event triggered average firing rates for units with significant wilcoxon
-                    signed rank tests (p value < 0.05) for event vs base line window.
+        __wilcox_baseline_v_event_plots__: plots event triggered average firing rates for units with significant
+                    wilcoxon signed rank tests (p value < 0.05) for event vs base line window.
         __wilcox_event_v_event_stats__: calculates wilcoxon signed-rank test for average firing rates between
                     two events for a given recording. Returns dataframe of wilcoxon stats
                     and p values for every unit is added to a dictionary of dataframes for that
@@ -683,10 +684,7 @@ class SpikeAnalysis_MultiRecording:
         """
         for recording in self.ephyscollection.collection.values():
             recording.spiketrain = get_spiketrain(
-                recording.timestamps_var,
-                recording.timestamps_var[-1],
-                self.timebin,
-                recording.sampling_rate,
+                recording.timestamps_var, recording.timestamps_var[-1], self.timebin, recording.sampling_rate
             )
 
     def __get_unit_spiketrains__(self):
@@ -932,25 +930,26 @@ class SpikeAnalysis_MultiRecording:
                     unit_averages[unit] = [np.nan, np.nan]  # Set the unit's values to NaN
             except StatisticsError:
                 print(f"Unit {unit} has {len(recording.unit_timestamps[unit])} spikes")
-
-        wilcoxon_stats = {}
-        for unit in unit_averages.keys():
-            if not np.isnan(unit_averages[unit][0]).any():  # Check if data is valid before running Wilcoxon
-                unit_averages_wil_array = np.array(unit_averages[unit][0]) - np.array(unit_averages[unit][1])
-                unit_averages_wil_array_no_z = unit_averages_wil_array[unit_averages_wil_array != 0]
-                wilcoxon_stats[unit] = wilcoxon(unit_averages_wil_array_no_z)
-            else:
-                wilcoxon_stats[unit] = {"Wilcoxon Stat": np.nan, "p value": np.nan}
-
-        wilcoxon_df = pd.DataFrame.from_dict(wilcoxon_stats, orient="index")
-        wilcoxon_df.columns = ["Wilcoxon Stat", "p value"]
-        wilcoxon_df["event1 vs event2"] = wilcoxon_df.apply(
-            lambda row: w_assessment(row["p value"], row["Wilcoxon Stat"]), axis=1
-        )
-        wilcox_key = f"{equalize}s {event} vs {baseline_window}s baseline"
-        if save:
-            recording.wilcox_dfs[wilcox_key] = wilcoxon_df
-        return wilcoxon_df
+        if len(unit_averages.keys()) > 0:
+            wilcoxon_stats = {}
+            for unit in unit_averages.keys():
+                if not np.isnan(unit_averages[unit][0]).any():  # Check if data is valid before running Wilcoxon
+                    unit_averages_wil_array = np.array(unit_averages[unit][0]) - np.array(unit_averages[unit][1])
+                    unit_averages_wil_array_no_z = unit_averages_wil_array[unit_averages_wil_array != 0]
+                    wilcoxon_stats[unit] = wilcoxon(unit_averages_wil_array_no_z)
+                else:
+                    wilcoxon_stats[unit] = {"Wilcoxon Stat": np.nan, "p value": np.nan}
+            wilcoxon_df = pd.DataFrame.from_dict(wilcoxon_stats, orient="index")
+            wilcoxon_df.columns = ["Wilcoxon Stat", "p value"]
+            wilcoxon_df["event1 vs event2"] = wilcoxon_df.apply(
+                lambda row: w_assessment(row["p value"], row["Wilcoxon Stat"]), axis=1
+            )
+            wilcox_key = f"{equalize}s {event} vs {baseline_window}s baseline"
+            if save:
+                recording.wilcox_dfs[wilcox_key] = wilcoxon_df
+            return wilcoxon_df
+        else:
+            return None
 
     def wilcox_baseline_v_event_collection(
         self, event, equalize, baseline_window, offset=0, exclude_offset=False, plot=True, save=False
@@ -992,22 +991,21 @@ class SpikeAnalysis_MultiRecording:
                 Wilcoxon stats, p values, orginal unit ids, recording
         """
         is_first = True
-        for (
-            recording_name,
-            recording,
-        ) in self.ephyscollection.collection.items():
-            recording_df = self.__wilcox_baseline_v_event_stats__(
-                recording_name, recording, event, equalize, baseline_window, offset, exclude_offset, save
-            )
-            recording_df = recording_df.reset_index().rename(columns={"index": "original unit id"})
-            recording_df["Recording"] = recording_name
-            recording_df["Subject"] = recording.subject
-            recording_df["Event"] = f"{equalize}s {event} vs {baseline_window}s baseline"
-            if is_first:
-                master_df = recording_df
-                is_first = False
-            else:
-                master_df = pd.concat([master_df, recording_df], axis=0).reset_index(drop=True)
+        for recording_name, recording in self.ephyscollection.collection.items():
+            if len(recording.freq_dict.keys()) > 0:
+                recording_df = self.__wilcox_baseline_v_event_stats__(
+                    recording_name, recording, event, equalize, baseline_window, offset, exclude_offset, save
+                )
+
+                recording_df = recording_df.reset_index().rename(columns={"index": "original unit id"})
+                recording_df["Recording"] = recording_name
+                recording_df["Subject"] = recording.subject
+                recording_df["Event"] = f"{equalize}s {event} vs {baseline_window}s baseline"
+                if is_first:
+                    master_df = recording_df
+                    is_first = False
+                else:
+                    master_df = pd.concat([master_df, recording_df], axis=0).reset_index(drop=True)
         wilcox_key = f"{equalize}s {event} vs {baseline_window}s baseline"
         if save:
             self.ephyscollection.wilcox_dfs[wilcox_key] = master_df
