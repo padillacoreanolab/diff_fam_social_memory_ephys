@@ -186,3 +186,55 @@ axes[1].plot(connectivity.frequencies, connectivity.power().squeeze())
 axes[1].set_title("Frequency Domain")
 ```
 
+### dropbox
+1. install rclone on your local computer: https://rclone.org/downloads/
+2. run on personal computer 
+```
+rclone.exe authorize "dropbox"
+```
+
+crtl + click on link that terminal spits out and press agree
+3. terminal will now spit out a token key, copy and paste key into terminal on hipergator
+
+4. open terminal in hipergator and run the following lines: 
+```
+module load rclone
+rclone config
+
+# select dropbox
+```
+n) New remote
+name your dropbox
+Storage > 13
+(type 13 and hit enter) 
+leave client_id and client_secret blank (aka press enter) 
+n for edit advanced config
+n for web broswer question
+
+copy and paste config token from local terminal into hipergator terminal
+then click y for default
+
+or if authentication breaks to put in new authentication token: e) Edit existing remote 
+5. find data on dropbox
+```
+rclone ls pc-dropbox:"Padilla-Coreano Lab/path/to/data"
+```
+6. copy data from dropdox
+source = pc-dropbox
+path ="path/to/folder"
+run dry run first to confirm path and size of download 
+
+example of destination path
+dest:path = ./data 
+```
+rclone copy source:path dest:path --progress --dry-run
+```
+then run it for reals
+```
+rclone copy source:path dest:path --progress
+```
+
+example real command:
+```
+rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Habituation_Dishabituation (phase 1)/data" ./data --progress
+```
