@@ -193,33 +193,29 @@ axes[1].set_title("Frequency Domain")
 rclone.exe authorize "dropbox"
 ```
 
-crtl + click on link that terminal spits out and press agree
-3. terminal will now spit out a token key, copy and paste key into terminal on hipergator
+crtl + click on link that terminal spits out and press agree, terminal will now spit out a token key, finish step 3 before copying and pasting it into the hipergator terminal
 
-4. open terminal in hipergator and run the following lines: 
+3. open terminal in hipergator and run the following lines: 
 ```
 module load rclone
 rclone config
-
-# select dropbox
 ```
-n) New remote
-name your dropbox
-Storage > 13
-(type 13 and hit enter) 
-leave client_id and client_secret blank (aka press enter) 
-n for edit advanced config
-n for web broswer question
 
-copy and paste config token from local terminal into hipergator terminal
-then click y for default
+- n) New remote
+- name your dropbox
+- Storage > 13 (type 13 (which is dropobx) and hit enter) 
+- leave client_id and client_secret blank (aka press enter) 
+- type n and click enter (No) for edit advanced config
+- type n and click enter (No) for web broswer question
+- copy and paste config token from local terminal into hipergator terminal
+- click y and hit enter for default settings to finish
 
-or if authentication breaks to put in new authentication token: e) Edit existing remote 
-5. find data on dropbox
+if authentication breaks press choose: e) Edit existing remote 
+4. find data on dropbox
 ```
 rclone ls pc-dropbox:"Padilla-Coreano Lab/path/to/data"
 ```
-6. copy data from dropdox
+5. copy data from dropdox
 source = pc-dropbox
 path ="path/to/folder"
 run dry run first to confirm path and size of download 
