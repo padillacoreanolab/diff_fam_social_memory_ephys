@@ -234,3 +234,10 @@ example real command:
 ```
 rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Habituation_Dishabituation (phase 1)/data" ./data --progress
 ```
+
+or to upload data to dropbox: 
+
+```
+rclone copy ./data/cagemate_lfp pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Habituation_Dishabituation (phase 1)/data/cagemate_lfp"--progress
+```
+

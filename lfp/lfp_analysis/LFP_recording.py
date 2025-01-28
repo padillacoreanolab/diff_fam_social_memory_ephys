@@ -25,13 +25,13 @@ class LFPRecording:
         merged_rec_path: str,
         behavior_dict=None,
         trodes_directory=None,
+        threshold=None,
         elec_noise_freq=60,
         sampling_rate=20000,
         min_freq=0.5,
         max_freq=300,
         resample_rate=1000,
         voltage_scaling=0.195,
-        threshold=None,
         halfbandwidth=2,
         timewindow=1,
         timestep=0.5,
@@ -155,11 +155,6 @@ class LFPRecording:
                     "frequencies", data=recording.frequencies, compression="gzip", compression_opts=9
                 )
 
-            if hasattr(recording, "connectivity"):
-                data_group.create_dataset(
-                    "connectivity", data=recording.connectivity, compression="gzip", compression_opts=9
-                )
-
             if hasattr(recording, "grangers"):
                 data_group.create_dataset("grangers", data=recording.grangers, compression="gzip", compression_opts=9)
 
@@ -229,8 +224,8 @@ class LFPRecording:
             "has_behavior": hasattr(recording, "behavior_dict") and recording.behavior_dict is not None,
             "has_rms_traces": hasattr(recording, "rms_traces"),
             "has_power": hasattr(recording, "power"),
-            "has_coherence": hasattr(recording, "coherence"),
             "has_granger": hasattr(recording, "grangers"),
+            "has_coherence": hasattr(reccording, "coherence")
         }
 
         # Ensure output directory exists
@@ -320,11 +315,10 @@ class LFPRecording:
                 recording.coherence = data_group["coherence"][:]
             if "frequencies" in data_group:
                 recording.frequencies = data_group["frequencies"][:]
-            if "connectivity" in data_group:
-                recording.connectivity = data_group["connectivity"][:]
             if "grangers" in data_group:
                 recording.grangers = data_group["grangers"][:]
             if "power" in data_group:
                 recording.power = data_group["power"][:]
+                recording.connectivity, frequencies = connectivity_wrapper.calculate_multitaper(recording.rms_traces, recording.resample_rate, recording.halfbandwidth, recording.timewindow, recording.timestep)
 
         return recording

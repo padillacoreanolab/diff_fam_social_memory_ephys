@@ -28,6 +28,7 @@ class LFPCollection:
         threshold: int,
         recording_to_behavior_dict=None,
         trodes_directory=None,
+        json_path = None,
         **kwargs,
     ):
         """Initialize LFPCollection object."""
@@ -37,12 +38,16 @@ class LFPCollection:
         self.subject_to_channel_dict = subject_to_channel_dict
         self.recording_to_subject_dict = recording_to_subject_dict
         self.trodes_directory = trodes_directory
+        self.threshold = threshold
         self.kwargs = {}
         for key, default_value in DEFAULT_KWARGS.items():
             self.kwargs[key] = kwargs.get(key, default_value)
-        self.threshold = threshold
+        
         # Initialize recordings
-        self.lfp_recordings = self._make_recordings()
+        if json_path is not None:
+            self.load_recordings(json_path)
+        else:
+            self.lfp_recordings = self._make_recordings()
 
     def _make_recordings(self):
         lfp_recordings = []
@@ -50,14 +55,17 @@ class LFPCollection:
             if data_directory.is_dir():
                 for rec_file in data_directory.glob("*merged.rec"):
                     subject = self.recording_to_subject_dict[rec_file.name]
-                    behavior_dict = self.recording_to_behavior_dict[rec_file.name]
                     channel_dict = self.subject_to_channel_dict[subject]
+                    if self.recording_to_behavior_dict is not None:
+                        behavior_dict = self.recording_to_behavior_dict[rec_file.name]
+                    else: behavior_dict = None
                     lfp_rec = LFPRecording(
                         subject=subject,
                         channel_dict=channel_dict,
                         merged_rec_path=rec_file,
                         behavior_dict=behavior_dict,
                         trodes_directory=self.trodes_directory,
+                        threshold = self.threshold,
                         **self.kwargs,
                     )
                     lfp_recordings.append(lfp_rec)
@@ -146,21 +154,22 @@ class LFPCollection:
             threshold=metadata["threshold"],
             recording_to_behavior_dict=data["dictionaries"]["recording_to_behavior"],
             trodes_directory=metadata["trodes_directory"],
+            json_path = json_path,
             **data["kwargs"],
         )
-
-        # Load recordings from H5 files
+        return collection
+        
+    def load_recordings(self, json_path):
         json_dir = os.path.dirname(json_path)
         recordings_dir = os.path.join(json_dir, "recordings")
         if not os.path.exists(recordings_dir):
             raise FileNotFoundError(f"Recordings directory not found at {recordings_dir}")
-
-        collection.lfp_recordings = []
+        self.lfp_recordings = []
         for h5_file in Path(recordings_dir).glob("*.h5"):  # Sort for consistent loading order
             try:
                 recording = LFPRecording.load_rec_from_h5(h5_file)
-                collection.lfp_recordings.append(recording)
+                self.lfp_recordings.append(recording)
             except Exception as e:
                 raise RuntimeError(f"Failed to load recording {h5_file}: {str(e)}")
 
-        return collection
+       
