@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
-from spike_analysis.firing_rate_calculations import get_spiketrain
-from spike_analysis.firing_rate_calculations import get_firing_rate
+from spike.spike_analysis.firing_rate_calculations import get_spiketrain
+from spike.spike_analysis.firing_rate_calculations import get_firing_rate
 
 TIMESTAMP_ARRAY = [1, 2, 8, 9, 10, 11, 15, 16, 19, 20, 22, 30]
 LAST_TIMESTAMP = 30

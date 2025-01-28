@@ -30,15 +30,14 @@ def map_to_region(subject_region_dict):
 
 
 def median_abs_dev(traces):
-    return stats.median_abs_deviation(traces, axis=1)
+    return stats.median_abs_deviation(traces, axis=0)
 
 
 def zscore(traces):
     mads = median_abs_dev(traces)
-    # transpose because of broadcasting rules- trailing axis must be same
-    # https://stackoverflow.com/questions/26333005/numpy-subtract-every-row-of-matrix-by-vector
-    temp_traces = (traces.transpose() - np.median(traces, axis=1)).transpose()
-    zscore_traces = MEDIAN_ZSCORE_MULTIPLIER * (temp_traces.transpose() / mads).transpose()
+    # traces = [time, channels]
+    temp_traces = traces - np.median(traces, axis=0)
+    zscore_traces = MEDIAN_ZSCORE_MULTIPLIER * temp_traces / mads
     return zscore_traces
 
 
@@ -52,29 +51,29 @@ def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.nd
 
 
 def root_mean_square(traces):
-    return traces / np.sqrt(np.nanmean(traces**2))
+    # TODO: is this what i want to be doing?
+    return traces / np.sqrt(np.nanmean(traces**2, axis=0))
 
 
 def plot_zscore(processed_traces, zscore_traces, thresholded_zscore_traces, file_path=None):
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 8))
 
-    ax1.plot(processed_traces[0])
+    ax1.plot(processed_traces[:, 0])
     ax1.set_title("Processed traces")
     ax1.set_ylabel("Amplitude")
 
-    ax2.plot(zscore_traces[0])
+    ax2.plot(zscore_traces[:, 0])
     ax2.set_title("Z-scored Signal")
     ax2.set_ylabel("Z-score")
     ax2.set_xlabel("Time")
 
-    ax3.plot(thresholded_zscore_traces[0])
-    ax3.set_title("Z-score threshold")
+    ax3.plot(thresholded_zscore_traces[:, 0])
+    ax3.set_title("Filtered RMS Traces")
     ax3.set_ylabel("Amplitude")
 
-    # Share y-axis limits between ax2 and ax3
-    y_min = min(ax2.get_ylim()[0], ax3.get_ylim()[0])
-    y_max = max(ax2.get_ylim()[1], ax3.get_ylim()[1])
-    ax2.set_ylim(y_min, y_max)
+    # Share y-axis limits between ax1 and ax3
+    y_min = ax1.get_ylim()[0]
+    y_max = ax1.get_ylim()[1]
     ax3.set_ylim(y_min, y_max)
 
     plt.tight_layout()

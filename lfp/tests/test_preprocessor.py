@@ -2,14 +2,14 @@ import os
 import numpy as np
 import unittest
 import bidict
-import lfp_analysis.preprocessor as preprocessor
+import lfp.lfp_analysis.preprocessor as preprocessor
 import shutil
-from tests import utils
+from lfp.tests import utils
 
 SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
 SPIKE_GADGETS_MULTIPLIER = 0.6745
 
-OUTPUT_DIR = os.path.join("tests", "output")
+OUTPUT_DIR = os.path.join("lfp", "tests", "output")
 
 
 class test_lfp_recording_preprocessing(unittest.TestCase):
@@ -32,7 +32,7 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
 
         # All of the indexes in brain_regions exist in traces
         for each in brain_regions.items():
-            self.assertEqual(traces[each[1]].shape, (2500,))
+            self.assertEqual(traces[:, each[1]].shape, (2500,))
         self.assertEqual(brain_regions["mPFC"], 0)
         self.assertEqual(brain_regions["vHPC"], 4)
 
@@ -41,7 +41,7 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         brain_regions, sorted_channels = preprocessor.map_to_region(SUBJECT_DICT)
         # use scipy median_abs_deviation , put in 5, X array, get an array of 5 by 1
         mad_list = preprocessor.median_abs_dev(traces)
-        self.assertEqual(mad_list.shape[0], traces.shape[0])
+        self.assertEqual(mad_list.shape[0], traces.shape[1])
         zscore_traces = preprocessor.zscore(traces)
         self.assertEqual(traces.shape, zscore_traces.shape)
 
@@ -55,12 +55,12 @@ class test_lfp_recording_preprocessing(unittest.TestCase):
         self.assertTrue(os.path.isdir(OUTPUT_DIR))
         OUTPUT_FILE_PATH = os.path.join(OUTPUT_DIR, "test_zscore.png")
 
-        traces = np.loadtxt("tests/test_data/test_traces.csv", delimiter=",")
+        traces = np.loadtxt("lfp/tests/test_data/11_cups_p4_merged.rec_500_100000.csv", delimiter=",").T
         SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
         brain_regions, sorted_channels = preprocessor.map_to_region(SUBJECT_DICT)
         zscore_traces = preprocessor.zscore(traces)
         scaled_traces = preprocessor.scale_voltage(traces, 0.195)
-        zscore_threshold = preprocessor.filter(zscore_traces, scaled_traces, 2)
+        zscore_threshold = preprocessor.filter(zscore_traces, scaled_traces, 4)
         preprocessor.plot_zscore(traces, zscore_traces, zscore_threshold, OUTPUT_FILE_PATH)
         self.assertTrue(os.path.exists(OUTPUT_DIR))
 

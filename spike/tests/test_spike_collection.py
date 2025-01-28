@@ -1,5 +1,5 @@
 import unittest
-from spike_analysis.spike_collection import SpikeCollection
+from spike.spike_analysis.spike_collection import SpikeCollection
 from unittest.mock import patch
 import io
 import numpy as np

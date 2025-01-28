@@ -2,27 +2,27 @@ import numpy as np
 import os
 import spikeinterface.extractors as se
 import spikeinterface.preprocessing as sp
-import lfp_analysis.preprocessor as preprocessor
+import lfp.lfp_analysis.preprocessor as preprocessor
 import argparse
 import requests
 import zipfile
 from io import BytesIO
 
 
-TEST_DATA_DIR = os.path.join("tests", "test_data")
+TEST_DATA_DIR = os.path.join("lfp", "tests", "test_data")
 EXAMPLE_RECORDING_DIR = os.path.join(TEST_DATA_DIR, "Example_Recording")
 EXAMPLE_RECORDING_FILEPATH = os.path.join(EXAMPLE_RECORDING_DIR, "example_recording_merged.rec")
 
 
 def load_test_traces():
-    traces_path = os.path.join("tests", "test_data", "11_cups_p4_merged.rec_500_3000.csv")
-    all_traces_arr = np.loadtxt(traces_path, delimiter=",")
+    traces_path = os.path.join("lfp", "tests", "test_data", "11_cups_p4_merged.rec_500_3000.csv")
+    all_traces_arr = np.loadtxt(traces_path, delimiter=",").T
     return all_traces_arr
 
 
 def load_large_test_traces():
-    traces_path = os.path.join("tests", "test_data", "11_cups_p4_merged.rec_500_100000.csv")
-    all_traces_arr = np.loadtxt(traces_path, delimiter=",")
+    traces_path = os.path.join("lfp", "tests", "test_data", "11_cups_p4_merged.rec_500_100000.csv")
+    all_traces_arr = np.loadtxt(traces_path, delimiter=",").T
     return all_traces_arr
 
 
@@ -50,11 +50,11 @@ def create_test_data(recording_path):
     SUBJECT_DICT = {"mPFC": 19, "vHPC": 31, "BLA": 30, "NAc": 28, "MD": 29}
     brain_regions, sorted_channels = preprocessor.map_to_region(SUBJECT_DICT)
 
-    traces = current_recording.get_traces(start_frame=start_frame, end_frame=stop_frame).T
+    traces = current_recording.get_traces(start_frame=start_frame, end_frame=stop_frame)
 
-    traces = traces[sorted_channels]
+    traces = traces[:, sorted_channels]
 
-    save_path = os.path.join("tests", "test_data", filename)
+    save_path = os.path.join("lfp", "tests", "test_data", filename)
     np.savetxt(save_path, traces, delimiter=",")
 
 

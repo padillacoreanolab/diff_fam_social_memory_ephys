@@ -12,7 +12,7 @@ def connectivity_wrapper(rms_traces, downsample_rate, halfbandwidth, timewindow,
 def calculate_multitaper(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep):
     multi_t = Multitaper(
         # multitaper takes in a time_series that is time by signals (regions)
-        time_series=rms_traces.T,
+        time_series=rms_traces,
         sampling_frequency=downsample_rate,
         time_halfbandwidth_product=halfbandwidth,
         time_window_duration=timewindow,

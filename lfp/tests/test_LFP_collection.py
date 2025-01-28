@@ -1,6 +1,6 @@
 import unittest
-from lfp_analysis.LFP_collection import LFPCollection
-from tests.utils import EXAMPLE_RECORDING_DIR
+from lfp.lfp_analysis.LFP_collection import LFPCollection
+from lfp.tests.utils import EXAMPLE_RECORDING_DIR
 
 
 class TestLFPCollection(unittest.TestCase):

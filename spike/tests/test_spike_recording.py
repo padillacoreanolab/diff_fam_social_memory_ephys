@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import io
 from unittest.mock import patch
-from spike_analysis.spike_recording import SpikeRecording
+from spike.spike_analysis.spike_recording import SpikeRecording
 
 
 class TestSpikeRecording(unittest.TestCase):

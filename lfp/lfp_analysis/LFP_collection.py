@@ -1,6 +1,9 @@
 from pathlib import Path
 from tqdm import tqdm
-from lfp_analysis.LFP_recording import LFPRecording
+from lfp.lfp_analysis.LFP_recording import LFPRecording
+import os
+import numpy as np
+import json
 
 DEFAULT_KWARGS = {
     "sampling_rate": 20000,
@@ -62,70 +65,168 @@ class LFPCollection:
         for recording in tqdm(self.lfp_recordings):
             recording.process(self.threshold)
 
+    # # TO DO
+    # def combine_collections(list_of_collections):
+    #     attr_match = check_attributes_match(list_of_collections)
+    #     complete_recordings = []
+    #     if attr_match:
+    #         for collection in list_of_collections:
+    #             complete_recordings.extend(collection.collection)
+    #         list_of_collections[0].collection = complete_recordings
+    #         return list_of_collections[0]
 
-# TO DO
-def combine_collections(list_of_collections):
-    attr_match = check_attributes_match(list_of_collections)
-    complete_recordings = []
-    if attr_match:
-        for collection in list_of_collections:
-            complete_recordings.extend(collection.collection)
-        list_of_collections[0].collection = complete_recordings
-        return list_of_collections[0]
+    # def check_attributes_match(instances):
+    #     """
+    #     Check if specified attributes match across all instances.
+    #     Issues warnings for any mismatched attributes.
 
+    #     Args:
+    #         instances: List of class instances to compare
+    #         attributes: List of attribute names to check
 
-def check_attributes_match(instances):
-    """
-    Check if specified attributes match across all instances.
-    Issues warnings for any mismatched attributes.
+    #     Returns:
+    #         bool: True if all specified attributes match across instances, False otherwise
+    #     """
+    #     attributes = [
+    #         "timebin",
+    #         "sampling_rate",
+    #         "voltage_scaling",
+    #         "spike_gadgets_multiplier",
+    #         "elec_noise_freq",
+    #         "min_freq",
+    #         "max_freq",
+    #         "resample_rate",
+    #         "halfbandwidth",
+    #         "timewindow",
+    #         "timestep",
+    #         "threshold",
+    #     ]
 
-    Args:
-        instances: List of class instances to compare
-        attributes: List of attribute names to check
+    #     if not instances or len(instances) < 2:
+    #         return True
 
-    Returns:
-        bool: True if all specified attributes match across instances, False otherwise
-    """
-    attributes = [
-        "timebin",
-        "sampling_rate",
-        "voltage_scaling",
-        "spike_gadgets_multiplier",
-        "elec_noise_freq",
-        "min_freq",
-        "max_freq",
-        "resample_rate",
-        "halfbandwidth",
-        "timewindow",
-        "timestep",
-        "threshold",
-    ]
+    #     all_match = True
+    #     first_instance = instances[0]
 
-    if not instances or len(instances) < 2:
-        return True
+    #     for attr in attributes:
+    #         # Get the value from first instance
+    #         try:
+    #             reference_value = getattr(first_instance, attr)
+    #         except AttributeError:
+    #             print(f"Warning: Attribute '{attr}' not found in {type(first_instance).__name__}")
+    #             all_match = False
+    #             continue
 
-    all_match = True
-    first_instance = instances[0]
+    #         # Compare with all other instances
+    #         for i, instance in enumerate(instances[1:], 2):  # Start enum at 2 for clearer warnings
+    #             try:
+    #                 current_value = getattr(instance, attr)
+    #                 if current_value != reference_value:
+    #                     print(f"Warning: {attr} mismatch detected:")
+    #                     print(f"  Instance 1: {reference_value}")
+    #                     print(f"  Instance {i}: {current_value}")
+    #                     all_match = False
+    #             except AttributeError:
+    #                 print(f"Warning: Attribute '{attr}' not found in instance {i}")
+    #                 all_match = False
+    #     return all_match
 
-    for attr in attributes:
-        # Get the value from first instance
-        try:
-            reference_value = getattr(first_instance, attr)
-        except AttributeError:
-            print(f"Warning: Attribute '{attr}' not found in {type(first_instance).__name__}")
-            all_match = False
-            continue
+    @staticmethod
+    def save_to_json(collection, output_path):
+        """
+        Parameters
+        ----------
+        output_path : str
+            Path to save the JSON file
+        """
+        output_data = {
+            "metadata": {
+                "data_path": collection.data_path,
+                "trodes_directory": collection.trodes_directory,
+                "threshold": collection.threshold if collection.threshold is not None else -1,
+            },
+            "kwargs": collection.kwargs,
+            "dictionaries": {
+                "recording_to_behavior": collection.recording_to_behavior_dict,
+                "subject_to_channel": collection.subject_to_channel_dict,
+                "recording_to_subject": collection.recording_to_subject_dict,
+            },
+        }
 
-        # Compare with all other instances
-        for i, instance in enumerate(instances[1:], 2):  # Start enum at 2 for clearer warnings
-            try:
-                current_value = getattr(instance, attr)
-                if current_value != reference_value:
-                    print(f"Warning: {attr} mismatch detected:")
-                    print(f"  Instance 1: {reference_value}")
-                    print(f"  Instance {i}: {current_value}")
-                    all_match = False
-            except AttributeError:
-                print(f"Warning: Attribute '{attr}' not found in instance {i}")
-                all_match = False
-    return all_match
+        # Convert numpy arrays to lists in recording_to_behavior_dict
+        for recording_name, behavior_dict in output_data["dictionaries"]["recording_to_behavior"].items():
+            for key, value in behavior_dict.items():
+                if isinstance(value, np.ndarray):
+                    behavior_dict[key] = value.tolist()
+
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Save to JSON
+        with open(output_path, "w") as f:
+            json.dump(output_data, f, indent=4, default=str)
+
+        # Save recordings in a separate directory
+        recordings_dir = Path(output_path).parent / "recording_h5s"
+        os.makedirs(recordings_dir, exist_ok=True)
+        for rec in collection.lfp_recordings:
+            rec_dir = os.join(output_path, "h5_recs")
+            if not os.path.exists(rec_dir):
+                os.makedirs(rec_dir)
+            rec_path = os.join(rec_dir, f"{rec.name}")
+            LFPRecording.save_rec_to_h5(rec, rec_path)
+
+    @staticmethod
+    def load_from_json(json_path):
+        """
+        Load collection from JSON metadata and H5 recordings.
+
+        Parameters
+        ----------
+        json_path : str or Path
+            Path to the JSON metadata file
+
+        Returns
+        -------
+        LFPCollection
+            Loaded collection object
+        """
+        # Load JSON metadata
+        with open(json_path, "r") as f:
+            data = json.load(f)
+
+        # Extract metadata
+        data_path = data["metadata"]["data_path"]
+        trodes_directory = data["metadata"]["trodes_directory"]
+        threshold = data["metadata"]["threshold"]
+        if threshold == -1:
+            threshold = None
+
+        # Extract dictionaries
+        recording_to_behavior_dict = data["dictionaries"]["recording_to_behavior"]
+        subject_to_channel_dict = data["dictionaries"]["subject_to_channel"]
+        recording_to_subject_dict = data["dictionaries"]["recording_to_subject"]
+
+        # Extract kwargs
+        kwargs = data["kwargs"]
+
+        # Create collection instance
+        collection = LFPCollection(
+            recording_to_behavior_dict=recording_to_behavior_dict,
+            subject_to_channel_dict=subject_to_channel_dict,
+            data_path=data_path,
+            recording_to_subject_dict=recording_to_subject_dict,
+            threshold=threshold,
+            trodes_directory=trodes_directory,
+            **kwargs,
+        )
+
+        # Load recordings from H5 files
+        recordings_dir = Path(json_path).parent / "recording_h5s"
+        collection.lfp_recordings = []
+
+        for h5_file in recordings_dir.glob("*.h5"):
+            recording = LFPRecording.load_rec_from_h5(h5_file)
+            collection.lfp_recordings.append(recording)
+
+        return collection
