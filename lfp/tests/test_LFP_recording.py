@@ -114,7 +114,7 @@ class TestH5File(unittest.TestCase):
         instance1 = lfp_recording.LFPRecording.load_rec_from_h5(H5_PATH)
         self.assertTrue(isinstance(instance1, lfp_recording.LFPRecording))
         self.assertTrue(instance1.subject, "subject")
-        self.assertTrue(instance1.channel_map["mPFC"], "1")
+        self.assertTrue(instance1.channel_dict["mPFC"], "1")
         self.assertTrue(hasattr(instance1, "rms_traces"))
         self.assertFalse(hasattr(instance1, "power"))
         instance2 = helper()  # Your original instance

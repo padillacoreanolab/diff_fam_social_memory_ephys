@@ -4,11 +4,11 @@ from lfp.lfp_analysis.LFP_recording import LFPRecording
 import os
 import numpy as np
 import json
+import glob
 
 DEFAULT_KWARGS = {
     "sampling_rate": 20000,
     "voltage_scaling": 0.195,
-    "spike_gadgets_multiplier": 0.675,
     "elec_noise_freq": 60,
     "min_freq": 0.5,
     "max_freq": 300,
@@ -22,12 +22,12 @@ DEFAULT_KWARGS = {
 class LFPCollection:
     def __init__(
         self,
-        recording_to_behavior_dict: dict,
         subject_to_channel_dict: dict,
         data_path: str,
         recording_to_subject_dict: dict,
         threshold: int,
-        trodes_directory: str,
+        recording_to_behavior_dict=None,
+        trodes_directory=None,
         **kwargs,
     ):
         """Initialize LFPCollection object."""
@@ -40,8 +40,6 @@ class LFPCollection:
         self.kwargs = {}
         for key, default_value in DEFAULT_KWARGS.items():
             self.kwargs[key] = kwargs.get(key, default_value)
-
-        self.kwargs["threshold"] = threshold
         self.threshold = threshold
         # Initialize recordings
         self.lfp_recordings = self._make_recordings()
@@ -55,95 +53,37 @@ class LFPCollection:
                     behavior_dict = self.recording_to_behavior_dict[rec_file.name]
                     channel_dict = self.subject_to_channel_dict[subject]
                     lfp_rec = LFPRecording(
-                        subject, behavior_dict, channel_dict, rec_file, self.trodes_directory, **self.kwargs
+                        subject=subject,
+                        channel_dict=channel_dict,
+                        merged_rec_path=rec_file,
+                        behavior_dict=behavior_dict,
+                        trodes_directory=self.trodes_directory,
+                        **self.kwargs,
                     )
                     lfp_recordings.append(lfp_rec)
-
         return lfp_recordings
 
     def process(self):
         for recording in tqdm(self.lfp_recordings):
             recording.process(self.threshold)
 
-    # # TO DO
-    # def combine_collections(list_of_collections):
-    #     attr_match = check_attributes_match(list_of_collections)
-    #     complete_recordings = []
-    #     if attr_match:
-    #         for collection in list_of_collections:
-    #             complete_recordings.extend(collection.collection)
-    #         list_of_collections[0].collection = complete_recordings
-    #         return list_of_collections[0]
-
-    # def check_attributes_match(instances):
-    #     """
-    #     Check if specified attributes match across all instances.
-    #     Issues warnings for any mismatched attributes.
-
-    #     Args:
-    #         instances: List of class instances to compare
-    #         attributes: List of attribute names to check
-
-    #     Returns:
-    #         bool: True if all specified attributes match across instances, False otherwise
-    #     """
-    #     attributes = [
-    #         "timebin",
-    #         "sampling_rate",
-    #         "voltage_scaling",
-    #         "spike_gadgets_multiplier",
-    #         "elec_noise_freq",
-    #         "min_freq",
-    #         "max_freq",
-    #         "resample_rate",
-    #         "halfbandwidth",
-    #         "timewindow",
-    #         "timestep",
-    #         "threshold",
-    #     ]
-
-    #     if not instances or len(instances) < 2:
-    #         return True
-
-    #     all_match = True
-    #     first_instance = instances[0]
-
-    #     for attr in attributes:
-    #         # Get the value from first instance
-    #         try:
-    #             reference_value = getattr(first_instance, attr)
-    #         except AttributeError:
-    #             print(f"Warning: Attribute '{attr}' not found in {type(first_instance).__name__}")
-    #             all_match = False
-    #             continue
-
-    #         # Compare with all other instances
-    #         for i, instance in enumerate(instances[1:], 2):  # Start enum at 2 for clearer warnings
-    #             try:
-    #                 current_value = getattr(instance, attr)
-    #                 if current_value != reference_value:
-    #                     print(f"Warning: {attr} mismatch detected:")
-    #                     print(f"  Instance 1: {reference_value}")
-    #                     print(f"  Instance {i}: {current_value}")
-    #                     all_match = False
-    #             except AttributeError:
-    #                 print(f"Warning: Attribute '{attr}' not found in instance {i}")
-    #                 all_match = False
-    #     return all_match
-
-    @staticmethod
     def save_to_json(collection, output_path):
-        """
+        """Save LFP collection metadata to JSON and individual recordings to H5 files.
+
         Parameters
         ----------
-        output_path : str
-            Path to save the JSON file
+        collection : LFPCollection
+            Collection object containing recordings and metadata
+        output_path : str or Path
+            Path to save the JSON metadata file
         """
+        # Prepare metadata dictionary
         output_data = {
             "metadata": {
                 "data_path": collection.data_path,
                 "trodes_directory": collection.trodes_directory,
-                "threshold": collection.threshold if collection.threshold is not None else -1,
+                "threshold": collection.threshold,
+                "number of recordings": len(collection.lfp_recordings),
             },
             "kwargs": collection.kwargs,
             "dictionaries": {
@@ -154,32 +94,31 @@ class LFPCollection:
         }
 
         # Convert numpy arrays to lists in recording_to_behavior_dict
-        for recording_name, behavior_dict in output_data["dictionaries"]["recording_to_behavior"].items():
-            for key, value in behavior_dict.items():
-                if isinstance(value, np.ndarray):
-                    behavior_dict[key] = value.tolist()
+        if collection.recording_to_behavior_dict is not None:
+            for recording_name, behavior_dict in output_data["dictionaries"]["recording_to_behavior"].items():
+                for key, value in behavior_dict.items():
+                    if isinstance(value, np.ndarray):
+                        behavior_dict[key] = value.tolist()
 
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        # Create directory for JSON
+        collection_path = os.path.join(output_path, "lfp_collection.json")
+        os.makedirs(output_path, exist_ok=True)
 
-        # Save to JSON
-        with open(output_path, "w") as f:
+        # Save metadata to JSON
+        with open(collection_path, "w") as f:
             json.dump(output_data, f, indent=4, default=str)
 
-        # Save recordings in a separate directory
-        recordings_dir = Path(output_path).parent / "recording_h5s"
+        # Create and save recordings to separate directory
+        recordings_dir = os.path.join(output_path, "recordings")
         os.makedirs(recordings_dir, exist_ok=True)
+
         for rec in collection.lfp_recordings:
-            rec_dir = os.join(output_path, "h5_recs")
-            if not os.path.exists(rec_dir):
-                os.makedirs(rec_dir)
-            rec_path = os.join(rec_dir, f"{rec.name}")
+            rec_path = os.path.join(recordings_dir, f"{rec.recording_name}")  # Use recording_name attribute
             LFPRecording.save_rec_to_h5(rec, rec_path)
 
     @staticmethod
-    def load_from_json(json_path):
-        """
-        Load collection from JSON metadata and H5 recordings.
+    def load_collection(json_path):
+        """Load collection from JSON metadata and H5 recordings.
 
         Parameters
         ----------
@@ -191,42 +130,37 @@ class LFPCollection:
         LFPCollection
             Loaded collection object
         """
+        json_path = Path(json_path)
+
         # Load JSON metadata
         with open(json_path, "r") as f:
             data = json.load(f)
 
-        # Extract metadata
-        data_path = data["metadata"]["data_path"]
-        trodes_directory = data["metadata"]["trodes_directory"]
-        threshold = data["metadata"]["threshold"]
-        if threshold == -1:
-            threshold = None
-
-        # Extract dictionaries
-        recording_to_behavior_dict = data["dictionaries"]["recording_to_behavior"]
-        subject_to_channel_dict = data["dictionaries"]["subject_to_channel"]
-        recording_to_subject_dict = data["dictionaries"]["recording_to_subject"]
-
-        # Extract kwargs
-        kwargs = data["kwargs"]
-
+        # Extract metadata with defaults for backward compatibility
+        metadata = data["metadata"]
         # Create collection instance
         collection = LFPCollection(
-            recording_to_behavior_dict=recording_to_behavior_dict,
-            subject_to_channel_dict=subject_to_channel_dict,
-            data_path=data_path,
-            recording_to_subject_dict=recording_to_subject_dict,
-            threshold=threshold,
-            trodes_directory=trodes_directory,
-            **kwargs,
+            subject_to_channel_dict=data["dictionaries"]["subject_to_channel"],
+            data_path=metadata["data_path"],
+            recording_to_subject_dict=data["dictionaries"]["recording_to_subject"],
+            threshold=metadata["threshold"],
+            recording_to_behavior_dict=data["dictionaries"]["recording_to_behavior"],
+            trodes_directory=metadata["trodes_directory"],
+            **data["kwargs"],
         )
 
         # Load recordings from H5 files
-        recordings_dir = Path(json_path).parent / "recording_h5s"
-        collection.lfp_recordings = []
+        json_dir = os.path.dirname(json_path)
+        recordings_dir = os.path.join(json_dir, "recordings")
+        if not os.path.exists(recordings_dir):
+            raise FileNotFoundError(f"Recordings directory not found at {recordings_dir}")
 
-        for h5_file in recordings_dir.glob("*.h5"):
-            recording = LFPRecording.load_rec_from_h5(h5_file)
-            collection.lfp_recordings.append(recording)
+        collection.lfp_recordings = []
+        for h5_file in Path(recordings_dir).glob("*.h5"):  # Sort for consistent loading order
+            try:
+                recording = LFPRecording.load_rec_from_h5(h5_file)
+                collection.lfp_recordings.append(recording)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load recording {h5_file}: {str(e)}")
 
         return collection

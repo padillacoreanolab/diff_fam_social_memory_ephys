@@ -42,7 +42,7 @@ class LFPRecording:
         self.recording_name = os.path.basename(merged_rec_path).split("/")[-1]
         self.subject = subject
         self.behavior_dict = behavior_dict
-        self.channel_map = channel_dict
+        self.channel_dict = channel_dict
         self.voltage_scaling = voltage_scaling
         self.elec_noise_freq = elec_noise_freq
         self.min_freq = min_freq
@@ -57,6 +57,7 @@ class LFPRecording:
         if not load:
             recording = self._read_trodes()
             self.traces = self._get_selected_traces(recording)
+            self.rec_length = self.traces.shape[0] / 1000 / 60
 
     def _read_trodes(self):
         print(f"Processing {self.recording_name}")
@@ -68,7 +69,7 @@ class LFPRecording:
 
     def _get_selected_traces(self, recording):
         start_frame = self.find_start_recording_time()
-        self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_map)
+        self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_dict)
         sorted_channels = [str(channel) for channel in sorted_channels]
         # Channel ids are the "names" of the channels as strings
         traces = recording.get_traces(channel_ids=sorted_channels, start_frame=start_frame)
@@ -129,35 +130,9 @@ class LFPRecording:
         json_path = rec_path + ".json"
         LFPRecording.save_metadata_to_json(recording, json_path)
         with h5py.File(h5_path, "w") as f:
-            metadata = f.create_group("metadata")
-            # Save recording metadata
-            metadata.attrs["subject"] = recording.subject
-            metadata.attrs["rec_file"] = str(recording.merged_rec_path)
-            metadata.attrs["first_timestamp"] = recording.first_timestamp
-            metadata.attrs["name"] = recording.recording_name
-            metadata.attrs["electrical noise frequency"] = recording.elec_noise_freq
-            metadata.attrs["sampling rate"] = recording.sampling_rate
-            metadata.attrs["min_freq"] = recording.min_freq
-            metadata.attrs["max_freq"] = recording.max_freq
-            metadata.attrs["resample_rate"] = recording.resample_rate
-            metadata.attrs["voltage"] = recording.voltage_scaling
-            metadata.attrs["half bandwidth product"] = recording.halfbandwidth
-            metadata.attrs["window duration"] = recording.timewindow
-            metadata.attrs["window step"] = recording.timestep
-            # Save behavior dictionary
-            if recording.threshold is not None:
-                metadata.attrs["zscore theshold"] = recording.threshold
-            if recording.behavior_dict is not None:
-                behavior_group = f.create_group("behavior")
-                for key, value in recording.behavior_dict.items():
-                    if isinstance(value, (np.ndarray, list)):
-                        behavior_group.create_dataset(key, data=np.array(value), compression="gzip")
-                    else:
-                        behavior_group.attrs[key] = str(value)
-
             # Save channel dictionary
             channel_group = f.create_group("channels")
-            for key, value in recording.channel_map.items():
+            for key, value in recording.channel_dict.items():
                 channel_group.attrs[key] = str(value)
             brain_region_dict = f.create_group("brain region dict")
             for key, value in recording.brain_region_dict.items():
@@ -190,6 +165,32 @@ class LFPRecording:
 
             if hasattr(recording, "power"):
                 data_group.create_dataset("power", data=recording.power, compression="gzip", compression_opts=9)
+            if recording.behavior_dict is not None:
+                behavior_group = f.create_group("behavior")
+                for key, value in recording.behavior_dict.items():
+                    if isinstance(value, (np.ndarray, list)):
+                        behavior_group.create_dataset(key, data=np.array(value), compression="gzip")
+                    else:
+                        behavior_group.attrs[key] = str(value)
+            metadata = f.create_group("metadata")
+            # Save recording metadata
+            metadata.attrs["subject"] = recording.subject
+            metadata.attrs["merged_rec_path"] = str(recording.merged_rec_path)
+            metadata.attrs["first_timestamp"] = recording.first_timestamp
+            metadata.attrs["name"] = recording.recording_name
+            metadata.attrs["electrical noise frequency"] = recording.elec_noise_freq
+            metadata.attrs["sampling rate"] = recording.sampling_rate
+            metadata.attrs["min_freq"] = recording.min_freq
+            metadata.attrs["max_freq"] = recording.max_freq
+            metadata.attrs["recording length"] = recording.rec_length
+            metadata.attrs["resample_rate"] = recording.resample_rate
+            metadata.attrs["voltage"] = recording.voltage_scaling
+            metadata.attrs["half bandwidth product"] = recording.halfbandwidth
+            metadata.attrs["window duration"] = recording.timewindow
+            metadata.attrs["window step"] = recording.timestep
+            # Save behavior dictionary
+            if recording.threshold is not None:
+                metadata.attrs["zscore theshold"] = recording.threshold
 
     @staticmethod
     def save_metadata_to_json(recording, json_path):
@@ -212,7 +213,10 @@ class LFPRecording:
             # Required metadata
             "subject": recording.subject,
             "name": recording.recording_name,
-            "rec_file": str(recording.merged_rec_path),
+            "merged_rec_path": str(recording.merged_rec_path),
+            "number of channels": int(len(recording.channel_dict.keys())),
+            "traces shape": recording.traces.shape,
+            "recording length": f"{recording.rec_length} min",
             "resample_rate": recording.resample_rate,
             "min_freq": recording.min_freq,
             "max_freq": recording.max_freq,
@@ -257,10 +261,10 @@ class LFPRecording:
             metadata = f["metadata"]
 
             # Get channel map
-            channel_map = {}
+            channel_dict = {}
             channel_group = f["channels"]
             for key, value in channel_group.attrs.items():
-                channel_map[key] = int(value)
+                channel_dict[key] = int(value)
             brain_region_dict = bidict()
             brain_regs = f["brain region dict"]
             for key, value in brain_regs.attrs.items():
@@ -281,12 +285,11 @@ class LFPRecording:
             threshold = None
             if "zscore theshold" in metadata.attrs:
                 threshold = metadata.attrs["zscore theshold"]
-
             # Create object with all initialization parameters
             recording = LFPRecording(
                 subject=metadata.attrs["subject"],
-                channel_dict=channel_map,
-                merged_rec_path=str(metadata.attrs["rec_file"]),
+                channel_dict=channel_dict,
+                merged_rec_path=metadata.attrs["merged_rec_path"],
                 behavior_dict=behavior_dict,
                 elec_noise_freq=metadata.attrs["electrical noise frequency"],
                 sampling_rate=metadata.attrs["sampling rate"],
@@ -304,6 +307,7 @@ class LFPRecording:
             # Load additional attributes that aren't part of initialization
             recording.first_timestamp = metadata.attrs["first_timestamp"]
             recording.recording_name = metadata.attrs["name"]
+            recording.rec_length = metadata.attrs["recording length"]
             recording.brain_region_dict = brain_region_dict
             # Load data arrays
             data_group = f["data"]
