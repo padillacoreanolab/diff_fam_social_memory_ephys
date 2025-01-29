@@ -135,8 +135,8 @@ class TestH5FileCollection(unittest.TestCase):
                 self.assertDictEqual(attrs1[attr], attrs2[attr], f"Dictionary values differ for attribute {attr}")
             elif attr == "lfp_recordings":
                 # Create dictionaries of recordings by name for each collection
-                recs1 = {rec.recording_name: rec for rec in attrs1[attr]}
-                recs2 = {rec.recording_name: rec for rec in attrs2[attr]}
+                recs1 = {rec.name: rec for rec in attrs1[attr]}
+                recs2 = {rec.name: rec for rec in attrs2[attr]}
 
                 # Check that they have the same recording names
                 self.assertEqual(set(recs1.keys()), set(recs2.keys()), "Collections have different recording names")

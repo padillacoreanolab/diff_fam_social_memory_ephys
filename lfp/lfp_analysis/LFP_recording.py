@@ -23,7 +23,7 @@ class LFPRecording:
         subject: str,
         channel_dict: dict,
         merged_rec_path: str,
-        behavior_dict=None,
+        event_dict=None,
         trodes_directory=None,
         threshold=None,
         elec_noise_freq=60,
@@ -39,9 +39,9 @@ class LFPRecording:
     ):
         self.merged_rec_path = merged_rec_path
         self.sampling_rate = sampling_rate
-        self.recording_name = os.path.basename(merged_rec_path).split("/")[-1]
+        self.name = os.path.basename(merged_rec_path).split("/")[-1]
         self.subject = subject
-        self.behavior_dict = behavior_dict
+        self.event_dict = event_dict
         self.channel_dict = channel_dict
         self.voltage_scaling = voltage_scaling
         self.elec_noise_freq = elec_noise_freq
@@ -60,7 +60,7 @@ class LFPRecording:
             self.rec_length = self.traces.shape[0] / 1000 / 60
 
     def _read_trodes(self):
-        print(f"Processing {self.recording_name}")
+        print(f"Processing {self.name}")
         recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
         recording = sp.notch_filter(recording, freq=self.elec_noise_freq)
         recording = sp.bandpass_filter(recording, freq_min=self.min_freq, freq_max=self.max_freq)
@@ -82,7 +82,7 @@ class LFPRecording:
         preprocessor.plot_zscore(scaled_traces, zscore_traces, thresholded_traces, file_path)
 
     def process(self, threshold=None):
-        print(f"processing {self.recording_name}")
+        print(f"processing {self.name}")
         if (threshold is None) and (self.threshold is None):
             print("Please choose a threshold")
             raise ValueError("Threshold is not set")
@@ -160,19 +160,19 @@ class LFPRecording:
 
             if hasattr(recording, "power"):
                 data_group.create_dataset("power", data=recording.power, compression="gzip", compression_opts=9)
-            if recording.behavior_dict is not None:
-                behavior_group = f.create_group("behavior")
-                for key, value in recording.behavior_dict.items():
+            if recording.event_dict is not None:
+                event_group = f.create_group("event")
+                for key, value in recording.event_dict.items():
                     if isinstance(value, (np.ndarray, list)):
-                        behavior_group.create_dataset(key, data=np.array(value), compression="gzip")
+                        event_group.create_dataset(key, data=np.array(value), compression="gzip")
                     else:
-                        behavior_group.attrs[key] = str(value)
+                        event_group.attrs[key] = str(value)
             metadata = f.create_group("metadata")
             # Save recording metadata
             metadata.attrs["subject"] = recording.subject
             metadata.attrs["merged_rec_path"] = str(recording.merged_rec_path)
             metadata.attrs["first_timestamp"] = recording.first_timestamp
-            metadata.attrs["name"] = recording.recording_name
+            metadata.attrs["name"] = recording.name
             metadata.attrs["electrical noise frequency"] = recording.elec_noise_freq
             metadata.attrs["sampling rate"] = recording.sampling_rate
             metadata.attrs["min_freq"] = recording.min_freq
@@ -183,7 +183,7 @@ class LFPRecording:
             metadata.attrs["half bandwidth product"] = recording.halfbandwidth
             metadata.attrs["window duration"] = recording.timewindow
             metadata.attrs["window step"] = recording.timestep
-            # Save behavior dictionary
+            # Save event dictionary
             if recording.threshold is not None:
                 metadata.attrs["zscore theshold"] = recording.threshold
 
@@ -207,7 +207,7 @@ class LFPRecording:
         metadata = {
             # Required metadata
             "subject": recording.subject,
-            "name": recording.recording_name,
+            "name": recording.name,
             "merged_rec_path": str(recording.merged_rec_path),
             "number of channels": int(len(recording.channel_dict.keys())),
             "traces shape": recording.traces.shape,
@@ -221,11 +221,11 @@ class LFPRecording:
             # Optional zscore threshold
             "zscore_threshold": recording.threshold if hasattr(recording, "threshold") else None,
             # Data availability flags
-            "has_behavior": hasattr(recording, "behavior_dict") and recording.behavior_dict is not None,
+            "has_event": hasattr(recording, "event_dict") and recording.event_dict is not None,
             "has_rms_traces": hasattr(recording, "rms_traces"),
             "has_power": hasattr(recording, "power"),
             "has_granger": hasattr(recording, "grangers"),
-            "has_coherence": hasattr(reccording, "coherence")
+            "has_coherence": hasattr(recording, "coherence"),
         }
 
         # Ensure output directory exists
@@ -264,17 +264,17 @@ class LFPRecording:
             brain_regs = f["brain region dict"]
             for key, value in brain_regs.attrs.items():
                 brain_region_dict[key] = int(value)
-            # Extract behavior dict if it exists
-            behavior_dict = None
-            if "behavior" in f:
-                behavior_dict = {}
-                behavior_group = f["behavior"]
-                # Load behavior datasets
-                for key in behavior_group.keys():
-                    behavior_dict[key] = behavior_group[key][:]
-                # Load behavior attributes
-                for key, value in behavior_group.attrs.items():
-                    behavior_dict[key] = value
+            # Extract event dict if it exists
+            event_dict = None
+            if "event" in f:
+                event_dict = {}
+                event_group = f["event"]
+                # Load event datasets
+                for key in event_group.keys():
+                    event_dict[key] = event_group[key][:]
+                # Load event attributes
+                for key, value in event_group.attrs.items():
+                    event_dict[key] = value
 
             # Extract threshold if it exists
             threshold = None
@@ -285,7 +285,7 @@ class LFPRecording:
                 subject=metadata.attrs["subject"],
                 channel_dict=channel_dict,
                 merged_rec_path=metadata.attrs["merged_rec_path"],
-                behavior_dict=behavior_dict,
+                event_dict=event_dict,
                 elec_noise_freq=metadata.attrs["electrical noise frequency"],
                 sampling_rate=metadata.attrs["sampling rate"],
                 min_freq=metadata.attrs["min_freq"],
@@ -301,7 +301,7 @@ class LFPRecording:
 
             # Load additional attributes that aren't part of initialization
             recording.first_timestamp = metadata.attrs["first_timestamp"]
-            recording.recording_name = metadata.attrs["name"]
+            recording.name = metadata.attrs["name"]
             recording.rec_length = metadata.attrs["recording length"]
             recording.brain_region_dict = brain_region_dict
             # Load data arrays
@@ -319,6 +319,12 @@ class LFPRecording:
                 recording.grangers = data_group["grangers"][:]
             if "power" in data_group:
                 recording.power = data_group["power"][:]
-                recording.connectivity, frequencies = connectivity_wrapper.calculate_multitaper(recording.rms_traces, recording.resample_rate, recording.halfbandwidth, recording.timewindow, recording.timestep)
+                recording.connectivity, frequencies = connectivity_wrapper.calculate_multitaper(
+                    recording.rms_traces,
+                    recording.resample_rate,
+                    recording.halfbandwidth,
+                    recording.timewindow,
+                    recording.timestep,
+                )
 
         return recording

@@ -60,7 +60,7 @@ class LFPAnalysis:
                     if recording.behavior_dict.keys() != last_recording_events:
                         behavior_dicts_same = False
             if not hasattr(recording, "subject"):
-                missing_subject.append(recording.recording_name)
+                missing_subject.append(recording.name)
         if len(missing_events) > 0:
             print("These recordings are missing event dictionaries:")
             print(f"{missing_events}")
@@ -70,10 +70,10 @@ class LFPAnalysis:
                 print("Your event dictionary keys are different across recordings.")
                 print("Please double check them:")
                 for (
-                    recording_name,
+                    name,
                     recording,
                 ) in self.ephyscollection.collection.items():
-                    print(recording_name, "keys:", recording.behavior_dict.keys())
+                    print(name, "keys:", recording.behavior_dict.keys())
         if len(missing_subject) > 0:
             print(f"These recordings are missing subjects: {missing_subject}")
             is_good = False
@@ -268,20 +268,55 @@ class LFPAnalysis:
 
     def plot_granger_heatmap(self, events, freq, baseline=None, event_len=None):
         event_grangers = self.average_events(events, mode="granger", baseline=baseline, event_len=event_len, plot=False)
-        for event in events:
+        # for event in events:
+        #     event_granger = event_grangers[event]
+        #     # event_granger = [trial, b, b, f]
+        #     # calculate average granger per trial
+        #     avg_granger = np.nanmean(event_granger, axis=0)
+        #     print(avg_granger.shape)
+        #     # trim array for only the freq band we are interested in
+        #     freq_granger = avg_granger[freq[0] : freq[1], :, :]
+        #     # average for that freq band
+        #     avg_freq = np.nanmean(freq_granger, axis=0)
+        #     brain_regions = np.empty(len(self.brain_region_dict.keys()), dtype="<U10")
+        #     for i in range(len(self.brain_region_dict.keys())):
+        #         brain_regions[i] = self.brain_region_dict.inverse[i]
+        #     print(brain_regions)
+        #     sns.heatmap(avg_freq, xticklabels=brain_regions, yticklabels=brain_regions, annot=True, cmap="viridis")
+        #     plt.title(f"{event} Granger Causality from {freq[0]}Hz to {freq[1]}Hz")
+        #     plt.show()
+        n_events = len(events)
+        n_cols = min(3, n_events)  # Max 3 columns
+        n_rows = (n_events + n_cols - 1) // n_cols  # Ceiling division
+        # Create figure with subplots
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+        if n_events == 1:
+            axes = np.array([axes])  # Make single axis iterable
+        axes = axes.flatten()  # Flatten for easy iteration
+        # Get brain regions once since they're the same for all plots
+        brain_regions = np.empty(len(self.brain_region_dict.keys()), dtype="<U10")
+        for i in range(len(self.brain_region_dict.keys())):
+            brain_regions[i] = self.brain_region_dict.inverse[i]
+        for idx, (event, ax) in enumerate(zip(events, axes)):
             event_granger = event_grangers[event]
-            # event_granger = [trial, b, b, f]
-            # calculate average granger per trial
             avg_granger = np.nanmean(event_granger, axis=0)
-            # trim array for only the freq band we are interested in
-            freq_granger = avg_granger[:, :, freq[0] : freq[1]]
-            # average for that freq band
-            avg_freq = np.nanmean(freq_granger, axis=2)
+            freq_granger = avg_granger[freq[0] : freq[1], :, :]
+            avg_freq = np.nanmean(freq_granger, axis=0)
             sns.heatmap(
-                avg_freq, xticklabels=self.brain_regions, yticklabels=self.brain_regions, annot=True, cmap="viridis"
+                avg_freq, xticklabels=brain_regions, yticklabels=brain_regions, annot=True, cmap="viridis", ax=ax
             )
-            plt.title(f"{event} Granger Causality from {freq[0]}Hz to {freq[1]}Hz")
-            plt.show()
+            ax.set_title(f"{event} Granger Causality\n{freq[0]}Hz to {freq[1]}Hz")
+            # Rotate labels for better readability
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
+            ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
+            ax.set_ylabel("From")
+            ax.set_xlabel("To")
+        # Remove any empty subplots
+        for idx in range(len(events), len(axes)):
+            fig.delaxes(axes[idx])
+        # Adjust layout to prevent overlap
+        plt.tight_layout()
+        plt.show()
 
     def average_events(self, events, mode, baseline=None, event_len=None, pre_window=0, post_window=0, plot=False):
         """
