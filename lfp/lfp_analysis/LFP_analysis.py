@@ -5,31 +5,9 @@ import matplotlib.pyplot as plt
 from itertools import permutations
 import seaborn as sns
 from bidict import bidict
-
-
-class LFPAnalysis:
-
-    def __init__(self, lfp_objects, sampling_rate=20000, down_sample=1000, freq_window=0.5, freq_smooth_win=1):
-        """
-        lfp_objects: list of lfprecording instances
-        sampling_rate: int, default=20000, sampling rate of ephys device in Hz
-        down_sample: int, default=1000, down sample rate of LFP traces in Hz
-        freq_winddow: float, default=0.5, timebin in seconds for frequency based arrays such as
-            power, coherence, and granger
-        freq_smooth_win: float, default=1, size of smoothing window in sec to calculate power,
-            coherence, and granger causality
-        """
-        self.sampling_rate = sampling_rate
-        self.down_sample = down_sample
-        self.collection = lfp_objects
-        self.power_frequencies = lfp_objects[0].frequencies
-        self.coherence_frequencies = lfp_objects[0].frequencies
-        self.granger_frequencies = lfp_objects[0].frequencies
-        self.brain_region_dict = lfp_objects[0].brain_region_dict
-        self.freq_window = freq_window
-        self.freq_smooth_win = freq_smooth_win
-        self.all_set()
-        self.coherence_pairs_dict = self._create_coherence_bidict()
+from collections import defaultdict
+from matplotlib import cm
+from itertools import combinations
 
 
 def all_set(collection):
@@ -125,7 +103,7 @@ def __get_event_averages__(recording, event, mode, event_len, pre_window, post_w
     event_averages = []
     pre_window = math.ceil(pre_window * 1000)
     post_window = math.ceil(post_window * 1000)
-    freq_timebin = recording.freq_window * 1000
+    freq_timebin = recording.timestep * 1000
     if event_len is not None:
         event_len_ms = event_len * 1000
     if mode == "power":
@@ -368,7 +346,7 @@ def __get_event_snippets__(recording, event, mode, event_len, pre_window, post_w
     event_snippets = []
     pre_window = round(pre_window * 1000)
     post_window = round(post_window * 1000)
-    freq_timebin = self.freq_window * 1000
+    freq_timebin = recording.timewindow * 1000
     if event_len is not None:
         event_len_ms = event_len * 1000
         event_dur = int(event_len_ms + pre_window + post_window) / freq_timebin
@@ -395,119 +373,61 @@ def __get_event_snippets__(recording, event, mode, event_len, pre_window, post_w
                 event_snippets.append(event_snippet)
     return event_snippets
 
+
 def band_calcs(values):
     agent_band_dict = {}
     for agent, calculations in values.items():
         calculations = np.array(calculations)
-        delta = np.nanmean(calculations[0:4, ...], axis = 0)
-            
-        theta = np.nanmean(calculations[4:13,...], axis = 0)
-        
-        beta = np.nanmean(calculations[13:31, ...], axis = 0)
-            
-        low_gamma = np.nanmean(calculations[31:71, ...], axis = 0)
-        
-        high_gamma = np.nanmean(calculations[71:100, ...], axis = 0)
-        
-            
-        agent_band_dict[agent] = {'delta': delta,
-                                        'theta': theta,
-                                        'beta': beta,
-                                        'low_gamma': low_gamma,
-                                        'high_gamma': high_gamma}
-           
+        # calculations = [trials, frequencies, brain regions]
+        delta = np.nanmean(calculations[:, 0:4, ...], axis=1)
+        theta = np.nanmean(calculations[:, 4:13, ...], axis=1)
+
+        beta = np.nanmean(calculations[:, 13:31, ...], axis=1)
+
+        low_gamma = np.nanmean(calculations[:, 31:71, ...], axis=1)
+
+        high_gamma = np.nanmean(calculations[:, 71:100, ...], axis=1)
+
+        agent_band_dict[agent] = {
+            "delta": delta,
+            "theta": theta,
+            "beta": beta,
+            "low_gamma": low_gamma,
+            "high_gamma": high_gamma,
+        }
+
     band_agent_dict = defaultdict(dict)
     for agent, bands in agent_band_dict.items():
         for band, values in bands.items():
             band_agent_dict[band][agent] = values
-    
-    return([agent_band_dict, band_agent_dict])
 
-def plot_avg_coherences(lfp_collection, events):
-    #TODO: fix coherence pairs
-    subset_names = [f'{i}' for i in lfp_collection.coherence_pairs]  # Example subset names
-
-    coherences = average_events(lfp_collection, events = events, mode = 'coherence', baseline = baseline, plot = False)
-    [unflipped, flipped] = band_calcs(coherences)
-    avg_values = {key: {subset: {event: [] for event in events} for subset in subset_names} for key in flipped.keys()}
-    sem_values = {key: {subset: {event: [] for event in events} for subset in subset_names} for key in flipped.keys()}
-
-    for key in flipped.keys():
-        for i, subset in enumerate(subset_names):
-            for event in events:
-                avg_values[key][subset][event] = np.nanmean(flipped[key][event][:, i])
-                sem_values[key][subset][event] = stats.sem(flipped[key][event][:, i], nan_policy='omit')
-
-    bar_width = 0.25  # Width of each bar
-    col = [hex_2_rgb('#115566'), hex_2_rgb('#FFAF00'), hex_2_rgb('#792910')]
-    spacing = 0
-    edge = ['black'] * 100
-    # Create a separate plot for each key
-    group_spacing = 1 # Spacing between different subsets
+    return [agent_band_dict, band_agent_dict]
 
 
-    bar_width = 0.25  # Width of each bar
-    col = [hex_2_rgb('#115566'), hex_2_rgb('#FFAF00'), hex_2_rgb('#792910')]
-    spacing = 0
-    edge = ['black'] * 100
-    group_spacing = 1  # Spacing between different subsets
-
-    # Create a separate plot for each key
-    for key in flipped.keys():
-        plt.figure(figsize=(25, 10))
-        x = np.arange(len(subset_names)) * group_spacing  # x-axis positions for subsets
-
-        for i, subset in enumerate(subset_names):
-            for k, event in enumerate(events):
-                positions = x[i] + (k - 1) * (bar_width + spacing)  # Adjust positions for each event
-                plt.bar(positions, avg_values[key][subset][event],
-                        width=bar_width, yerr=sem_values[key][subset][event],
-                        capsize=5,
-                        linewidth=2,
-                        error_kw={'elinewidth': 2, 'capthick': 2},
-                        color=col[k], label=event if i == 0 else '')
-
-        plt.yticks(fontsize=16)
-        plt.xticks(x, subset_names, fontsize=18, rotation=45)
-        plt.axhline(y=0, color='black', linestyle='--', alpha=0.8)
-        plt.ylabel('Average Coherence', fontsize=20)
-        plt.gca().spines['top'].set_visible(False)
-        plt.gca().spines['right'].set_visible(False)
-        plt.gca().spines['bottom'].set_linewidth(2)  # X-axis
-        plt.gca().spines['left'].set_linewidth(2)
-        plt.title(f'Average Coherence for {key}', fontsize=26, font='Arial')
-        plt.legend(fontsize=16, frameon=False)
-        plt.subplots_adjust(hspace=0.5)
-        plt.show()
-
-def plot_average_power(lfp_collection, events):
-    powers = average_events(lfp_collection, events = events, mode = 'power', baseline = baseline, plot = False)
+def average_power_bar(lfp_collection, events, baseline=None):
+    powers = average_events(lfp_collection, events=events, mode="power", baseline=baseline, plot=False)
     [unflipped, flipped] = band_calcs(powers)
     brain_regions = np.empty(len(lfp_collection.brain_region_dict.keys()), dtype="<U10")
     for i in range(len(lfp_collection.brain_region_dict.keys())):
         brain_regions[i] = lfp_collection.brain_region_dict.inverse[i]
-    avg_values = {key: {subset: {event: [] for event in events} for subset in subset_names} for key in flipped.keys()}
-    sem_values = {key: {subset: {event: [] for event in events} for subset in subset_names} for key in flipped.keys()}
+    avg_values = {key: {subset: {event: [] for event in events} for subset in brain_regions} for key in flipped.keys()}
+    sem_values = {key: {subset: {event: [] for event in events} for subset in brain_regions} for key in flipped.keys()}
     for key in flipped.keys():
-        for i, subset in enumerate(subset_names):
+        for i, subset in enumerate(brain_regions):
             for event in events:
                 avg_values[key][subset][event] = np.nanmean(flipped[key][event][:, i])
-                sem_values[key][subset][event] = stats.sem(flipped[key][event][:, i], nan_policy='omit')
+                sem_values[key][subset][event] = stats.sem(flipped[key][event][:, i], nan_policy="omit")
 
-    bar_width = 0.25  # Width of each bar
-    col = [hex_2_rgb('#115566'), hex_2_rgb('#FFAF00'), hex_2_rgb('#792910')]
-    spacing = 0
-    edge = ['black'] * 100
-    # Create a separate plot for each key
-    group_spacing = 1 # Spacing between different subsets
+    # Adjust bar width and spacing based on number of events
+    total_width = 0.8  # Total width available for each group of bars
+    bar_width = total_width / len(events)  # Width of each bar
+    col = cm.rainbow(np.linspace(0, 1, len(events)))
+
+    # Spacing between groups of bars
+    group_spacing = 1  # Increased for better separation between brain regions
+
     sorted_avg_values = {key: {subset: avg_values[key][subset] for subset in brain_regions} for key in flipped.keys()}
     sorted_sem_values = {key: {subset: sem_values[key][subset] for subset in brain_regions} for key in flipped.keys()}
-
-    bar_width = 0.25  # Width of each bar
-    col = [hex_2_rgb('#115566'), hex_2_rgb('#FFAF00'), hex_2_rgb('#792910')]
-    spacing = 0
-    edge = ['black'] * 100
-    group_spacing = 1  # Spacing between different subsets
 
     # Create a separate plot for each key
     for key in flipped.keys():
@@ -516,22 +436,92 @@ def plot_average_power(lfp_collection, events):
 
         for i, subset in enumerate(brain_regions):
             for k, event in enumerate(events):
+                # Center the group of bars and space them evenly
+                center = x[i]
+                offset = (k - (len(events) - 1) / 2) * bar_width
+                position = center + offset
+
+                plt.bar(
+                    position,
+                    sorted_avg_values[key][subset][event],
+                    width=bar_width,
+                    yerr=sorted_sem_values[key][subset][event],
+                    capsize=5,
+                    linewidth=2,
+                    error_kw={"elinewidth": 2, "capthick": 2},
+                    color=col[k],
+                    label=event if i == 0 else "",
+                )
+
+        plt.yticks(fontsize=20)
+        plt.xticks(x, brain_regions, fontsize=24, rotation=45)
+        plt.axhline(y=0, color="black", linestyle="--", alpha=0.8)
+        plt.gca().spines["top"].set_visible(False)
+        plt.gca().spines["right"].set_visible(False)
+        plt.gca().spines["bottom"].set_linewidth(2)
+        plt.gca().spines["left"].set_linewidth(2)
+        plt.title(f"Average Power for {key}", fontsize=40)
+        plt.legend(fontsize=26, frameon=False)
+        plt.subplots_adjust(hspace=0.5)
+        plt.show()
+
+
+def plot_coherence_bar(lfp_collection, events, baseline=None):
+    region_dict = lfp_collection.brain_region_dict
+    brain_regions = list(combinations(list((region_dict.keys())), 2))  # Example subset names
+
+    coherences = average_events(lfp_collection, events=events, mode="coherence", baseline=baseline, plot=False)
+    [unflipped, flipped] = band_calcs(coherences)
+    avg_values = {key: {subset: {event: [] for event in events} for subset in brain_regions} for key in flipped.keys()}
+    sem_values = {key: {subset: {event: [] for event in events} for subset in brain_regions} for key in flipped.keys()}
+
+    for key in flipped.keys():
+        for i, subset in enumerate(brain_regions):
+            pair_index_1 = region_dict[brain_regions[i][0]]
+            pair_index_2 = region_dict[brain_regions[i][1]]
+            for event in events:
+                avg_values[key][subset][event] = np.nanmean(flipped[key][event][:, pair_index_1, pair_index_2])
+                sem_values[key][subset][event] = stats.sem(
+                    flipped[key][event][:, pair_index_1, pair_index_2], nan_policy="omit"
+                )
+
+    # Width of each bar
+    col = cm.rainbow(np.linspace(0, 1, len(events)))
+    spacing = 0
+    # Create a separate plot for each key
+    # Spacing between different subsets
+    total_width = 0.8  # Total width available for each group of bars
+    bar_width = total_width / len(events)
+    group_spacing = 1
+    # Create a separate plot for each key
+    for key in flipped.keys():
+        plt.figure(figsize=(25, 10))
+        x = np.arange(len(brain_regions)) * group_spacing  # x-axis positions for subsets
+
+        for i, subset in enumerate(brain_regions):
+            for k, event in enumerate(events):
                 positions = x[i] + (k - 1) * (bar_width + spacing)  # Adjust positions for each event
-                plt.bar(positions, sorted_avg_values[key][subset][event],
-                        width=bar_width, yerr=sorted_sem_values[key][subset][event],
-                        capsize=5,
-                        linewidth=2,
-                        error_kw={'elinewidth': 2, 'capthick': 2},
-                        color=col[k], label=event if i == 0 else '')
+                plt.bar(
+                    positions,
+                    avg_values[key][subset][event],
+                    width=bar_width,
+                    yerr=sem_values[key][subset][event],
+                    capsize=5,
+                    linewidth=2,
+                    error_kw={"elinewidth": 2, "capthick": 2},
+                    color=col[k],
+                    label=event if i == 0 else "",
+                )
 
         plt.yticks(fontsize=16)
         plt.xticks(x, brain_regions, fontsize=18, rotation=45)
-        plt.axhline(y=0, color='black', linestyle='--', alpha=0.8)
-        plt.gca().spines['top'].set_visible(False)
-        plt.gca().spines['right'].set_visible(False)
-        plt.gca().spines['bottom'].set_linewidth(2)  # X-axis
-        plt.gca().spines['left'].set_linewidth(2)
-        plt.title(f'Average Power for {key}', fontsize=26, font='Arial')
+        plt.axhline(y=0, color="black", linestyle="--", alpha=0.8)
+        plt.ylabel("Average Coherence", fontsize=20)
+        plt.gca().spines["top"].set_visible(False)
+        plt.gca().spines["right"].set_visible(False)
+        plt.gca().spines["bottom"].set_linewidth(2)  # X-axis
+        plt.gca().spines["left"].set_linewidth(2)
+        plt.title(f"Average Coherence for {key}", fontsize=26, font="Arial")
         plt.legend(fontsize=16, frameon=False)
         plt.subplots_adjust(hspace=0.5)
         plt.show()
