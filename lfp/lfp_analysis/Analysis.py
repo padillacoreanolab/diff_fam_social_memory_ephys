@@ -268,23 +268,6 @@ class LFPAnalysis:
 
     def plot_granger_heatmap(self, events, freq, baseline=None, event_len=None):
         event_grangers = self.average_events(events, mode="granger", baseline=baseline, event_len=event_len, plot=False)
-        # for event in events:
-        #     event_granger = event_grangers[event]
-        #     # event_granger = [trial, b, b, f]
-        #     # calculate average granger per trial
-        #     avg_granger = np.nanmean(event_granger, axis=0)
-        #     print(avg_granger.shape)
-        #     # trim array for only the freq band we are interested in
-        #     freq_granger = avg_granger[freq[0] : freq[1], :, :]
-        #     # average for that freq band
-        #     avg_freq = np.nanmean(freq_granger, axis=0)
-        #     brain_regions = np.empty(len(self.brain_region_dict.keys()), dtype="<U10")
-        #     for i in range(len(self.brain_region_dict.keys())):
-        #         brain_regions[i] = self.brain_region_dict.inverse[i]
-        #     print(brain_regions)
-        #     sns.heatmap(avg_freq, xticklabels=brain_regions, yticklabels=brain_regions, annot=True, cmap="viridis")
-        #     plt.title(f"{event} Granger Causality from {freq[0]}Hz to {freq[1]}Hz")
-        #     plt.show()
         n_events = len(events)
         n_cols = min(3, n_events)  # Max 3 columns
         n_rows = (n_events + n_cols - 1) // n_cols  # Ceiling division
