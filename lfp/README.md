@@ -232,12 +232,12 @@ rclone copy source:path dest:path --progress
 
 example real command:
 ```
-rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Habituation_Dishabituation (phase 1)/data" ./data --progress
+rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Only_Subjects (phase 5)/data" ./data/only_subjects --progress --dry-run
 ```
 
 or to upload data to dropbox: 
 
 ```
-rclone copy ./data/same_lfp pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Same_Diff (phase2)/lfp_data" --progress --dry-run
+rclone copy ./same_lfp pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Same_Diff (phase2)/lfp_data" --progress --dry-run
 ```
 

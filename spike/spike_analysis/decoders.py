@@ -94,6 +94,8 @@ def trial_decoder(
             results["probabilities"] = prob_dict
             results_dict[event].append(results)
             shuffle_results_dict[event].append(shuffle_results)
+        if len(events) == 2:
+            break
     result_object = all_results(
         results_dict, shuffle_results_dict, num_fold, event_labels, event_length, pre_window, post_window
     )
@@ -140,7 +142,7 @@ def __probabilities__(results, labels, t_data, num_fold):
 class all_results:
     def __init__(self, results_dict, shuffle_dict, num_fold, event_labels, event_length, pre_window, post_window):
         self.num_fold = num_fold
-        self.events = results_dict.keys()
+        self.events = list(results_dict.keys())
         self.event_length = event_length
         self.pre_window = pre_window
         self.post_window = post_window
@@ -196,15 +198,15 @@ class all_results:
             plt.subplot(height_fig, 2, i)
             x = np.linspace(-self.pre_window, total_event, np.array(results.roc_auc).shape[0])
             if start is not None:
-                start = np.where(x >= start)[0][0]
+                plot_start = np.where(x >= start)[0][0]
             if stop is None:
-                stop = results.roc_auc.shape[0]
+                plot_stop = results.roc_auc.shape[0]
             if stop is not None:
-                stop = np.where(x <= stop)[0][-1] + 1
+                plot_stop = np.where(x <= stop)[0][-1] + 1
             rf_avg = np.mean(np.mean(results.roc_auc[start:stop], axis=0), axis=0)
-            rf_sem = sem(np.mean(results.roc_auc[start:stop], axis=0))
-            rf_shuffle_avg = np.mean(np.mean(results.roc_auc_shuffle[start:stop], axis=0), axis=0)
-            rf_shuffle_sem = sem(np.mean(results.roc_auc_shuffle[start:stop], axis=0))
+            rf_sem = sem(np.mean(results.roc_auc[plot_start:plot_stop], axis=0))
+            rf_shuffle_avg = np.mean(np.mean(results.roc_auc_shuffle[plot_start:plot_stop], axis=0), axis=0)
+            rf_shuffle_sem = sem(np.mean(results.roc_auc_shuffle[plot_start:plot_stop], axis=0))
             bar_positions = np.array([0.3, 0.6])
             plt.bar(bar_positions[0], rf_avg, bar_width, label="RF", yerr=rf_sem, capsize=5)
             plt.bar(bar_positions[1], rf_shuffle_avg, bar_width, label="RF Shuffle", yerr=rf_shuffle_sem, capsize=5)
