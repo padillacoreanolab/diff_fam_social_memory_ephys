@@ -1,5 +1,5 @@
 import numpy as np
-import pca_trajectories as pca_traj
+import spike.spike_analysis.pca_trajectories as pca_traj
 from sklearn.metrics import roc_auc_score
 from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -12,16 +12,16 @@ import pandas as pd
 from collections import defaultdict
 
 
-def __PCA_for_decoding__(spike_collection, event_length, pre_window, post_window, no_PCs, events):
-    pc_dict = pca_traj.avg_trajectories_pca(
-        spike_collection, event_length, pre_window, post_window, events=events, plot=False
+def __PCA_for_decoding__(spike_collection, event_length, pre_window, post_window, no_PCs, events, min_neurons=0):
+    pc_result = pca_traj.avg_trajectories_pca(
+        spike_collection, event_length, pre_window, post_window, events=events, min_neurons=min_neurons, plot=False
     )
-    full_PCA_matrix = pc_dict["raw data"]
+    full_PCA_matrix = pc_result.matrix_df
     # time bins by neurons
     # coefficients = components x features (PCs x neurons)
-    coefficients = pc_dict["coefficients"]
+    coefficients = pc_result.coefficients
     recordings = full_PCA_matrix.columns.to_list()
-    recording_list = np.unique(recordings)
+    recording_list = pc_result.recordings
     coefficients = coefficients[:, :no_PCs]
     coefficients_df = pd.DataFrame(data=coefficients, index=recordings)
     decoder_data = defaultdict(list)
@@ -51,8 +51,12 @@ def __PCA_for_decoding__(spike_collection, event_length, pre_window, post_window
     return decoder_data
 
 
-def trial_decoder(spike_collection, num_fold, no_PCs, events, event_length, pre_window=0, post_window=0, plot=True):
-    decoder_data = __PCA_for_decoding__(spike_collection, event_length, pre_window, post_window, no_PCs, events=events)
+def trial_decoder(
+    spike_collection, num_fold, no_PCs, events, event_length, pre_window=0, post_window=0, min_neurons=0, plot=True
+):
+    decoder_data = __PCA_for_decoding__(
+        spike_collection, event_length, pre_window, post_window, no_PCs, events=events, min_neurons=min_neurons
+    )
     T = decoder_data[events[0]][0].shape[0]
     results_dict = {}
     shuffle_results_dict = {}

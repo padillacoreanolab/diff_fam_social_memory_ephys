@@ -286,6 +286,7 @@ class PCAResult:
     ):
         self.raw_data = raw_data
         matrix_df = pd.DataFrame(data=raw_data, columns=recording_keys, index=event_keys)
+        self.matrix_df = matrix_df
         self.labels = np.array(matrix_df.index.to_list())
         if raw_data.shape[0] < raw_data.shape[1]:
             print("Warning: you have more features (neurons) than samples (time bins)")
@@ -298,7 +299,7 @@ class PCAResult:
             pca.fit(matrix_df)
             self.transformed_data = pca.transform(matrix_df)
             self.coefficients = pca.components_
-            self.explained_variance = pca.explained_variance_
+            self.explained_variance = pca.explained_variance_ratio_
         self.get_cumulative_variance()
         self.timebin = spike_collection.timebin
         self.event_length = event_length
