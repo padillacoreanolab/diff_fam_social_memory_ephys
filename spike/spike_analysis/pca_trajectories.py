@@ -4,6 +4,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import euclidean
 from itertools import combinations
+import spike.spike_analysis.spike_collection as col
+import spike.spike_analysis.spike_recording as rec
+from builtins import print
 
 
 def get_indices(repeated_items_list):
@@ -94,18 +97,30 @@ def event_slice(transformed_subsets, key, no_PCs, mode):
     return trajectories
 
 
-def geodesic_distances(event_trajectories, mode):
-    pair_distances = {}
-    for pair in list(combinations(event_trajectories.keys(), 2)):
+def geodesic_distances(event_trajectories, recording_name, mode):
+    # Get all event pairs
+    event_pairs = list(combinations(event_trajectories.keys(), 2))
+
+    # Calculate distances for each pair
+    distances = []
+    for pair in event_pairs:
         event1 = event_trajectories[pair[0]]
         event2 = event_trajectories[pair[1]]
-        pair_distances[pair] = distance_bw_trajectories(event1, event2, mode)
-    return pair_distances
+        dist = distance_bw_trajectories(event1, event2, mode)
+        distances.append(dist)
+
+    # Create column names from pairs
+    column_names = [f"{pair[0]}_{pair[1]}" for pair in event_pairs]
+
+    # Create DataFrame
+    df = pd.DataFrame([distances], columns=column_names, index=[recording_name])
+
+    return df
 
 
 def distance_bw_trajectories(trajectory1, trajectory2, mode):
-    geodesic_distances = []
     if mode == "multisession":
+        geodesic_distances = []
         for session in range(trajectory1.shape[0]):
             dist_bw_tb = 0
             for i in range(trajectory1.shape[1]):
@@ -115,7 +130,7 @@ def distance_bw_trajectories(trajectory1, trajectory2, mode):
         dist_bw_tb = 0
         for i in range(trajectory1.shape[0]):
             dist_bw_tb = dist_bw_tb + euclidean(trajectory1[i, :], trajectory2[i, :])
-        geodesic_distances.append(dist_bw_tb)
+        geodesic_distances = dist_bw_tb
     return geodesic_distances
 
 
@@ -133,114 +148,218 @@ def trial_traj(event_firing_rates, num_points, min_event):
     return event_firing_rates_conc, num_data_ps
 
 
-def pca_matrix(spike_collection, event_length, pre_window, post_window, events, mode, min_events=None):
+def check_recording(recording, min_neurons, events, to_print=True):
+    if recording.good_neurons < min_neurons:
+        if not to_print:
+            print(f"Excluding {recording.name} with {recording.good_neurons} neurons")
+        return False
+    for event in events:
+        if len(recording.event_dict[event]) == 1:
+            if recording.event_dict[event][0][1] - recording.event_dict[event][0][0] == 0:
+                if not to_print:
+                    print(f"Excluding {recording.name}, it has no {event} events")
+                return False
+    return True
+
+
+def pca_matrix(spike_collection, event_length, pre_window, post_window, events, mode, min_neurons=0, min_events=None):
     event_keys = []
     recording_keys = []
     pca_master_matrix = None
+    event_count = {}
+    if isinstance(spike_collection, col.SpikeCollection):
+        recordings = spike_collection.collection
+        if events is None:
+            events = spike_collection.collection[0].event_dict.keys()
+    if isinstance(spike_collection, rec.SpikeRecording):
+        recordings = [spike_collection]
+        if events is None:
+            events = spike_collection.event_dict.keys()
     num_points = int((event_length + pre_window + post_window) * 1000 / spike_collection.timebin)
-    if events is None:
-        events = spike_collection.collection[0].event_dict.keys()
-    for recording in spike_collection.collection:
-        pca_matrix = None
-        for event in events:
-            firing_rates = recording.__event_firing_rates__(event, event_length, pre_window, post_window)
-            if mode == "average":
-                event_firing_rates, event_keys = avg_traj(firing_rates, num_points, events)
-            if mode == "trial":
-                min_event = min_events[event]
-                event_firing_rates, num_data_ps = trial_traj(firing_rates, num_points, min_event)
-                if pca_master_matrix is None:
-                    event_keys.extend([event] * num_data_ps)
-            if pca_matrix is not None:
-                # event_firing_rates = timebins, neurons
-                pca_matrix = np.concatenate((pca_matrix, event_firing_rates), axis=0)
-            if pca_matrix is None:
-                pca_matrix = event_firing_rates
-        if pca_master_matrix is not None:
-            pca_master_matrix = np.concatenate((pca_master_matrix, pca_matrix), axis=1)
-        if pca_master_matrix is None:
-            pca_master_matrix = pca_matrix
-        recording_keys.extend([recording.name] * pca_matrix.shape[1])
-    # timebins by neurons
-    return pca_dict(pca_master_matrix, recording_keys, event_keys)
-
-
-def avg_trajectory_matrix(spike_collection, event_length, pre_window, post_window=0, events=None):
-    """
-    Args (5 total, 2 required):
-        event_length: int, length (s) of event transformed by PCA
-        pre_window: int, length (s) of time prior to event onset included in PCA
-        post_window: int, default=0, length(s) of time after event_length (s) included in PCA
-        events: list of str, default=None, event types for PCA to be applied on their firing
-            rate averages, if no list given, PCA is applied on all event types in event_dict
-
-    Returns:
-        PCA_dict
-
-    """
-    return pca_matrix(spike_collection, event_length, pre_window, post_window, events, mode="average", min_events=None)
-
-
-def trial_trajectory_matrix(spike_collection, event_length, pre_window, post_window=0, events=None):
-    """
-    Args (5 total, 2 required):
-        event_length: int, length (s) of event transformed by PCA
-        pre_window: int, length (s) of time prior to event onset included in PCA
-        post_window: int, default=0, length(s) of time after event_length (s) included in PCA
-        events: list of str, default=None, event types for PCA to be applied on their firing
-            rate averages, if no list given, PCA is applied on all event types in event_dict
-
-    Returns:
-        PCA_dict
-
-    """
-    min_events = event_numbers(spike_collection, events)
-    return pca_matrix(
-        spike_collection, event_length, pre_window, post_window, events, mode="trial", min_events=min_events
+    for recording in recordings:
+        recording_good = check_recording(recording, min_neurons, events, to_print=True)
+        if recording_good:
+            event_count[recording.name] = {}
+            pca_matrix = None
+            for event in events:
+                firing_rates = recording.__event_firing_rates__(event, event_length, pre_window, post_window)
+                event_count[recording.name][event] = len(firing_rates)
+                if mode == "average":
+                    event_firing_rates, event_keys = avg_traj(firing_rates, num_points, events)
+                if mode == "trial":
+                    min_event = min_events[event]
+                    event_firing_rates, num_data_ps = trial_traj(firing_rates, num_points, min_event)
+                    if pca_master_matrix is None:
+                        event_keys.extend([event] * num_data_ps)
+                if pca_matrix is not None:
+                    # event_firing_rates = timebins, neurons
+                    pca_matrix = np.concatenate((pca_matrix, event_firing_rates), axis=0)
+                if pca_matrix is None:
+                    pca_matrix = event_firing_rates
+            if pca_master_matrix is not None:
+                pca_master_matrix = np.concatenate((pca_master_matrix, pca_matrix), axis=1)
+            if pca_master_matrix is None:
+                pca_master_matrix = pca_matrix
+            recording_keys.extend([recording.name] * pca_matrix.shape[1])
+        # timebins by neurons
+    return PCAResult(
+        spike_collection,
+        event_length,
+        pre_window,
+        post_window,
+        pca_master_matrix,
+        recording_keys,
+        event_keys,
+        event_count,
     )
 
 
-def event_numbers(spike_collection, events):
+def avg_trajectory_matrix(spike_collection, event_length, pre_window, post_window=0, events=None, min_neurons=0):
+    """
+    Args (5 total, 2 required):
+        event_length: int, length (s) of event transformed by PCA
+        pre_window: int, length (s) of time prior to event onset included in PCA
+        post_window: int, default=0, length(s) of time after event_length (s) included in PCA
+        events: list of str, default=None, event types for PCA to be applied on their firing
+            rate averages, if no list given, PCA is applied on all event types in event_dict
+
+    Returns:
+        PCA_dict
+
+    """
+    return pca_matrix(
+        spike_collection,
+        event_length,
+        pre_window,
+        post_window,
+        events,
+        mode="average",
+        min_neurons=min_neurons,
+        min_events=None,
+    )
+
+
+def trial_trajectory_matrix(spike_collection, event_length, pre_window, post_window=0, events=None, min_neurons=None):
+    """
+    Args (5 total, 2 required):
+        event_length: int, length (s) of event transformed by PCA
+        pre_window: int, length (s) of time prior to event onset included in PCA
+        post_window: int, default=0, length(s) of time after event_length (s) included in PCA
+        events: list of str, default=None, event types for PCA to be applied on their firing
+            rate averages, if no list given, PCA is applied on all event types in event_dict
+
+    Returns:
+        PCA_dict
+
+    """
+    min_events = event_numbers(spike_collection, events, min_neurons)
+    return pca_matrix(
+        spike_collection,
+        event_length,
+        pre_window,
+        post_window,
+        events,
+        mode="trial",
+        min_neurons=min_neurons,
+        min_events=min_events,
+    )
+
+
+def event_numbers(spike_collection, events, min_neurons, to_print=False):
     mins = {}
     if events is None:
         events = list(spike_collection.collection[0].event_dict.keys())
     for event in events:
         totals = []
         for recording in spike_collection.collection:
-            totals.append((recording.event_dict[event]).shape[0])
+            recording_good = check_recording(recording, min_neurons, events, to_print=False)
+            if recording_good:
+                totals.append((recording.event_dict[event]).shape[0])
         mins[event] = min(totals)
     print(mins)
     return mins
 
 
-def pca_dict(matrix, recording_keys, event_keys):
-    matrix_df = pd.DataFrame(data=matrix, columns=recording_keys, index=event_keys)
-    key = np.array(matrix_df.index.to_list())
-    if matrix.shape[0] < matrix.shape[1]:
-        print("Warning: you have more features (neurons) than samples (time bins)")
-        print("Consider choosing a smaller time window for analysis")
-        pca_dict = {
-            "raw data": matrix_df,
-            "transformed data": None,
-            "labels": key,
-            "coefficients": None,
-            "explained variance": None,
-        }
-    else:
-        pca = PCA()
-        pca.fit(matrix_df)
-        pca_dict = {
-            "raw data": matrix_df,
-            "transformed data": pca.transform(matrix_df),
-            "labels": key,
-            "coefficients": pca.components_,
-            "explained variance": pca.explained_variance_ratio_,
-        }
-    return pca_dict
+class PCAResult:
+    def __init__(
+        self, spike_collection, event_length, pre_window, post_window, raw_data, recording_keys, event_keys, event_count
+    ):
+        self.raw_data = raw_data
+        matrix_df = pd.DataFrame(data=raw_data, columns=recording_keys, index=event_keys)
+        self.labels = np.array(matrix_df.index.to_list())
+        if raw_data.shape[0] < raw_data.shape[1]:
+            print("Warning: you have more features (neurons) than samples (time bins)")
+            print("Consider choosing a smaller time window for analysis")
+            self.transformed_data = None
+            self.coefficients = None
+            self.explained_variance = None
+        else:
+            pca = PCA()
+            pca.fit(matrix_df)
+            self.transformed_data = pca.transform(matrix_df)
+            self.coefficients = pca.components_
+            self.explained_variance = pca.explained_variance_
+        self.get_cumulative_variance()
+        self.timebin = spike_collection.timebin
+        self.event_length = event_length
+        self.pre_window = pre_window
+        self.post_window = post_window
+        self.recordings = list(matrix_df.columns.unique())
+        self.events = list(matrix_df.index.unique())
+        self.make_overview_dataframe(matrix_df, event_count)
+
+    def make_overview_dataframe(self, matrix_df, event_count):
+        column_counts = pd.DataFrame(matrix_df.columns.value_counts()).reset_index()
+        column_counts.columns = ["Recording", "Number of Neurons"]
+
+        # Add column for each event type
+        for event in self.events:
+            event_counts = []
+            for recording in column_counts["Recording"]:
+                count = event_count[recording].get(event, 0)  # get count or 0 if event not present
+                event_counts.append(count)
+            column_counts[f"Number of {event} events"] = event_counts
+
+        # Add total events column
+        self.recording_overview = column_counts
+
+    def get_cumulative_variance(self):
+        if self.explained_variance is not None:
+            self.cumulative_variance = np.cumsum(self.explained_variance)
+        else:
+            self.cumulative_variance = None
+
+    def __str__(self):
+        n_timebins = (self.event_length + self.post_window + self.pre_window) * 1000 / self.timebin
+        total_neurons = self.recording_overview["Number of Neurons"].sum()
+        if self.cumulative_variance is not None:
+            pcs_for_90 = np.where(self.cumulative_variance >= 0.9)[0][0] + 1
+        else:
+            pcs_for_90 = None
+        return (
+            f"PCA Result with:\n"
+            f"Events: {', '.join(self.events)}\n"
+            f"Timebins per event: {n_timebins}\n"
+            f"Total neurons: {total_neurons}\n"
+            f"Number of recordings: {len(self.recordings)}\n"
+            f"Number of Pcs needed to explain 90% of variance {pcs_for_90}"
+        )
+
+    def __repr__(self):
+        return f"{self.recording_overview}"
 
 
 def avg_trajectories_pca(
-    spike_collection, event_length, pre_window, post_window=0, events=None, plot=True, d=2, azim=30, elev=20
+    spike_collection,
+    event_length,
+    pre_window,
+    post_window=0,
+    events=None,
+    min_neurons=None,
+    plot=True,
+    d=2,
+    azim=30,
+    elev=20,
 ):
     """
     calculates a PCA matrix where each data point represents a timebin.
@@ -264,37 +383,46 @@ def avg_trajectories_pca(
         none
 
     """
-    pc_dict = avg_trajectory_matrix(spike_collection, event_length, pre_window, post_window, events)
+    pc_result = avg_trajectory_matrix(spike_collection, event_length, pre_window, post_window, events, min_neurons)
     if plot:
         if d == 2:
             avg_trajectory_EDA_plot(
-                spike_collection, pc_dict["transformed data"], pc_dict["labels"], event_length, pre_window, post_window
+                spike_collection, pc_result.transformed_data, pc_result.labels, event_length, pre_window, post_window
             )
         if d == 3:
             avg_trajectory_EDA_plot_3D(
                 spike_collection,
-                pc_dict["transformed data"],
-                pc_dict["labels"],
+                pc_result.transformed_data,
+                pc_result.labels,
                 event_length,
                 pre_window,
                 post_window,
                 azim,
                 elev,
             )
-    return pc_dict
+    return pc_result
 
 
 def trial_trajectories_pca(
-    spike_collection, event_length, pre_window=0, post_window=0, events=None, plot=True, d=2, azim=30, elev=20
+    spike_collection,
+    event_length,
+    pre_window=0,
+    post_window=0,
+    events=None,
+    min_neurons=None,
+    plot=True,
+    d=2,
+    azim=30,
+    elev=20,
 ):
-    pc_dict = trial_trajectory_matrix(spike_collection, event_length, pre_window, post_window, events)
-    min_events = event_numbers(spike_collection, events)
+    pc_result = trial_trajectory_matrix(spike_collection, event_length, pre_window, post_window, events, min_neurons)
+    min_events = event_numbers(spike_collection, events, min_neurons, to_print=False)
     if plot:
         if d == 2:
             trial_trajectory_EDA_plot(
                 spike_collection,
-                pc_dict["transformed data"],
-                pc_dict["labels"],
+                pc_result.transformed_data,
+                pc_result.labels,
                 event_length,
                 pre_window,
                 post_window,
@@ -303,8 +431,8 @@ def trial_trajectories_pca(
         if d == 3:
             trial_trajectory_EDA_3D_plot(
                 spike_collection,
-                pc_dict["transformed data"],
-                pc_dict["labels"],
+                pc_result.transformed_data,
+                pc_result.labels,
                 event_length,
                 pre_window,
                 post_window,
@@ -312,7 +440,7 @@ def trial_trajectories_pca(
                 azim,
                 elev,
             )
-    return pc_dict
+    return pc_result
 
 
 def avg_trajectory_EDA_plot(spike_collection, pca_matrix, PCA_key, event_length, pre_window, post_window):
@@ -590,92 +718,6 @@ def trial_trajectory_EDA_3D_plot(
         pre_win_text = "Pre-event = □, "
     title = pre_win_text + "Onset = △, End = ○" + post_win_text
     plt.title(title)
-    # conv_factor = 1000 / spike_collection.timebin
-    # timebins_per_trial = int((event_length + pre_window + post_window) * conv_factor)
-    # event_end = int((event_length + pre_window) * conv_factor)
-    # pre_window = pre_window * conv_factor
-    # post_window = post_window * conv_factor
-    # alpha = 0.5
-    # marker_size = 5
-    # highlight_markers = True
-    # # Get unique events and assign colors
-    # unique_events = list(set(PCA_key))
-    # colors = plt.cm.tab10(np.linspace(0, 1, len(unique_events)))
-    # color_dict = dict(zip(unique_events, colors))
-
-    # # Create 3D plot
-    # fig = plt.figure(figsize=(10, 8))
-    # ax = fig.add_subplot(111, projection="3d")
-
-    # # Plot each trial
-    # for i in range(0, len(PCA_key), timebins_per_trial):
-    #     event_label = PCA_key[i]
-    #     color = color_dict[event_label]
-
-    #     # Calculate marker positions for this trial
-    #     onset = i if pre_window == 0 else int(i + pre_window - 1)
-    #     end = int(i + event_end - 1)
-    #     post = int(i + timebins_per_trial - 1)
-
-    #     # Plot trajectory
-    #     ax.plot(
-    #         pca_matrix[i : i + timebins_per_trial, 0],
-    #         pca_matrix[i : i + timebins_per_trial, 1],
-    #         pca_matrix[i : i + timebins_per_trial, 2],
-    #         color=color,
-    #         alpha=alpha,
-    #         linewidth=0.8,
-    #     )
-
-    #     ax.scatter(
-    #         pca_matrix[i : i + timebins_per_trial, 0],
-    #         pca_matrix[i : i + timebins_per_trial, 1],
-    #         pca_matrix[i : i + timebins_per_trial, 2],
-    #         s=marker_size,
-    #         color=color,
-    #         alpha=alpha,
-    #     )
-
-    #     # Add event markers if requested
-    #     if highlight_markers:
-    #         marker_kwargs = dict(s=30, alpha=1, edgecolors=color, facecolors="none")
-
-    #         # Start marker
-    #         if pre_window != 0:
-    #             ax.scatter(pca_matrix[i, 0], pca_matrix[i, 1], pca_matrix[i, 2], marker="s", **marker_kwargs)
-
-    #         # Event onset marker
-    #         ax.scatter(pca_matrix[onset, 0], pca_matrix[onset, 1], pca_matrix[onset, 2], marker="^", **marker_kwargs)
-
-    #         # Event end marker
-    #         ax.scatter(pca_matrix[end, 0], pca_matrix[end, 1], pca_matrix[end, 2], marker="o", **marker_kwargs)
-
-    #         # Post-event marker if applicable
-    #         if post_window != 0:
-    #             ax.scatter(pca_matrix[post, 0], pca_matrix[post, 1], pca_matrix[post, 2], marker="D", **marker_kwargs)
-
-    # # Add legend with one entry per event type
-    # handles = [
-    #     plt.Line2D([0], [0], color=color_dict[event], label=event, alpha=0.8, marker="o", markersize=5)
-    #     for event in unique_events
-    # ]
-    # ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1, 1))
-
-    # # Set labels and title
-    # ax.set_xlabel("PC1")
-    # ax.set_ylabel("PC2")
-    # ax.set_zlabel("PC3")
-
-    # post_win_text = ""
-    # pre_win_text = ""
-    # if post_window != 0:
-    #     post_win_text = ", Post = ◇"
-    # if pre_window != 0:
-    #     pre_win_text = "Pre-event = □, "
-    # title = pre_win_text + "Onset = △, End = ○" + post_win_text
-    # plt.title(title)
-
-    # Set viewing angle
     ax.view_init(azim=azim, elev=elev)
 
     plt.tight_layout()
@@ -801,23 +843,30 @@ def LOO_PCA(spike_collection, event_length, pre_window, percent_var, post_window
 
 
 # hmm think how this works for one recording
-def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None):
-    temp_pairwise_distances = {}
-    is_first = True
+def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None, min_neurons=None):
+    all_distances_df = pd.DataFrame()
+
     for recording in spike_collection.collection:
-        pc_dict = avg_trajectory_matrix(event_length, pre_window, post_window, events)
-        t_mat = pc_dict["transformed data"]
-        key = pc_dict["labels"]
-        ex_var = pc_dict["explained variance"]
-        no_pcs = PCs_needed(ex_var, percent_var)
-        event_trajectories = event_slice(t_mat, key, no_pcs, mode="single")
-        temp_pairwise_distances = geodesic_distances(event_trajectories, mode="single")
-        if is_first:
-            pairwise_distances = temp_pairwise_distances
-            is_first = False
-        else:
-            for pair, distance in temp_pairwise_distances.items():
-                temp_distances = pairwise_distances[pair]
-                temp_distances.append(temp_pairwise_distances[pair][0])
-                pairwise_distances[pair] = temp_distances
-    return pairwise_distances
+        pc_dict = avg_trajectory_matrix(
+            recording,
+            event_length,
+            pre_window=pre_window,
+            post_window=post_window,
+            events=events,
+            min_neurons=min_neurons,
+        )
+
+        if pc_dict:
+            t_mat = pc_dict["transformed data"]
+            key = pc_dict["labels"]
+            ex_var = pc_dict["explained variance"]
+            no_pcs = PCs_needed(ex_var, percent_var)
+            event_trajectories = event_slice(t_mat, key, no_pcs, mode="single")
+
+            # Get distances DataFrame for this recording
+            recording_df = geodesic_distances(event_trajectories, recording.name, mode="single")
+
+            # Concatenate with main DataFrame
+            all_distances_df = pd.concat([all_distances_df, recording_df])
+
+    return all_distances_df

@@ -1,0 +1,135 @@
+,original_unit_id,recording,exp1,exp4,exp5,cell group
+0,2,11_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+1,235,11_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,signifcantly increased,exp1exp4exp5
+2,75,11_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+3,104,11_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+4,61,11_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly decreased,exp1exp5
+5,23,11_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+6,64,11_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,signifcantly decreased,exp1exp4exp5
+7,108,11_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+8,163,11_cage_p1_merged.rec,signifcantly decreased,not significantly changed,signifcantly increased,exp1exp5
+9,167,11_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+10,233,11_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+11,230,11_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,not significantly changed,exp1exp4
+12,107,11_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+13,245,12_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+14,345,12_cage_p1_merged.rec,signifcantly decreased,not significantly changed,not significantly changed,exp1
+15,350,12_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+16,218,12_cage_p1_merged.rec,signifcantly increased,signifcantly increased,not significantly changed,exp1exp4
+17,212,12_cage_p1_merged.rec,not significantly changed,signifcantly decreased,not significantly changed,exp4
+18,368,12_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+19,365,12_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+20,263,12_cage_p1_merged.rec,signifcantly decreased,not significantly changed,signifcantly decreased,exp1exp5
+21,209,12_cage_p1_merged.rec,not significantly changed,signifcantly decreased,not significantly changed,exp4
+22,22,12_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly increased,exp4exp5
+23,356,12_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+24,294,12_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+25,382,12_cage_p1_merged.rec,not significantly changed,signifcantly increased,not significantly changed,exp4
+26,309,12_cage_p1_merged.rec,not significantly changed,signifcantly decreased,not significantly changed,exp4
+27,40,12_cage_p1_merged.rec,signifcantly increased,not significantly changed,not significantly changed,exp1
+28,386,12_cage_p1_merged.rec,not significantly changed,signifcantly decreased,not significantly changed,exp4
+29,204,12_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,not significantly changed,exp1exp4
+30,1,12_cage_p1_merged.rec,signifcantly increased,signifcantly decreased,not significantly changed,exp1exp4
+31,211,13_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+32,218,13_cage_p1_merged.rec,not significantly changed,not significantly changed,signifcantly increased,exp5
+33,196,13_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly decreased,exp1exp4exp5
+34,23,13_cage_p1_merged.rec,not significantly changed,not significantly changed,signifcantly increased,exp5
+35,199,13_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+36,279,13_cage_p1_merged.rec,not significantly changed,signifcantly increased,not significantly changed,exp4
+37,238,13_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly increased,exp1exp4exp5
+38,231,13_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+39,201,13_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly increased,exp1exp4exp5
+40,223,13_cage_p1_merged.rec,signifcantly increased,signifcantly increased,not significantly changed,exp1exp4
+41,261,13_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly decreased,exp1exp5
+42,61,21_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+43,203,21_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly increased,exp4exp5
+44,195,21_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+45,166,21_cage_p1_merged.rec,signifcantly decreased,not significantly changed,not significantly changed,exp1
+46,215,21_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+47,119,21_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+48,196,21_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly increased,exp4exp5
+49,168,21_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+50,132,21_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+51,181,21_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+52,53,21_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+53,179,21_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly decreased,exp4exp5
+54,183,21_cage_p1_merged.rec,not significantly changed,signifcantly decreased,not significantly changed,exp4
+55,147,21_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,not significantly changed,exp1exp4
+56,92,21_cage_p1_merged.rec,signifcantly decreased,not significantly changed,signifcantly decreased,exp1exp5
+57,164,21_cage_p1_merged.rec,signifcantly increased,signifcantly increased,not significantly changed,exp1exp4
+58,55,21_cage_p1_merged.rec,signifcantly decreased,not significantly changed,signifcantly decreased,exp1exp5
+59,118,21_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly decreased,exp1exp5
+60,75,21_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,not significantly changed,exp1exp4
+61,214,21_cage_p1_merged.rec,signifcantly decreased,not significantly changed,not significantly changed,exp1
+62,207,21_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly increased,exp4exp5
+63,134,21_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,not significantly changed,exp1exp4
+64,47,21_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+65,34,21_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+66,10,21_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+67,2,22_cage_p1_merged.rec,signifcantly decreased,not significantly changed,signifcantly increased,exp1exp5
+68,17,22_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,signifcantly increased,exp1exp4exp5
+69,6,22_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+70,41,22_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,not significantly changed,exp1exp4
+71,49,22_cage_p1_merged.rec,signifcantly decreased,not significantly changed,not significantly changed,exp1
+72,14,22_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+73,11,22_cage_p1_merged.rec,not significantly changed,signifcantly decreased,not significantly changed,exp4
+74,52,22_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+75,18,22_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,not significantly changed,exp1exp4
+76,3,22_cage_p1_merged.rec,not significantly changed,not significantly changed,signifcantly increased,exp5
+77,40,22_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+78,24,22_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly increased,exp4exp5
+79,1,22_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+80,8,24_cage_p1_merged.rec,not significantly changed,not significantly changed,signifcantly decreased,exp5
+81,9,24_cage_p1_merged.rec,signifcantly decreased,not significantly changed,signifcantly increased,exp1exp5
+82,67,24_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,not significantly changed,exp1exp4
+83,12,24_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+84,23,24_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+85,82,24_cage_p1_merged.rec,signifcantly increased,signifcantly decreased,signifcantly increased,exp1exp4exp5
+86,47,24_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+87,102,24_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+88,10,24_cage_p1_merged.rec,signifcantly increased,signifcantly decreased,not significantly changed,exp1exp4
+89,103,24_cage_p1_merged.rec,signifcantly decreased,not significantly changed,not significantly changed,exp1
+90,95,24_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,signifcantly increased,exp1exp4exp5
+91,0,31_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly increased,exp4exp5
+92,8,32_cage_p1_merged.rec,not significantly changed,not significantly changed,signifcantly decreased,exp5
+93,60,32_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+94,39,32_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly decreased,exp1exp5
+95,88,32_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly increased,exp4exp5
+96,300,32_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+97,79,32_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+98,214,32_cage_p1_merged.rec,signifcantly decreased,not significantly changed,not significantly changed,exp1
+99,148,32_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly decreased,exp1exp5
+100,172,32_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+101,44,32_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+102,106,32_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly increased,exp4exp5
+103,42,32_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+104,55,32_cage_p1_merged.rec,signifcantly decreased,not significantly changed,not significantly changed,exp1
+105,3,33_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly increased,exp4exp5
+106,1,33_cage_p1_merged.rec,not significantly changed,not significantly changed,signifcantly increased,exp5
+107,117,41_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+108,6,41_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+109,62,41_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+110,134,41_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,signifcantly increased,exp1exp4exp5
+111,65,41_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+112,34,41_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,signifcantly increased,exp1exp4exp5
+113,42,41_cage_p1_merged.rec,not significantly changed,not significantly changed,signifcantly decreased,exp5
+114,18,41_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+115,50,41_cage_p1_merged.rec,not significantly changed,signifcantly decreased,signifcantly decreased,exp4exp5
+116,128,41_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly increased,exp4exp5
+117,116,41_cage_p1_merged.rec,signifcantly increased,signifcantly increased,not significantly changed,exp1exp4
+118,59,44_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,signifcantly increased,exp1exp4exp5
+119,58,44_cage_p1_merged.rec,signifcantly decreased,not significantly changed,signifcantly decreased,exp1exp5
+120,20,44_cage_p1_merged.rec,signifcantly increased,signifcantly increased,signifcantly increased,exp1exp4exp5
+121,5,44_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+122,16,44_cage_p1_merged.rec,not significantly changed,not significantly changed,signifcantly decreased,exp5
+123,117,44_cage_p1_merged.rec,signifcantly decreased,not significantly changed,signifcantly increased,exp1exp5
+124,53,44_cage_p1_merged.rec,not significantly changed,signifcantly increased,not significantly changed,exp4
+125,47,44_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+126,103,44_cage_p1_merged.rec,signifcantly increased,not significantly changed,not significantly changed,exp1
+127,28,44_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+128,42,44_cage_p1_merged.rec,signifcantly decreased,signifcantly decreased,signifcantly decreased,exp1exp4exp5
+129,10,44_cage_p1_merged.rec,not significantly changed,signifcantly increased,signifcantly increased,exp4exp5
+130,55,44_cage_p1_merged.rec,signifcantly increased,not significantly changed,signifcantly increased,exp1exp5
+131,86,44_cage_p1_merged.rec,not significantly changed,not significantly changed,not significantly changed,
+132,18,44_cage_p1_merged.rec,signifcantly decreased,signifcantly increased,signifcantly increased,exp1exp4exp5
+133,119,44_cage_p1_merged.rec,signifcantly increased,not significantly changed,not significantly changed,exp1

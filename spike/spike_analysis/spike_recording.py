@@ -2,7 +2,7 @@ import os
 import csv
 import numpy as np
 from collections import defaultdict
-import spike_analysis.firing_rate_calculations as fr
+import spike.spike_analysis.firing_rate_calculations as fr
 
 
 class SpikeRecording:
@@ -287,7 +287,7 @@ class SpikeRecording:
             unit_event_firing_rates: dict, keys are unit ids (???),
             values are lsts of numpy arrays of firing rates per event
         """
-        if self.all_set():
+        if self.all_set:
             unit_event_firing_rates = {}
             for unit in self.unit_firing_rates.keys():
                 unit_event_firing_rates[unit] = self.__event_snippets__(

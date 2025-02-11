@@ -1,5 +1,5 @@
 import os
-from spike_analysis.spike_recording import SpikeRecording
+from spike.spike_analysis.spike_recording import SpikeRecording
 import numpy as np
 
 

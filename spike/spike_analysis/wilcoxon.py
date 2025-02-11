@@ -4,6 +4,7 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 from scipy.stats import sem, ranksums, fisher_exact, wilcoxon
+from multiprocessing import Pool
 
 
 def pre_event_window(event, baseline_window, offset):
@@ -48,9 +49,12 @@ def signed_rank(unit_averages):
         min_length = min(len(event1_averages), len(event2_averages))
         event2_averages = event2_averages[:min_length]
         event1_averages = event1_averages[:min_length]
+        unit_averages[unit] = [event1_averages, event2_averages]
     wilcoxon_stats = {}
     for unit in unit_averages.keys():
-        if not np.isnan(unit_averages[unit][:]).any():  # Check if data is valid before running Wilcoxon
+        if (not np.isnan(np.array(unit_averages[unit][0])).any()) or (
+            not np.isnan(np.array(unit_averages[unit][1])).any()
+        ):  # Check if data is valid before running Wilcoxon
             unit_averages_wil_array = np.array(unit_averages[unit][0]) - np.array(unit_averages[unit][1])
             # check what the dimensionality of this is
             unit_averages_wil_array_no_zeros = unit_averages_wil_array[unit_averages_wil_array != 0]
@@ -65,7 +69,9 @@ def signed_rank(unit_averages):
 def rank_sum(unit_averages):
     wilcoxon_stats = {}
     for unit in unit_averages.keys():
-        if not np.isnan(unit_averages[unit][:]).any():
+        if (not np.isnan(np.array(unit_averages[unit][0])).any()) or (
+            not np.isnan(np.array(unit_averages[unit][1])).any()
+        ):
             results = ranksums(unit_averages[unit][0], unit_averages[unit][1])
             wilcoxon_stats[unit] = {"Wilcoxon Stat": results.statistic, "p value": results.pvalue}
         else:
@@ -99,10 +105,11 @@ def dict_to_df(wilcox_dict):
 def wilcox_check(recording, unit_averages, bad_units):
     if len(bad_units) > 0:
         wilcox_warning(recording, bad_units)
-    for unit in unit_averages.keys():
-        if unit_averages[unit][0] == unit_averages[unit][1]:
-            print(f"Wilcoxon can't be done on {recording.name} {unit}, because baseline = event")
-            unit_averages[unit] = [np.nan, np.nan]
+    # for unit in unit_averages.keys():
+    #     print(unit_averages[unit][0].shape)
+    #     if unit_averages[unit][0] == unit_averages[unit][1]:
+    #         print(f"Wilcoxon can't be done on {recording.name} {unit}, because baseline = event")
+    #         unit_averages[unit] = [np.nan, np.nan]
     return unit_averages
 
 
@@ -123,7 +130,7 @@ def wilcoxon_rec(recording, event, event_length, baseline_window, offset, exclud
     )
     if len(recording.event_dict[event]) < 6:
         print(f"Wilcoxon can't be done on {recording.name} {event}, because <6 samples")
-        return dict_to_df({"Wilcoxon Stat": np.nan, "p value": np.nan})
+        return None
     tot_event = baseline_window + offset
     unit_baseline_firing_rates = recording.__unit_event_firing_rates__(preevent_baselines, tot_event)
     if exclude_offset:
@@ -164,18 +171,21 @@ def wilcoxon_collection(
     is_first = True
     for recording in spike_collection.collection:
         recording_df = wilcoxon_rec(recording, event, event_length, baseline_window, offset, exclude_offset)
-        recording_df = recording_df.reset_index().rename(columns={"index": "original unit id"})
-        recording_df["Recording"] = recording.name
-        recording_df["Subject"] = recording.subject
-        recording_df["Event"] = f"{event_length}s {event} vs {baseline_window}s baseline"
-        if is_first:
-            master_df = recording_df
-            is_first = False
-        else:
-            master_df = pd.concat([master_df, recording_df], axis=0).reset_index(drop=True)
+        if recording_df is not None:
+            recording_df = recording_df.reset_index().rename(columns={"index": "original unit id"})
+            recording_df["Recording"] = recording.name
+            recording_df["Subject"] = recording.subject
+            recording_df["Event"] = f"{event_length}s {event} vs {baseline_window}s baseline"
+            if is_first:
+                master_df = recording_df
+                is_first = False
+            else:
+                master_df = pd.concat([master_df, recording_df], axis=0).reset_index(drop=True)
     if plot:
         baseline_v_event_plot(spike_collection, master_df, event, event_length, baseline_window, offset)
-    return master_df
+    return master_df[
+        ["Event", "original unit id", "Wilcoxon Stat", "p value", "Recording", "Subject", "event1 vs event2"]
+    ]
 
 
 def wilcoxon_event1v2_rec(recording, event1, event2, event_length):
@@ -204,7 +214,7 @@ def wilcoxon_event1v2_rec(recording, event1, event2, event_length):
     unit_event2_firing_rates = recording.__unit_event_firing_rates__(event2, event_length)
     if (len(recording.event_dict[event1]) < 6) | (len(recording.event_dict[event2]) < 6):
         print(f"Wilcoxon can't be done on {recording.name} because <6 samples for either {event1} or {event2}")
-        return dict_to_df({"Wilcoxon Stat": np.nan, "p value": np.nan})
+        return None
     unit_averages, bad_units = event_avgs(unit_event1_firing_rates, unit_event2_firing_rates)
     unit_averages = wilcox_check(recording, unit_averages, bad_units)
     wilcoxon_df = rank_sum(unit_averages)
@@ -240,18 +250,21 @@ def wilcoxon_event1v2_collection(spike_collection, event1, event2, event_length,
     is_first = True
     for recording in spike_collection.collection:
         recording_df = wilcoxon_event1v2_rec(recording, event1, event2, event_length)
-        recording_df = recording_df.reset_index().rename(columns={"index": "original unit id"})
-        recording_df["Recording"] = recording.name
-        recording_df["Subject"] = recording.subject
-        recording_df["Event"] = f"{event1 } vs {event2} ({event_length}s)"
-        if is_first:
-            master_df = recording_df
-            is_first = False
-        else:
-            master_df = pd.concat([master_df, recording_df], axis=0).reset_index(drop=True)
+        if recording_df is not None:
+            recording_df = recording_df.reset_index().rename(columns={"index": "original unit id"})
+            recording_df["Recording"] = recording.name
+            recording_df["Subject"] = recording.subject
+            recording_df["Event"] = f"{event1 } vs {event2} ({event_length}s)"
+            if is_first:
+                master_df = recording_df
+                is_first = False
+            else:
+                master_df = pd.concat([master_df, recording_df], axis=0).reset_index(drop=True)
     if plot:
-        event1v2_plot(spike_collection, master_df, event_length, pre_window)
-    return master_df
+        event1v2_plot(spike_collection, master_df, event1, event2, event_length, pre_window)
+    return master_df[
+        ["Event", "original unit id", "Wilcoxon Stat", "p value", "Recording", "Subject", "event1 vs event2"]
+    ]
 
 
 def fisher_exact_wilcoxon(
@@ -316,32 +329,40 @@ def baseline_v_event_plot(spike_collection, master_df, event, event_length, base
     Returns:
         none
     """
+    all_units_to_plot = []
     for recording in spike_collection.collection:
         wilcoxon_df = master_df[master_df["Recording"] == recording.name]
-        units_to_plot = []
-        for unit in wilcoxon_df["original unit id"].tolist():
-            if wilcoxon_df.loc[wilcoxon_df["original unit id"] == unit, "p value"].values[0] < 0.07:
-                units_to_plot.append(unit)
-        no_plots = len(units_to_plot)
-        height_fig = math.ceil(no_plots / 3)
-        i = 1
-        plt.figure(figsize=(20, 4 * height_fig))
+        recording_units = wilcoxon_df[wilcoxon_df["p value"] < 0.07]["original unit id"].tolist()
+        all_units_to_plot.extend([(recording, unit) for unit in recording_units])
+
+    no_plots = len(all_units_to_plot)
+    height_fig = math.ceil(no_plots / 3)
+
+    plt.figure(figsize=(20, 4 * height_fig))
+    i = 1
+
+    for recording, unit in all_units_to_plot:
+        wilcoxon_df = master_df[master_df["Recording"] == recording.name]
         unit_event_firing_rates = recording.__unit_event_firing_rates__(event, event_length, baseline_window, 0)
-        for unit in units_to_plot:
-            mean_arr = np.mean(unit_event_firing_rates[unit], axis=0)
-            sem_arr = sem(unit_event_firing_rates[unit], axis=0)
-            p_value = wilcoxon_df.loc[wilcoxon_df["original unit id"] == unit, "p value"].values[0]
-            x = np.linspace(start=-baseline_window, stop=event_length, num=len(mean_arr))
-            plt.subplot(height_fig, 3, i)
-            plt.plot(x, mean_arr, c="b")
-            if offset != 0:
-                plt.axvline(x=offset, color="b", linestyle="--")
-            plt.axvline(x=0, color="r", linestyle="--")
-            plt.fill_between(x, mean_arr - sem_arr, mean_arr + sem_arr, alpha=0.2)
-            plt.title(f"Unit {unit} Average (p={p_value})")
-            i += 1
-        plt.suptitle(f"{recording.name}: " + f"{event_length}s {event} vs {baseline_window}s baseline")
-        plt.show()
+
+        mean_arr = np.mean(unit_event_firing_rates[unit], axis=0)
+        sem_arr = sem(unit_event_firing_rates[unit], axis=0)
+        p_value = wilcoxon_df.loc[wilcoxon_df["original unit id"] == unit, "p value"].values[0]
+
+        x = np.linspace(start=-baseline_window, stop=event_length, num=len(mean_arr))
+        plt.subplot(height_fig, 3, i)
+        plt.plot(x, mean_arr, c="b")
+
+        if offset != 0:
+            plt.axvline(x=offset, color="b", linestyle="--")
+        plt.axvline(x=0, color="r", linestyle="--")
+        plt.fill_between(x, mean_arr - sem_arr, mean_arr + sem_arr, alpha=0.2)
+        plt.title(f"{recording.name} - Unit {unit} (p={p_value:.3f})")
+        i += 1
+    # plt.subplots_adjust(top=1.1)
+    plt.suptitle(f"{event_length}s {event} vs {baseline_window}s baseline", y=1, fontsize=20)
+    plt.tight_layout()
+    plt.show()
 
 
 def event1v2_plot(spike_collection, master_df, event1, event2, event_length, pre_window):
@@ -359,42 +380,42 @@ def event1v2_plot(spike_collection, master_df, event1, event2, event_length, pre
     Returns:
         none
     """
+
+    all_units_to_plot = []
     for recording in spike_collection.collection:
         wilcoxon_df = master_df[master_df["Recording"] == recording.name]
-        units_to_plot = []
-        for unit in wilcoxon_df["original unit id"].tolist():
-            if wilcoxon_df.loc[wilcoxon_df["original unit id"] == unit, "p value"].values[0] < 0.05:
-                units_to_plot.append(unit)
-        no_plots = len(units_to_plot)
-        height_fig = math.ceil(no_plots / 3)
-        i = 1
-        plt.figure(figsize=(20, 4 * height_fig))
+        recording_units = wilcoxon_df[wilcoxon_df["p value"] < 0.05]["original unit id"].tolist()
+        all_units_to_plot.extend([(recording, unit) for unit in recording_units])
+
+    no_plots = len(all_units_to_plot)
+    height_fig = math.ceil(no_plots / 3)
+
+    fig = plt.figure(figsize=(20, 4 * height_fig))
+    fig.suptitle(f"{event1} vs {event2} ({event_length}s)", y=1.02)
+
+    for idx, (recording, unit) in enumerate(all_units_to_plot, 1):
+        wilcoxon_df = master_df[master_df["Recording"] == recording.name]
         unit_event1_firing_rates = recording.__unit_event_firing_rates__(event1, event_length, pre_window, 0)
         unit_event2_firing_rates = recording.__unit_event_firing_rates__(event2, event_length, pre_window, 0)
-        for unit in units_to_plot:
-            mean1_arr = np.mean(unit_event1_firing_rates[unit], axis=0)
-            sem1_arr = sem(unit_event1_firing_rates[unit], axis=0)
-            mean2_arr = np.mean(unit_event2_firing_rates[unit], axis=0)
-            sem2_arr = sem(unit_event2_firing_rates[unit], axis=0)
-            p_value = wilcoxon_df.loc[wilcoxon_df["original unit id"] == unit, "p value"].values[0]
-            x = np.linspace(start=-pre_window, stop=event_length, num=len(mean1_arr))
-            plt.subplot(height_fig, 3, i)
-            plt.plot(x, mean1_arr, c="b", label=event1)
-            plt.fill_between(x, mean1_arr - sem1_arr, mean1_arr + sem1_arr, alpha=0.2)
-            plt.plot(x, mean2_arr, c="k", label=event2)
-            plt.fill_between(
-                x,
-                mean2_arr - sem2_arr,
-                mean2_arr + sem2_arr,
-                alpha=0.2,
-                color="k",
-            )
-            plt.axvline(x=0, color="r", linestyle="--")
-            plt.title(f"Unit {unit} Average (p={p_value})")
-            plt.legend()
-            i += 1
-        plt.suptitle(f"{recording.name}: " + f"{event1} vs {event2} ({event_length}s)")
-        plt.show()
+
+        mean1_arr = np.mean(unit_event1_firing_rates[unit], axis=0)
+        sem1_arr = sem(unit_event1_firing_rates[unit], axis=0)
+        mean2_arr = np.mean(unit_event2_firing_rates[unit], axis=0)
+        sem2_arr = sem(unit_event2_firing_rates[unit], axis=0)
+        p_value = wilcoxon_df.loc[wilcoxon_df["original unit id"] == unit, "p value"].values[0]
+
+        x = np.linspace(start=-pre_window, stop=event_length, num=len(mean1_arr))
+        ax = fig.add_subplot(height_fig, 3, idx)
+        ax.plot(x, mean1_arr, c="b", label=event1)
+        ax.fill_between(x, mean1_arr - sem1_arr, mean1_arr + sem1_arr, alpha=0.2)
+        ax.plot(x, mean2_arr, c="k", label=event2)
+        ax.fill_between(x, mean2_arr - sem2_arr, mean2_arr + sem2_arr, alpha=0.2, color="k")
+        ax.axvline(x=0, color="r", linestyle="--")
+        ax.set_title(f"{recording.name} - Unit {unit} (p={p_value:.3f})")
+        ax.legend()
+
+    plt.tight_layout()
+    plt.show()
 
 
 def wilcoxon_unit(recording, unit_id, events, event_length, baseline_window, offset, exclude_offset=False):
@@ -436,3 +457,57 @@ def wilcoxon_unit(recording, unit_id, events, event_length, baseline_window, off
         i += 1
     plt.suptitle(f"{recording.name}: {unit_id}")
     plt.show()
+
+
+def bootstrap(spike_collection, events, event_length, pre_window=0, num_perm=2000):
+    results_dict = {}
+    for recording in spike_collection.collection:
+        results_dict[recording.name] = {}
+        for event in events:
+            unit_dict = bootstrap_recording(recording, event, event_length, pre_window, num_perm)
+            results_dict[recording.name][event] = unit_dict
+
+    rows = []
+    # Iterate through the nested structure
+    for recording, event_dict in results_dict.items():
+        # Get all units from all events in this recording
+        all_units = set()
+        for event_data in event_dict.values():
+            all_units.update(event_data.keys())
+        # Create a row for each unit
+        for unit in all_units:
+            row = {"original_unit_id": unit, "recording": recording}
+            # Add values for each event
+            for event, unit_dict in event_dict.items():
+                row[event] = unit_dict.get(unit, None)  # Use None if unit doesn't have this event
+            rows.append(row)
+    # Create DataFrame
+    df = pd.DataFrame(rows)
+    return df
+
+
+def bootstrap_recording(recording, event, event_length, pre_window, num_perm):
+    firing_rates = recording.unit_firing_rates
+    unit_dict = {}
+    for unit, firing_rate in firing_rates.items():
+        shuffled_units = np.array([np.random.permutation(firing_rate) for _ in range(num_perm)])
+        # Get all event snippets at once
+        all_shuffled_snippets = np.array(
+            [
+                recording.__event_snippets__(event, shuffled_unit, event_length, pre_window)
+                for shuffled_unit in shuffled_units
+            ]
+        )
+        # Calculate means all at once
+        shuffle_means = np.mean(np.mean(all_shuffled_snippets, axis=1), axis=1)
+        low_end = np.percentile(shuffle_means, 2.5)
+        high_end = np.percentile(shuffle_means, 97.5)
+        event_firing_rates = recording.__event_snippets__(event, firing_rate, event_length, pre_window)
+        avg_event_firing_rate = np.mean(np.mean(event_firing_rates, axis=0))
+        if avg_event_firing_rate > high_end:
+            unit_dict[unit] = "significantly increased"
+        elif avg_event_firing_rate < low_end:
+            unit_dict[unit] = "significantly decreased"
+        else:
+            unit_dict[unit] = "not significantly changed"
+    return unit_dict
