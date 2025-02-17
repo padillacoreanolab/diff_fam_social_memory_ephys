@@ -163,13 +163,13 @@ class LFPCollection:
             data_path=metadata["data_path"],
             recording_to_subject_dict=data["dictionaries"]["recording_to_subject"],
             threshold=metadata["threshold"],
-            recording_to_event_dict=data["dictionaries"]["recording_to_event"],
+            #recording_to_event_dict=data["dictionaries"]["recording_to_event"],
             trodes_directory=metadata["trodes_directory"],
             json_path=json_path,
             **data["kwargs"],
         )
         collection.frequencies = metadata["frequencies"]
-        collection.brain_region_dict = bidict(data["dictionarires"]["brain_region_dict"])
+        collection.brain_region_dict = data["dictionaries"]["brain_region_dict"]
         return collection
 
     def load_recordings(self, json_path):
