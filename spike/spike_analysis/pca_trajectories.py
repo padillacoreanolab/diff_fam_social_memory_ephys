@@ -7,6 +7,7 @@ from itertools import combinations
 import spike.spike_analysis.spike_collection as col
 import spike.spike_analysis.spike_recording as rec
 from builtins import print
+from collections import defaultdict
 
 
 def get_indices(repeated_items_list):
@@ -150,19 +151,29 @@ def trial_traj(event_firing_rates, num_points, min_event):
 
 def check_recording(recording, min_neurons, events, to_print=True):
     if recording.good_neurons < min_neurons:
-        if not to_print:
+        if to_print:
             print(f"Excluding {recording.name} with {recording.good_neurons} neurons")
         return False
     for event in events:
         if len(recording.event_dict[event]) == 1:
             if recording.event_dict[event][0][1] - recording.event_dict[event][0][0] == 0:
-                if not to_print:
+                if to_print:
                     print(f"Excluding {recording.name}, it has no {event} events")
                 return False
     return True
 
 
-def pca_matrix(spike_collection, event_length, pre_window, post_window, events, mode, min_neurons=0, min_events=None):
+def pca_matrix(
+    spike_collection,
+    event_length,
+    pre_window,
+    post_window,
+    events,
+    mode,
+    min_neurons=0,
+    min_events=None,
+    condition_dict=None,
+):
     event_keys = []
     recording_keys = []
     pca_master_matrix = None
@@ -202,19 +213,25 @@ def pca_matrix(spike_collection, event_length, pre_window, post_window, events, 
                 pca_master_matrix = pca_matrix
             recording_keys.extend([recording.name] * pca_matrix.shape[1])
         # timebins by neurons
-    return PCAResult(
-        spike_collection,
-        event_length,
-        pre_window,
-        post_window,
-        pca_master_matrix,
-        recording_keys,
-        event_keys,
-        event_count,
-    )
+    if pca_master_matrix is not None:
+        return PCAResult(
+            spike_collection,
+            event_length,
+            pre_window,
+            post_window,
+            pca_master_matrix,
+            recording_keys,
+            event_keys,
+            event_count,
+            condition_dict,
+        )
+    else:
+        return None
 
 
-def avg_trajectory_matrix(spike_collection, event_length, pre_window, post_window=0, events=None, min_neurons=0):
+def avg_trajectory_matrix(
+    spike_collection, event_length, pre_window, post_window=0, events=None, min_neurons=0, condition_dict=None
+):
     """
     Args (5 total, 2 required):
         event_length: int, length (s) of event transformed by PCA
@@ -236,6 +253,7 @@ def avg_trajectory_matrix(spike_collection, event_length, pre_window, post_windo
         mode="average",
         min_neurons=min_neurons,
         min_events=None,
+        condition_dict=condition_dict,
     )
 
 
@@ -282,11 +300,27 @@ def event_numbers(spike_collection, events, min_neurons, to_print=False):
 
 class PCAResult:
     def __init__(
-        self, spike_collection, event_length, pre_window, post_window, raw_data, recording_keys, event_keys, event_count
+        self,
+        spike_collection,
+        event_length,
+        pre_window,
+        post_window,
+        raw_data,
+        recording_keys,
+        event_keys,
+        event_count,
+        condition_dict,
     ):
+
         self.raw_data = raw_data
         matrix_df = pd.DataFrame(data=raw_data, columns=recording_keys, index=event_keys)
         self.matrix_df = matrix_df
+        self.timebin = spike_collection.timebin
+        self.event_length = event_length
+        self.pre_window = pre_window
+        self.post_window = post_window
+        self.recordings = list(matrix_df.columns.unique())
+        self.events = list(matrix_df.index.unique())
         self.labels = np.array(matrix_df.index.to_list())
         if raw_data.shape[0] < raw_data.shape[1]:
             print("Warning: you have more features (neurons) than samples (time bins)")
@@ -297,17 +331,14 @@ class PCAResult:
         else:
             pca = PCA()
             pca.fit(matrix_df)
-            self.transformed_data = pca.transform(matrix_df)
             self.coefficients = pca.components_
             self.explained_variance = pca.explained_variance_ratio_
-        self.get_cumulative_variance()
-        self.timebin = spike_collection.timebin
-        self.event_length = event_length
-        self.pre_window = pre_window
-        self.post_window = post_window
-        self.recordings = list(matrix_df.columns.unique())
-        self.events = list(matrix_df.index.unique())
-        self.make_overview_dataframe(matrix_df, event_count)
+            self.get_cumulative_variance()
+            self.make_overview_dataframe(matrix_df, event_count)
+            if condition_dict is not None:
+                self.condition_pca(condition_dict)
+            else:
+                self.transformed_data = pca.transform(matrix_df)
 
     def make_overview_dataframe(self, matrix_df, event_count):
         column_counts = pd.DataFrame(matrix_df.columns.value_counts()).reset_index()
@@ -329,6 +360,24 @@ class PCAResult:
             self.cumulative_variance = np.cumsum(self.explained_variance)
         else:
             self.cumulative_variance = None
+
+    def condition_pca(self, condition_dict):
+        coefficients = self.coefficients
+        recording_list = self.matrix_df.columns.to_list()
+        coefficients_df = pd.DataFrame(data=coefficients, index=recording_list)
+        transformed_data = {}
+        # transformed data dict: conditions for keys, values is a transformed data array
+        for condition, rois in condition_dict.items():
+            rois = [recording for recording in rois if recording in self.recordings]
+            # trim weight matrix for only those neurons in recordings of that condition
+            subset_coeff = coefficients_df[coefficients_df.index.isin(rois)]
+            subset_data = self.matrix_df[rois]
+            condition_data = np.dot(subset_data, subset_coeff)
+            # transform each condition with condition specific weight matrix
+            # T (timebins x pcs) = D (timebins x neurons). W (pcs x neurons)
+            transformed_data[condition] = condition_data
+        self.transformed_data = transformed_data
+        self.condition_dict = condition_dict
 
     def __str__(self):
         n_timebins = (self.event_length + self.post_window + self.pre_window) * 1000 / self.timebin
@@ -401,6 +450,40 @@ def avg_trajectories_pca(
                 azim,
                 elev,
             )
+    return pc_result
+
+
+def coniditon_pca(
+    spike_collection,
+    condition_dict,
+    event_length,
+    pre_window,
+    post_window=0,
+    events=None,
+    min_neurons=None,
+    plot=True,
+    d=2,
+    azim=30,
+    elev=20,
+):
+    """ """
+    pc_result = avg_trajectory_matrix(
+        spike_collection, event_length, pre_window, post_window, events, min_neurons, condition_dict
+    )
+    if plot:
+        if d == 2:
+            condition_EDA_plot(pc_result)
+        # if d == 3:
+        #     condition_EDA_plot_3D(
+        #         spike_collection,
+        #         pc_result.transformed_data,
+        #         pc_result.labels,
+        #         event_length,
+        #         pre_window,
+        #         post_window,
+        #         azim,
+        #         elev,
+        #     )
     return pc_result
 
 
@@ -596,6 +679,89 @@ def trial_trajectory_EDA_plot(spike_collection, pca_matrix, PCA_key, event_lengt
     plt.xlabel("PC1")
     plt.ylabel("PC2")
     plt.tight_layout()
+    plt.show()
+
+
+def condition_EDA_plot(pca_result):
+    event_length = pca_result.event_length
+    pre_window = pca_result.pre_window
+    post_window = pca_result.post_window
+    condition_dict = pca_result.condition_dict
+    PCA_key = pca_result.labels
+    conv_factor = 1000 / pca_result.timebin
+    pca_matrix = pca_result.transformed_data
+    event_lengths = int((event_length + pre_window + post_window) * conv_factor)
+    event_end = int((event_length + pre_window) * conv_factor)
+    pre_window = pre_window * conv_factor
+    post_window = post_window * conv_factor
+    colors_dict = plt.cm.colors.CSS4_COLORS
+    colors = list(colors_dict.values())
+    col_counter = 10
+    for condition in condition_dict.keys():
+        for i in range(0, len(PCA_key), event_lengths):
+            event_label = PCA_key[i]
+            onset = i if pre_window == 0 else int(i + pre_window - 1)
+            end = int(i + event_end - 1)
+            post = int(i + event_lengths - 1)
+            plt.scatter(
+                pca_matrix[condition][i : i + event_lengths, 0],
+                pca_matrix[condition][i : i + event_lengths, 1],
+                label=f"{condition} {event_label}",
+                s=5,
+                c=colors[col_counter],
+            )
+            if pre_window != 0:
+                plt.scatter(
+                    pca_matrix[condition][i, 0],
+                    pca_matrix[condition][i, 1],
+                    marker="s",
+                    s=100,
+                    c="w",
+                    edgecolors=colors[col_counter],
+                )
+                plt.scatter(
+                    pca_matrix[condition][i, 0],
+                    pca_matrix[condition][i, 1],
+                    marker="s",
+                    s=100,
+                    c="w",
+                    edgecolors=colors[col_counter],
+                )
+            plt.scatter(
+                pca_matrix[condition][onset, 0],
+                pca_matrix[condition][onset, 1],
+                marker="^",
+                s=150,
+                c="w",
+                edgecolors=colors[col_counter],
+            )
+            plt.scatter(
+                pca_matrix[condition][end, 0],
+                pca_matrix[condition][end, 1],
+                marker="o",
+                s=100,
+                c="w",
+                edgecolors=colors[col_counter],
+            )
+            if post_window != 0:
+                plt.scatter(
+                    pca_matrix[condition][post, 0],
+                    pca_matrix[condition][post, 1],
+                    marker="D",
+                    s=100,
+                    c="w",
+                    edgecolors=colors[col_counter],
+                )
+            col_counter += 1
+    plt.legend(loc="upper left", bbox_to_anchor=(1, 1))
+    post_win_text = ""
+    pre_win_text = ""
+    if post_window != 0:
+        post_win_text = ", Post = ◇"
+    if pre_window != 0:
+        pre_win_text = "Pre-event = □, "
+    title = pre_win_text + "Onset = △, End = ○" + post_win_text
+    plt.title(title)
     plt.show()
 
 
@@ -843,12 +1009,11 @@ def LOO_PCA(spike_collection, event_length, pre_window, percent_var, post_window
     return pairwise_distances
 
 
-# hmm think how this works for one recording
 def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None, min_neurons=None):
     all_distances_df = pd.DataFrame()
 
     for recording in spike_collection.collection:
-        pc_dict = avg_trajectory_matrix(
+        pc_result = avg_trajectory_matrix(
             recording,
             event_length,
             pre_window=pre_window,
@@ -857,10 +1022,10 @@ def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_w
             min_neurons=min_neurons,
         )
 
-        if pc_dict:
-            t_mat = pc_dict["transformed data"]
-            key = pc_dict["labels"]
-            ex_var = pc_dict["explained variance"]
+        if pc_result:
+            t_mat = pc_result.transformed_data
+            key = pc_result.labels
+            ex_var = pc_result.explained_variance
             no_pcs = PCs_needed(ex_var, percent_var)
             event_trajectories = event_slice(t_mat, key, no_pcs, mode="single")
 
