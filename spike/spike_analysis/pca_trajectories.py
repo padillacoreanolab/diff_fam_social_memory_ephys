@@ -178,15 +178,23 @@ def pca_matrix(
     recording_keys = []
     pca_master_matrix = None
     event_count = {}
+    print(type(condition_dict))
     if isinstance(spike_collection, col.SpikeCollection):
         recordings = spike_collection.collection
+        timebin = spike_collection.timebin
         if events is None:
             events = spike_collection.collection[0].event_dict.keys()
     if isinstance(spike_collection, rec.SpikeRecording):
         recordings = [spike_collection]
+        timebin = spike_collection.timebin
         if events is None:
             events = spike_collection.event_dict.keys()
-    num_points = int((event_length + pre_window + post_window) * 1000 / spike_collection.timebin)
+    if isinstance(spike_collection, list):
+        recordings = spike_collection
+        timebin = spike_collection[0].timebin
+        if events is None:
+            events = spike_collection[0].event_dict.keys()
+    num_points = int((event_length + pre_window + post_window) * 1000 / timebin)
     for recording in recordings:
         recording_good = check_recording(recording, min_neurons, events, to_print=True)
         if recording_good:
@@ -215,15 +223,15 @@ def pca_matrix(
         # timebins by neurons
     if pca_master_matrix is not None:
         return PCAResult(
-            spike_collection,
-            event_length,
-            pre_window,
-            post_window,
-            pca_master_matrix,
-            recording_keys,
-            event_keys,
-            event_count,
-            condition_dict,
+            spike_collection=spike_collection,
+            event_length=event_length,
+            pre_window=pre_window,
+            post_window=post_window,
+            raw_data=pca_master_matrix,
+            recording_keys=recording_keys,
+            event_keys=event_keys,
+            event_count=event_count,
+            condition_dict=condition_dict,
         )
     else:
         return None
@@ -315,7 +323,10 @@ class PCAResult:
         self.raw_data = raw_data
         matrix_df = pd.DataFrame(data=raw_data, columns=recording_keys, index=event_keys)
         self.matrix_df = matrix_df
-        self.timebin = spike_collection.timebin
+        try:
+            self.timebin = spike_collection.timebin
+        except AttributeError:
+            self.timebin = spike_collection[0].timebin
         self.event_length = event_length
         self.pre_window = pre_window
         self.post_window = post_window
@@ -985,28 +996,39 @@ def avg_trajectory_EDA_plot_3D(
     plt.show()
 
 
-def LOO_PCA(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None):
-    pc_dict = avg_trajectory_matrix(spike_collection, event_length, pre_window, post_window, events)
-    full_pca_matrix = pc_dict["raw data"]
-    key = pc_dict["labels"]
-    coefficients = pc_dict["coefficients"]
-    explained_variance_ratios = pc_dict["explained variance"]
-    transformed_subsets = []
-    i = 0
-    recording_indices = get_indices(full_pca_matrix.columns.to_list())
-    for i in range(len(recording_indices)):
-        start = recording_indices[i][0]
-        stop = recording_indices[i][1]
-        subset_df = full_pca_matrix.drop(full_pca_matrix.columns[start:stop], axis=1)
-        subset_array = subset_df.values
-        subset_coeff = np.delete(coefficients, np.s_[start : stop + 1], axis=0)
-        transformed_subset = np.dot(subset_array, subset_coeff)
-        transformed_subsets.append(transformed_subset)
-    transformed_subsets = np.stack(transformed_subsets, axis=0)
-    no_PCs = PCs_needed(explained_variance_ratios, percent_var)
-    event_trajectories = event_slice(transformed_subsets, key, no_PCs, mode="multisession")
-    pairwise_distances = geodesic_distances(event_trajectories, mode="multisession")
-    return pairwise_distances
+def LOO_PCA(
+    spike_collection,
+    event_length,
+    pre_window,
+    # percent_var,
+    post_window=0,
+    events=None,
+    min_neurons=0,
+    condition_dict=None,
+    plot=False,
+):
+    pc_result_list = []
+    recordings = []
+    for recording in spike_collection.collection:
+        recordings.append(recording)
+    for i in range(len(recordings)):
+        temp_recs = recordings.copy()
+        temp_recs.pop(i)
+        if plot:
+            print(recordings[i].name)
+        if condition_dict is not None:
+            pc_result = coniditon_pca(
+                temp_recs, condition_dict, event_length, pre_window, post_window, events, min_neurons, plot
+            )
+        else:
+            pc_result = avg_trajectories_pca(
+                temp_recs, event_length, pre_window, post_window, events, min_neurons, plot
+            )
+        pc_result_list.append(pc_result)
+    # no_PCs = PCs_needed(explained_variance_ratios, percent_var)
+    # event_trajectories = event_slice(transformed_subsets, key, no_PCs, mode="multisession")
+    # pairwise_distances = geodesic_distances(event_trajectories, mode="multisession")
+    return pc_result_list
 
 
 def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None, min_neurons=None):
