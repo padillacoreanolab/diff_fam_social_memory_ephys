@@ -178,7 +178,6 @@ def pca_matrix(
     recording_keys = []
     pca_master_matrix = None
     event_count = {}
-    print(type(condition_dict))
     if isinstance(spike_collection, col.SpikeCollection):
         recordings = spike_collection.collection
         timebin = spike_collection.timebin
@@ -265,7 +264,7 @@ def avg_trajectory_matrix(
     )
 
 
-def trial_trajectory_matrix(spike_collection, event_length, pre_window, post_window=0, events=None, min_neurons=None):
+def trial_trajectory_matrix(spike_collection, event_length, pre_window, post_window=0, events=None, min_neurons=0):
     """
     Args (5 total, 2 required):
         event_length: int, length (s) of event transformed by PCA
@@ -416,7 +415,7 @@ def avg_trajectories_pca(
     pre_window,
     post_window=0,
     events=None,
-    min_neurons=None,
+    min_neurons=0,
     plot=True,
     d=2,
     azim=30,
@@ -471,7 +470,7 @@ def coniditon_pca(
     pre_window,
     post_window=0,
     events=None,
-    min_neurons=None,
+    min_neurons=0,
     plot=True,
     d=2,
     azim=30,
@@ -504,7 +503,7 @@ def trial_trajectories_pca(
     pre_window=0,
     post_window=0,
     events=None,
-    min_neurons=None,
+    min_neurons=0,
     plot=True,
     d=2,
     azim=30,
@@ -1031,7 +1030,7 @@ def LOO_PCA(
     return pc_result_list
 
 
-def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None, min_neurons=None):
+def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None, min_neurons=0):
     all_distances_df = pd.DataFrame()
 
     for recording in spike_collection.collection:

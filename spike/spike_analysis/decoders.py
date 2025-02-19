@@ -12,51 +12,88 @@ import pandas as pd
 from collections import defaultdict
 
 
-def __PCA_for_decoding__(spike_collection, event_length, pre_window, post_window, no_PCs, events, min_neurons=0):
-    pc_result = pca_traj.avg_trajectories_pca(
-        spike_collection, event_length, pre_window, post_window, events=events, min_neurons=min_neurons, plot=False
-    )
+def trial_PCA(
+    spike_collection, event_length, pre_window, post_window, no_PCs, events, min_neurons=0, condition_dict=None
+):
+    if condition_dict is None:
+        pc_result = pca_traj.avg_trajectories_pca(
+            spike_collection,
+            event_length,
+            pre_window,
+            post_window,
+            events=events,
+            min_neurons=min_neurons,
+            plot=False,
+        )
+    else:
+        pc_result = pca_traj.coniditon_pca(
+            spike_collection,
+            condition_dict,
+            event_length,
+            pre_window,
+            post_window,
+            events=events,
+            min_neurons=min_neurons,
+            plot=False,
+        )
     full_PCA_matrix = pc_result.matrix_df
     # time bins by neurons
     # coefficients = components x features (PCs x neurons)
     coefficients = pc_result.coefficients
     recordings = full_PCA_matrix.columns.to_list()
-    recording_list = pc_result.recordings
     coefficients = coefficients[:, :no_PCs]
     coefficients_df = pd.DataFrame(data=coefficients, index=recordings)
     decoder_data = defaultdict(list)
+    if condition_dict is not None:
+        recording_to_condition = {rec: cond for cond, recs in condition_dict.items() for rec in recs}
     # decoder data dict: events for keys, values is a list of len(events)
     # each element in the list is the transformed matrix
-    for i in range(len(recording_list)):
+    for recording in spike_collection.collection:
         # trim weight matrix for only those neurons in the current recording
-        subset_coeff = coefficients_df.loc[[recording_list[i]]]
-        subset_coeff_array = subset_coeff.to_numpy()
-        if subset_coeff_array.shape[0] == 0:
-            print(recording_list[i], "will be excluded from analysis due to insufficient neurons")
-        else:
+        try:
+            subset_coeff = coefficients_df.loc[[recording.name]]
             for event in events:
-                for recording in spike_collection.collection:
-                    if recording.name == recording_list[i]:
-                        recording_instance = recording
+                if condition_dict is not None:
+                    event_name = recording_to_condition[recording.name] + " " + event
+                else:
+                    event_name = event
                 # grab all event firing rates for current event in current recording
-                event_firing_rates = recording_instance.__event_firing_rates__(
-                    event, event_length, pre_window, post_window
-                )
+                event_firing_rates = recording.__event_firing_rates__(event, event_length, pre_window, post_window)
                 for trial in range(len(event_firing_rates)):
                     # iterate through each event
                     trial_data = np.dot(event_firing_rates[trial], subset_coeff)
                     # transform each trial with original weight matrix
                     # T (timebins x pcs) = D (timebins x neurons). W (pcs x neurons)
-                    decoder_data[event].append(trial_data)
+                    decoder_data[event_name].append(trial_data)
+        except KeyError:
+            pass
     return decoder_data
 
 
 def trial_decoder(
-    spike_collection, num_fold, no_PCs, events, event_length, pre_window=0, post_window=0, min_neurons=0, plot=True
+    spike_collection,
+    num_fold,
+    no_PCs,
+    events,
+    event_length,
+    pre_window=0,
+    post_window=0,
+    min_neurons=0,
+    condition_dict=None,
+    decoder_data=None,
+    plot=True,
 ):
-    decoder_data = __PCA_for_decoding__(
-        spike_collection, event_length, pre_window, post_window, no_PCs, events=events, min_neurons=min_neurons
-    )
+    if decoder_data is None:
+        decoder_data = trial_PCA(
+            spike_collection,
+            event_length,
+            pre_window,
+            post_window,
+            no_PCs,
+            events=events,
+            min_neurons=min_neurons,
+            condition_dict=condition_dict,
+        )
     T = decoder_data[events[0]][0].shape[0]
     results_dict = {}
     shuffle_results_dict = {}
