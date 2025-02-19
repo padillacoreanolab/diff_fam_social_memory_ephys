@@ -188,7 +188,7 @@ def calc_top_feat_trial_decoder(lfp_collection, num_features,
                 if i not in feature_indices: 
                     temp_indices.append(i)
                     for fold in range(num_fold):
-                        train_data, test_data, train_labels, test_labels = __prep_train_test_feature_data__(fold, temp_indices, splits, data, labels)
+                        train_data, test_data, train_labels, test_labels = __prep_train_test_feature_data__(fold, splits, data, labels, temp_indices)
                         pred_rf, auc_rf, feat_imp_rf, model_rf  = __run_model__(train_data, train_labels, test_data, test_labels)
                         feat_auc_rf.append(auc_rf)
                     feat_auc_rf = np.nanmean(np.array(feat_auc_rf))
@@ -230,8 +230,8 @@ def __prep_train_test_feature_data__(fold, splits, data, labels, feature_indices
     test_data = data[splits[fold][1], :]
     test_labels = labels[splits[fold][1]]
     if feature_indices is not None:
-        train_data = train_data[:, temp_indices]
-        test_data = test_data[:, temp_indices]
+        train_data = train_data[:, feature_indices]
+        test_data = test_data[:, feature_indices]
         if len(train_data.shape) == 1:
             train_data = train_data.reshape(-1,1)
             test_data = test_data.reshape(-1,1)

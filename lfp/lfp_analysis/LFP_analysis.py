@@ -151,9 +151,9 @@ def plot_power_averages(lfp_collection, event_averages, regions=None):
             event_sem = stats.sem(averages, axis=0, nan_policy="omit")
             region_index = lfp_collection.brain_region_dict[region]
             # pick only the region of interest
-            y = event_average[1:100, region_index]
-            y_sem = event_sem[1:100, region_index]
-            x = lfp_collection.frequencies[1:100]
+            y = event_average[1:101, region_index]
+            y_sem = event_sem[1:101, region_index]
+            x = np.linspace(1,100,100)
             (line,) = plt.plot(x, y, label=event)
             plt.fill_between(x, y - y_sem, y + y_sem, alpha=0.2, color=line.get_color())
         ymin, ymax = plt.ylim()
@@ -389,11 +389,11 @@ def band_calcs(values):
         high_gamma = np.nanmean(calculations[:, 71:100, ...], axis=1)
 
         agent_band_dict[agent] = {
-            "delta": delta,
-            "theta": theta,
-            "beta": beta,
-            "low_gamma": low_gamma,
-            "high_gamma": high_gamma,
+            "Delta": delta,
+            "Theta": theta,
+            "Beta": beta,
+            "Low gamma": low_gamma,
+            "High gamma": high_gamma,
         }
 
     band_agent_dict = defaultdict(dict)
