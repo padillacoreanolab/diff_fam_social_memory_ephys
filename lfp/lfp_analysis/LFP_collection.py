@@ -108,7 +108,7 @@ class LFPCollection:
                 "recording_to_event": collection.recording_to_event_dict,
                 "subject_to_channel": collection.subject_to_channel_dict,
                 "recording_to_subject": collection.recording_to_subject_dict,
-                "brain_region_dict": collection.brain_region_dict,
+                "brain_region_dict": dict(collection.brain_region_dict),
             },
         }
 
@@ -169,7 +169,9 @@ class LFPCollection:
             **data["kwargs"],
         )
         collection.frequencies = metadata["frequencies"]
-        collection.brain_region_dict = data["dictionaries"]["brain_region_dict"]
+    
+        #collection.brain_region_dict = bidict(data["dictionaries"]["brain_region_dict"])
+    
         return collection
 
     def load_recordings(self, json_path):
@@ -182,5 +184,6 @@ class LFPCollection:
             try:
                 recording = LFPRecording.load_rec_from_h5(h5_file)
                 self.lfp_recordings.append(recording)
+        
             except Exception as e:
                 raise RuntimeError(f"Failed to load recording {h5_file}: {str(e)}")
