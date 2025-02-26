@@ -11,6 +11,17 @@ __pycache__/
 # C extensions
 *.so
 
+# Pyre type checker
+.pyre/
+*.npy
+*.raw
+*.dat
+
+#data types 
+*.xlsx
+*.pkl
+*.png
+
 # Distribution / packaging
 .Python
 build/
@@ -130,16 +141,7 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
-# Pyre type checker
-.pyre/
-*.npy
-*.raw
-*.dat
 
-#data types 
-*.xlsx
-*.pkl
-*.png
 
 .DS_Store
 **/.DS_Store

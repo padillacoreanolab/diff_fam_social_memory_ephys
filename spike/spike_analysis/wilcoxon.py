@@ -5,6 +5,8 @@ import math
 import matplotlib.pyplot as plt
 from scipy.stats import sem, ranksums, fisher_exact, wilcoxon
 from multiprocessing import Pool
+from sklearn.preprocessing import StandardScaler
+import spike.spike_analysis.normalization as normalization
 
 
 def pre_event_window(event, baseline_window, offset):
@@ -511,3 +513,50 @@ def bootstrap_recording(recording, event, event_length, pre_window, num_perm):
         else:
             unit_dict[unit] = "not significantly changed"
     return unit_dict
+
+
+def plot_raster(spike_collection, event, event_length, pre_window, global_timebin=1000):
+
+    zscore_df = normalization.zscore_global(
+        spike_collection, event, event_length, pre_window, global_timebin, plot=False
+    )
+    zscore_df = zscore_df.drop(columns=["Recording", "Event", "Subject", "original unit id"])
+    # Get sorting indices (in descending order, hence the [::-1])
+    zscore_array = zscore_df.to_numpy()
+
+    row_means = np.mean(zscore_array, axis=1)
+    sort_indices = np.argsort(row_means)[::-1]
+
+    # Reorder the data
+    sorted_zscore = zscore_array[sort_indices]
+    timebin_s = spike_collection.timebin / 1000  # Convert timebin from ms to seconds
+    total_bins = sorted_zscore.shape[1]
+    time_axis = np.linspace(-pre_window, (event_length - timebin_s), total_bins)
+
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    # Plot heatmap
+    im = ax.imshow(
+        sorted_zscore, aspect="auto", cmap="viridis", extent=[time_axis[0], time_axis[-1], sorted_zscore.shape[0], 0]
+    )
+
+    # Add event rectangle (from 0 to event_length in seconds)
+    import matplotlib.patches as patches
+
+    rect = patches.Rectangle(
+        (0, 0), event_length / 1000, sorted_zscore.shape[0], linewidth=2, edgecolor="red", facecolor="none", alpha=0.5
+    )
+    ax.add_patch(rect)
+
+    # Customize plot
+    plt.colorbar(im, label="Z-score")
+    ax.set_xlabel("Time (seconds)")
+    ax.set_ylabel("Units (sorted by mean activity)")
+    ax.set_title("Neural Activity Aligned to Event Onset")
+
+    # Add vertical line at event onset
+    ax.axvline(x=0, color="red", linestyle="--", alpha=0.5)
+
+    plt.tight_layout()
+    plt.show()

@@ -166,13 +166,11 @@ def zscore_event(recording, unit_event_firing_rates, unit_baseline_firing_rates,
                     significance = "not significant"
                 significance_dict[unit] = significance
             zscored_events[unit] = zscored_event
-    if SD is not None:
-        return zscored_events, significance_dict
-    else:
-        return zscored_events
+
+    return zscored_events, significance_dict
 
 
-def __make_zscore_df__(zscored_events, recording, event_name, master_df=None, sig_dict=None):
+def __make_zscore_df__(zscored_events, recording, event_name, master_df=None, sig_dict={}):
     """
     Args(4 required, 6 total):
         zscored_events: dict, unit ids as keys, z scored firing rates of values (numpy arrays)
@@ -188,7 +186,7 @@ def __make_zscore_df__(zscored_events, recording, event_name, master_df=None, si
 
     """
     zscored_events_df = pd.DataFrame.from_dict(zscored_events, orient="index")
-    if sig_dict is not None:
+    if sig_dict:
         zscored_events_df.insert(0, "Significance", [sig_dict[i] for i in zscored_events_df.index])
     zscored_events_df = zscored_events_df.reset_index().rename(columns={"index": "original unit id"})
     zscored_events_df.insert(0, "Subject", recording.subject)
@@ -237,16 +235,12 @@ def zscore_global(spike_collection, event, event_length, pre_window=0, global_ti
         )
         zscored_events, sig_dict = zscore_event(recording, unit_event_firing_rates, unit_baseline_firing_rates, SD)
         if is_first:
-            master_df = __make_zscore_df__(
-                zscored_events, recording, recording.name, event_name, master_df=None, sig_dict=sig_dict
-            )
+            master_df = __make_zscore_df__(zscored_events, recording, event_name, master_df=None, sig_dict=sig_dict)
             is_first = False
         else:
-            master_df = __make_zscore_df__(
-                zscored_events, recording, recording.name, event_name, master_df, sig_dict=sig_dict
-            )
+            master_df = __make_zscore_df__(zscored_events, recording, event_name, master_df, sig_dict=sig_dict)
     if plot:
-        zscore_plot(zscored_dict, event, event_length, pre_window)
+        zscore_plot(spike_collection, zscored_dict, event, event_length, pre_window)
     return master_df
 
 
