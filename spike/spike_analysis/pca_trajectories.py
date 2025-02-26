@@ -6,40 +6,130 @@ from scipy.spatial.distance import euclidean
 from itertools import combinations
 import spike.spike_analysis.spike_collection as col
 import spike.spike_analysis.spike_recording as rec
-from builtins import print
-from collections import defaultdict
+from sklearn.preprocessing import StandardScaler
 
 
 def get_indices(repeated_items_list):
     """
-    Takes in an indexed key or a list of repeated items,
-    creates a list of indices that correspond to each unique item.
+    Takes in a list of repeated items, creates a list of indices that correspond to each unique item chunk.
 
     Args (1):
         repeated_items_list: list, list of repeated items
 
     Returns:
-        item_indices: list of tuples, where the first element
-            is the first index of an item, and the second
-            element is the last index of that item
+        result: list of tuples, where the first element
+            is the first index of a unique item, and the second
+            element is the last index of that unique item
     """
-    is_first = True
-    item_indices = []
-    for i in range(len(repeated_items_list)):
-        if is_first:
-            current_item = repeated_items_list[i]
-            start_index = 0
-            is_first = False
-        else:
-            if repeated_items_list[i] == current_item:
-                end_index = i
-                if i == (len(repeated_items_list) - 1):
-                    item_indices.append([start_index, end_index])
-            else:
-                item_indices.append([start_index, end_index])
-                start_index = i
-                current_item = repeated_items_list[i]
-    return item_indices
+    result = []
+    start = 0
+    current = repeated_items_list[0]
+    for i, item in enumerate(repeated_items_list[1:], 1):
+        if item != current:
+            result.append([start, i - 1])
+            start = i
+            current = item
+    # Don't forget the last group
+    result.append([start, len(repeated_items_list) - 1])
+    return result
+
+
+def event_slice(transformed_subsets, key, no_PCs):
+    """
+    Takes in a matrix of PCA embedded firing rates for multiple events
+    and an event key (event labels per timebin) and the number of PC's to use
+    to calculate the geodesic distance with across event types.
+
+    Args (3):
+        transformed_subsets: np.array, d[session X timebin X PCS] or [timebins x pcs]
+        key: list of str, each element is an event type and
+            corresponds to the timebin dimension indices of
+            the transformed_subsets matrix
+        no_PCs: int, number of PCs required to explain a variance threshold
+        mode: {'multisession', 'single'}; multisession calculates event slices
+            for multiple sessions worth of firing rates, single calculates event slices for a
+            single sessions worth of firing rates
+    Returns:
+        trajectories: dict, events to trajectories across each PCA embedding
+            keys: str, event types
+            values: np.array, d=[session x timebins x no_PCs] or [timebins x PCs]
+    """
+    event_indices = get_indices(key)
+    events = np.unique(key)
+    trajectories = {}
+    for i in range(len(event_indices)):
+        event = events[i]
+        start = event_indices[i][0]
+        stop = event_indices[i][1]
+        if len(transformed_subsets.shape) == 3:
+            event_trajectory = transformed_subsets[:, start : stop + 1, :no_PCs]
+        if len(transformed_subsets.shape) == 2:
+            event_trajectory = transformed_subsets[start : stop + 1, :no_PCs]
+        trajectories[event] = event_trajectory
+    return trajectories
+
+
+def geodesic_distances(event_trajectories, recording_name=None):
+    """
+    Calculates the euclidean distances between all trajectories in the event_trajectory dictionary,
+
+    Arguments(1 required, 2 total):
+        event_trajectories: dictionary
+            keys: str, event names
+            values: numpy arrays of shape [session x timebins x PCs] or [timebins x PCs]
+        recording_name: str, optional index labeled for the resulting dataframe
+
+    Returns (1):
+        df: DataFrame, columns are event pairs and data is a list of disntaces, or a single distance between trajectories
+    """
+    # Get all event pairs
+    event_pairs = list(combinations(event_trajectories.keys(), 2))
+
+    # Calculate distances for each pair
+    distances = []
+    for pair in event_pairs:
+        event1 = event_trajectories[pair[0]]
+        event2 = event_trajectories[pair[1]]
+        dist = distance_bw_trajectories(event1, event2)
+        distances.append(dist)
+
+    # Create column names from pairs
+    column_names = [f"{pair[0]}_{pair[1]}" for pair in event_pairs]
+    # Create DataFrame
+    if recording_name is not None:
+        df = pd.DataFrame([distances], columns=column_names, index=[recording_name])
+
+    else:
+        df = pd.DataFrame([distances], columns=column_names)
+
+    return df
+
+
+def distance_bw_trajectories(trajectory1, trajectory2):
+    """
+    Calculates the geodesic distance between two event trajectories by summing the distance between
+    congruent timebins across trajectories.
+
+    Arugments (2 required):
+        trajectory1 & trajectory2: numpy ararys of shape [session x timebin x PCs] pr [timebin x PCs]
+
+    Returns (1):
+        geodesic_distances: either a single value for 1 session's trajectories, or a list of distances across
+        all sessions trajectories
+    """
+    if len(trajectory1.shape) == 3:
+        geodesic_distances = []
+        for session in range(trajectory1.shape[0]):
+            dist_bw_tb = 0
+            for i in range(trajectory1.shape[1]):
+                dist_bw_tb = dist_bw_tb + euclidean(trajectory1[session, i, :], trajectory2[session, i, :])
+            geodesic_distances.append(dist_bw_tb)
+    if len(trajectory1.shape) == 2:
+        dist_bw_tb = 0
+        for i in range(trajectory1.shape[0]):
+            dist_bw_tb = dist_bw_tb + euclidean(trajectory1[i, :], trajectory2[i, :])
+        geodesic_distances = dist_bw_tb
+    return geodesic_distances
 
 
 def PCs_needed(explained_variance_ratios, percent_explained=0.9):
@@ -60,79 +150,6 @@ def PCs_needed(explained_variance_ratios, percent_explained=0.9):
     for i in range(len(explained_variance_ratios)):
         if explained_variance_ratios[0:i].sum() > percent_explained:
             return i
-
-
-def event_slice(transformed_subsets, key, no_PCs, mode):
-    """
-    Takes in a matrix T (session x timebins x pcs) (mode = 'multisession')
-    or (timebins x pcs) (mode = 'single')
-    and an event key to split the matrix by event and trim it to no_PCs.
-
-    Args (3):
-        transformed_subsets: np.array, d(session X timebin X PCS)
-        key: list of str, each element is an event type and
-            corresponds to the timebin dimension indices of
-            the transformed_subsets matrix
-        no_PCs: int, number of PCs required to explain a variance threshold
-        mode: {'multisession', 'single'}; multisession calculates event slices
-            for many transformed subsets, single calculates event slices for a
-            single session
-    Returns:
-        trajectories: dict, events to trajectories across
-            each LOO PCA embedding
-            keys: str, event types
-            values: np.array, d=(session x timebins x no_PCs)
-    """
-    event_indices = get_indices(key)
-    events = np.unique(key)
-    trajectories = {}
-    for i in range(len(event_indices)):
-        event = events[i]
-        start = event_indices[i][0]
-        stop = event_indices[i][1]
-        if mode == "multisession":
-            event_trajectory = transformed_subsets[:, start : stop + 1, :no_PCs]
-        if mode == "single":
-            event_trajectory = transformed_subsets[start : stop + 1, :no_PCs]
-        trajectories[event] = event_trajectory
-    return trajectories
-
-
-def geodesic_distances(event_trajectories, recording_name, mode):
-    # Get all event pairs
-    event_pairs = list(combinations(event_trajectories.keys(), 2))
-
-    # Calculate distances for each pair
-    distances = []
-    for pair in event_pairs:
-        event1 = event_trajectories[pair[0]]
-        event2 = event_trajectories[pair[1]]
-        dist = distance_bw_trajectories(event1, event2, mode)
-        distances.append(dist)
-
-    # Create column names from pairs
-    column_names = [f"{pair[0]}_{pair[1]}" for pair in event_pairs]
-
-    # Create DataFrame
-    df = pd.DataFrame([distances], columns=column_names, index=[recording_name])
-
-    return df
-
-
-def distance_bw_trajectories(trajectory1, trajectory2, mode):
-    if mode == "multisession":
-        geodesic_distances = []
-        for session in range(trajectory1.shape[0]):
-            dist_bw_tb = 0
-            for i in range(trajectory1.shape[1]):
-                dist_bw_tb = dist_bw_tb + euclidean(trajectory1[session, i, :], trajectory2[session, i, :])
-            geodesic_distances.append(dist_bw_tb)
-    if mode == "single":
-        dist_bw_tb = 0
-        for i in range(trajectory1.shape[0]):
-            dist_bw_tb = dist_bw_tb + euclidean(trajectory1[i, :], trajectory2[i, :])
-        geodesic_distances = dist_bw_tb
-    return geodesic_distances
 
 
 def avg_traj(event_firing_rates, num_points, events):
@@ -301,7 +318,6 @@ def event_numbers(spike_collection, events, min_neurons, to_print=False):
             if recording_good:
                 totals.append((recording.event_dict[event]).shape[0])
         mins[event] = min(totals)
-    print(mins)
     return mins
 
 
@@ -340,6 +356,9 @@ class PCAResult:
             self.explained_variance = None
         else:
             pca = PCA()
+            scaler = StandardScaler()
+            # time x neurons = samples x features
+            self.zscore_matrix = scaler.fit_transform(matrix_df)
             pca.fit(matrix_df)
             self.coefficients = pca.components_
             self.explained_variance = pca.explained_variance_ratio_
@@ -348,7 +367,8 @@ class PCAResult:
             if condition_dict is not None:
                 self.condition_pca(condition_dict)
             else:
-                self.transformed_data = pca.transform(matrix_df)
+
+                self.transformed_data = pca.transform(self.zscore_matrix)
 
     def make_overview_dataframe(self, matrix_df, event_count):
         column_counts = pd.DataFrame(matrix_df.columns.value_counts()).reset_index()
@@ -374,6 +394,7 @@ class PCAResult:
     def condition_pca(self, condition_dict):
         coefficients = self.coefficients
         recording_list = self.matrix_df.columns.to_list()
+        zscore_matrix = pd.DataFrame(data=self.zscore_matrix, columns=recording_list)
         coefficients_df = pd.DataFrame(data=coefficients, index=recording_list)
         transformed_data = {}
         # transformed data dict: conditions for keys, values is a transformed data array
@@ -381,7 +402,7 @@ class PCAResult:
             rois = [recording for recording in rois if recording in self.recordings]
             # trim weight matrix for only those neurons in recordings of that condition
             subset_coeff = coefficients_df[coefficients_df.index.isin(rois)]
-            subset_data = self.matrix_df[rois]
+            subset_data = zscore_matrix[rois]
             condition_data = np.dot(subset_data, subset_coeff)
             # transform each condition with condition specific weight matrix
             # T (timebins x pcs) = D (timebins x neurons). W (pcs x neurons)
@@ -1048,10 +1069,14 @@ def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_w
             key = pc_result.labels
             ex_var = pc_result.explained_variance
             no_pcs = PCs_needed(ex_var, percent_var)
-            event_trajectories = event_slice(t_mat, key, no_pcs, mode="single")
+            event_trajectories = event_slice(
+                t_mat,
+                key,
+                no_pcs,
+            )
 
             # Get distances DataFrame for this recording
-            recording_df = geodesic_distances(event_trajectories, recording.name, mode="single")
+            recording_df = geodesic_distances(event_trajectories, recording_name=recording.name)
 
             # Concatenate with main DataFrame
             all_distances_df = pd.concat([all_distances_df, recording_df])
