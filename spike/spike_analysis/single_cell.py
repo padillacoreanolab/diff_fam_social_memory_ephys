@@ -301,14 +301,20 @@ def fisher_exact_wilcoxon(
         print("Function can only handle one baseline for comparison.")
         print("baseline_window OR event3 must equal None")
     if event3 is None:
-        df1 = wilcoxon_collection(spike_collection, event1, event_length, baseline_window, offset, exclude_offset)
-        df2 = wilcoxon_collection(spike_collection, event2, event_length, baseline_window, offset, exclude_offset)
+        df1 = wilcoxon_collection(
+            spike_collection, event1, event_length, baseline_window, offset, exclude_offset, plot=False
+        )
+        df2 = wilcoxon_collection(
+            spike_collection, event2, event_length, baseline_window, offset, exclude_offset, plot=False
+        )
     else:
-        df1 = wilcoxon_event1v2_collection(event1, event3, event_length)
-        df2 = wilcoxon_event1v2_collection(event2, event3, event_length)
+        df1 = wilcoxon_event1v2_collection(event1, event3, event_length, plot=False)
+        df2 = wilcoxon_event1v2_collection(event2, event3, event_length, plot=False)
     row1 = [(df1["p value"] < 0.05).sum(), (df1["p value"] > 0.05).sum()]
     row2 = [(df2["p value"] < 0.05).sum(), (df2["p value"] > 0.05).sum()]
-    contingency_matrix = [row1, row2]
+    contingency_matrix = pd.DataFrame(
+        [row1, row2], index=[f"{event1}", f"{event2}"], columns=["Significant", "Non-Significant"]
+    )
     odds_ratio, p_value = fisher_exact(contingency_matrix)
     return odds_ratio, p_value, contingency_matrix
 
