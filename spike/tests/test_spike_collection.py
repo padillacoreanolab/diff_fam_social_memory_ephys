@@ -16,7 +16,7 @@ class TestSpikeCollection(unittest.TestCase):
             expected_message = "test_rec_nogoodunits_merged.rec has no good units"
             self.assertIn(expected_message, printed_output)
             self.assertIn("and will not be included in the collection", printed_output)
-        self.assertEqual(len(test_collection.collection), 3)
+        self.assertEqual(len(test_collection.recordings), 3)
 
     def test_all_set_no_subjects_no_dicts(self):
         # to do create missing dictionaries, dictionaries, subjects, etc.
@@ -35,7 +35,7 @@ class TestSpikeCollection(unittest.TestCase):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
             test_collection = SpikeCollection(r"tests/test_data")
             i = 0
-            for recording in test_collection.collection:
+            for recording in test_collection.recordings:
                 recording.subject = i
                 i += 1
             test_collection.analyze(timebin=50, ignore_freq=0.5)
@@ -51,7 +51,7 @@ class TestSpikeCollection(unittest.TestCase):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
             test_collection = SpikeCollection(r"tests/test_data")
             i = 0
-            for recording in test_collection.collection:
+            for recording in test_collection.recordings:
                 recording.event_dict = {"event": [i, i + 1]}
                 i += 1
             test_collection.analyze(timebin=50, ignore_freq=0.5)
@@ -68,7 +68,7 @@ class TestSpikeCollection(unittest.TestCase):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
             test_collection = SpikeCollection(r"tests/test_data")
             i = 0
-            for recording in test_collection.collection:
+            for recording in test_collection.recordings:
                 recording.event_dict = {f"event{i}": [i, i + 1]}
                 recording.subject = i
                 i += 1
@@ -87,7 +87,7 @@ class TestSpikeCollection(unittest.TestCase):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
             test_collection = SpikeCollection(r"tests/test_data")
             i = 0
-            for recording in test_collection.collection:
+            for recording in test_collection.recordings:
                 recording.event_dict = {"event": np.array([[i, i + 1]])}
                 recording.subject = i
                 i += 1

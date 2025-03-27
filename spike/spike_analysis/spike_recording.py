@@ -48,22 +48,24 @@ class SpikeRecording:
         dictionary
 
         Arguments (2 total):
-            path: str, relative path to the phy folder
-                formatted as: './folder/folder/phy'
+            path: str, relative path to the merged.rec folder containing a phy folder
+                formatted as: './folder/folder'
             sampling_rate: int, default=20000; sampling rate of
                 the ephys device in Hz
         Returns:
             None
         """
         self.path = path
-        self.name = os.path.dirname(path).split(os.sep)[-1]
+        self.phy = os.path.join(path, "phy")
+        self.name = os.path.basename(path)
         self.sampling_rate = sampling_rate
         self.all_set = False
-        self.unit_labels()
-        self.spike_specs()
-        self.unit_timestamps()
+        self.__unit_labels__()
+        self.__spike_specs__()
+        self.__unit_timestamps__()
+        self.__freq_dictionary__()
 
-    def check(self):
+    def __check__(self):
         missing = []
         attributes = ["timebin", "subject", "event_dict"]
         for attr in attributes:
@@ -75,7 +77,7 @@ class SpikeRecording:
         else:
             self.all_set = True
 
-    def unit_labels(self):
+    def __unit_labels__(self):
         """
         assigns self.labels_dicts as a dictionary
         with unit id (str) as key and label as values (str)
@@ -88,11 +90,11 @@ class SpikeRecording:
             None
         """
         labels = "cluster_group.tsv"
-        with open(os.path.join(self.path, labels), "r") as f:
+        with open(os.path.join(self.phy, labels), "r") as f:
             reader = csv.DictReader(f, delimiter="\t")
             self.labels_dict = {row["cluster_id"]: row["group"] for row in reader}
 
-    def spike_specs(self):
+    def __spike_specs__(self):
         """
         imports spike_time and spike_unit from phy folder
         deletes spikes from units labeled noise in unit and timestamp array
@@ -108,8 +110,8 @@ class SpikeRecording:
         """
         timestamps = "spike_times.npy"
         unit = "spike_clusters.npy"
-        timestamps_var = np.load(os.path.join(self.path, timestamps))
-        unit_array = np.load(os.path.join(self.path, unit))
+        timestamps_var = np.load(os.path.join(self.phy, timestamps))
+        unit_array = np.load(os.path.join(self.phy, unit))
         spikes_to_delete = []
         unsorted_clusters = {}
         for spike in range(len(timestamps_var)):
@@ -130,7 +132,7 @@ class SpikeRecording:
         self.timestamps_var = np.delete(timestamps_var, spikes_to_delete)
         self.unit_array = np.delete(unit_array, spikes_to_delete)
 
-    def unit_timestamps(self):
+    def __unit_timestamps__(self):
         """
         Creates a dictionary of units to spike timestamps.
         Keys are unit ids (int) and values are spike timestamps for that unit (numpy arrays),
@@ -152,8 +154,7 @@ class SpikeRecording:
         self.ignore_freq = ignore_freq
         self.smoothing_window = smoothing_window
         self.mode = mode
-        self.check()
-        self.__freq_dictionary__()
+        self.__check__()
         self.__whole_spiketrain__()
         self.__unit_spiketrains__()
         self.__unit_firing_rates__()
@@ -215,7 +216,19 @@ class SpikeRecording:
         self.unit_firing_rates = unit_firing_rates
         self.unit_firing_rate_array = np.array([unit_firing_rates[key] for key in unit_firing_rates]).T
 
-    def __event_snippets__(self, event, whole_self, event_length, pre_window=0, post_window=0):
+    def set_subject(self, subject: str):
+        """
+        Sets the subject attribute for the SpikeRecording object
+        """
+        self.subject = subject
+
+    def set_event_dict(self, event_dict: dict):
+        """
+        Sets the event_dict attribute for the SpikeRecording object
+        """
+        self.event_dict = event_dict
+
+    def event_snippets(self, event, whole_self, event_length, pre_window=0, post_window=0):
         """
         takes snippets of spiketrains or firing rates for events with optional pre-event and post-event windows (s)
         all events must be of equal length (extends snippet lengths for events shorter then event_length and trims those
@@ -269,10 +282,10 @@ class SpikeRecording:
             # event_snippets = [trial, timebins, units] or [trial, timebin] per unit
             return np.array(event_snippets)
         else:
-            self.check()
+            self.__check__()
             return None
 
-    def __unit_event_firing_rates__(self, event, event_length, pre_window=0, post_window=0):
+    def unit_event_firing_rates(self, event, event_length, pre_window=0, post_window=0):
         """
         returns firing rates for events per unit
 
@@ -290,7 +303,7 @@ class SpikeRecording:
         if self.all_set:
             unit_event_firing_rates = {}
             for unit in self.unit_firing_rates.keys():
-                unit_event_firing_rates[unit] = self.__event_snippets__(
+                unit_event_firing_rates[unit] = self.event_snippets(
                     event,
                     self.unit_firing_rates[unit],
                     event_length,
@@ -299,16 +312,16 @@ class SpikeRecording:
                 )
             return unit_event_firing_rates
         else:
-            self.check()
+            self.__check__()
             return None
 
-    def __event_firing_rates__(self, event, event_length, pre_window=0, post_window=0):
+    def event_firing_rates(self, event, event_length, pre_window=0, post_window=0):
         """
-        Grabs event firing rates from a whole self through the selfs
+        Grabs event firing rates from a whole recording through the recording
         unit firing rate array (units by time bins)
 
         Args (5 total, 3 required):
-            self: Spikeself instance, self for firing rates
+            self: SpikeRecording instance, self for firing rates
             event: str, event type of which ehpys snippets happen during
             event_length: float, length (s) of events used by padding or trimming events
             pre_window: int, default=0, seconds prior to start of event
@@ -319,11 +332,69 @@ class SpikeRecording:
             is timebins x units and list is len(no of events)
         """
         if self.all_set:
-            event_firing_rates = self.__event_snippets__(
+            event_firing_rates = self.event_snippets(
                 event, self.unit_firing_rate_array, event_length, pre_window, post_window
             )
             # event_snippets = [trial, timebins, units]
             return event_firing_rates
         else:
-            self.check()
+            self.__check__()
             return None
+
+    def __str__(self):
+        """
+        Returns a string representation of the SpikeRecording object with details about
+        the number of good units, number of MUAs, subject name, event_dict assignment,
+        recording length in minutes, and analysis parameters if set.
+        """
+        # Calculate the length of the recording in minutes
+        recording_length_minutes = self.timestamps_var[-1] / self.sampling_rate / 60
+
+        # Count the number of MUAs
+        mua_count = sum(1 for label in self.labels_dict.values() if label == "mua")
+
+        # Count the number of good units (labeled as "good")
+        good_unit_count = sum(1 for label in self.labels_dict.values() if label == "good")
+
+        # Check if event_dict is assigned
+        has_event_dict = hasattr(self, "event_dict")
+
+        # Prepare the analysis parameters if they are set
+        analysis_params = ""
+        if hasattr(self, "timebin") and hasattr(self, "ignore_freq") and hasattr(self, "smoothing_window"):
+            if hasattr(self, "freq_dict"):
+                above_ignore_freq = sum(1 for freq in self.freq_dict.values() if freq > self.ignore_freq)
+            else:
+                above_ignore_freq = 0
+            analysis_params = (
+                f"  Good units above ignore frequency: {above_ignore_freq}\n"
+                f"     \n"
+                f"Analysis Parameters:\n"
+                f"  Timebin: {self.timebin}s\n"
+                f"  Ignore Frequency: {self.ignore_freq}Hz\n"
+                f"  Smoothing Window: {self.smoothing_window}\n"
+                f""
+            )
+
+        # Build the string representation
+        # Prepare the behavioral events if event_dict is assigned
+        behavioral_events = ""
+        if has_event_dict:
+            behavioral_events = "Event Overview:\n"
+            for event, events in self.event_dict.items():
+                behavioral_events += f"  {event}: {len(events)} events\n"
+
+        return (
+            f"SpikeRecording Summary:\n"
+            f"  Recording: {self.name}\n"
+            f"  Subject: {getattr(self, 'subject', None)}\n"
+            f"  Event Dict Assigned: {has_event_dict}\n"
+            f"  Recording Length: {recording_length_minutes:.2f} minutes\n"
+            f"     \n"
+            f"Unit Overvew:\n"
+            f"  Number of Good Units: {good_unit_count}\n"
+            f"  Number of MUAs: {mua_count}\n"
+            f"{analysis_params}"
+            f"\n"
+            f"{behavioral_events}"
+        )

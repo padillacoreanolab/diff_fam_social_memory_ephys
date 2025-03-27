@@ -39,7 +39,7 @@ class SpikeCollection:
                 if directory.endswith("merged.rec"):
                     print("loading ", directory)
                     recording = SpikeRecording(
-                        os.path.join(self.path, directory, "phy"),
+                        os.path.join(self.path, directory),
                         self.sampling_rate,
                     )
                     if "good" not in recording.labels_dict.values():
@@ -54,11 +54,11 @@ class SpikeCollection:
                                 print(f"{directory} not found in subject dict")
                         if self.event_dict:
                             try:
-                                recording.subject = self.event_dict[directory]
+                                recording.event_dict = self.event_dict[directory]
                             except KeyError:
                                 print(f"{directory} not found in event dict")
                         collection.append(recording)
-        self.collection = collection
+        self.recordings = collection
 
     def analyze(self, timebin, ignore_freq=0.1, smoothing_window=None, mode="same"):
         self.timebin = timebin
@@ -67,7 +67,7 @@ class SpikeCollection:
         self.mode = mode
         analyzed_neurons = 0
         good_neurons = 0
-        for recording in self.collection:
+        for recording in self.recordings:
             recording.analyze(timebin, ignore_freq, smoothing_window, mode)
             analyzed_neurons += recording.analyzed_neurons
             good_neurons += recording.good_neurons
@@ -87,7 +87,7 @@ class SpikeCollection:
         missing_subject = []
         event_dicts_same = True
         event_type = False
-        for recording in self.collection:
+        for recording in self.recordings:
             if not hasattr(recording, "event_dict"):
                 missing_events.append(recording.name)
             else:
@@ -111,7 +111,7 @@ class SpikeCollection:
             if not event_dicts_same:
                 print("Your event dictionary keys are different across recordings.")
                 print("Please double check them:")
-                for recording in self.collection:
+                for recording in self.recordings:
                     print(recording.name, "keys:", recording.event_dict.keys())
                 is_good = False
         if len(missing_subject) > 0:
@@ -121,6 +121,73 @@ class SpikeCollection:
             print("Event arrays are not 2 dimensional numpy arrays of shape (n x 2).")
             print("Please fix.")
         if is_good:
-            for recording in self.collection:
+            for recording in self.recordings:
                 recording.all_set = True
             print("All set to analyze")
+
+    def __str__(self):
+        """
+        Returns a summary of the SpikeCollection object, including:
+        - Number of recordings
+        - Average number of good units
+        - Average number of events per event type (if event_dicts are present)
+        - Number of unique subjects
+        """
+        num_recordings = len(self.recordings)
+        avg_good_units = (
+            sum(recording.good_neurons for recording in self.recordings) / num_recordings if num_recordings > 0 else 0
+        )
+
+        # Calculate average number of events per event type
+        event_counts = {}
+        for recording in self.recordings:
+            if hasattr(recording, "event_dict"):
+                for event, events in recording.event_dict.items():
+                    event_counts[event] = event_counts.get(event, 0) + len(events)
+
+        avg_events_per_type = (
+            {event: count / num_recordings for event, count in event_counts.items()} if event_counts else "N/A"
+        )
+
+        # Get the number of unique subjects
+        missing_subjects = [
+            recording.name for recording in self.recordings if getattr(recording, "subject", None) is None
+        ]
+        if missing_subjects:
+            subject_info = f"Missing Subjects for Recordings: {missing_subjects}"
+        else:
+            unique_subjects = len(set(recording.subject for recording in self.recordings))
+            subject_info = f"Number of Unique Subjects: {unique_subjects}"
+
+        return (
+            f"SpikeCollection Summary:\n"
+            f"  Number of Recordings: {num_recordings}\n"
+            f"  Average Number of Good Units: {avg_good_units:.2f}\n"
+            f"  Average Number of Events per Event Type: {avg_events_per_type}\n"
+            f"  {subject_info}\n"
+            f"\n"
+        )
+
+    def recording_details(self):
+        details = []
+        for recording in self.recordings:
+            subject = getattr(recording, "subject", "Unknown")
+            good_units = getattr(recording, "good_neurons", 0)
+            recording_length = recording.timestamps_var[-1] / recording.sampling_rate / 60  # in minutes
+
+            # Get the number of events per event type
+            event_counts = {}
+            if hasattr(recording, "event_dict"):
+                for event, events in recording.event_dict.items():
+                    event_counts[event] = len(events)
+
+            details.append(
+                f"\n"
+                f"Recording: {recording.name}\n"
+                f"  Subject: {subject}\n"
+                f"  Number of Good Units: {good_units}\n"
+                f"  Recording Length: {recording_length:.2f} minutes\n"
+                f"  Events per Event Type: {event_counts}\n"
+            )
+        print(f"Recording Details:\n" f"{''.join(details)}")
+        return None

@@ -134,11 +134,11 @@ def wilcoxon_rec(recording, event, event_length, baseline_window, offset, exclud
         print(f"Wilcoxon can't be done on {recording.name} {event}, because <6 samples")
         return None
     tot_event = baseline_window + offset
-    unit_baseline_firing_rates = recording.__unit_event_firing_rates__(preevent_baselines, tot_event)
+    unit_baseline_firing_rates = recording.unit_event_firing_rates(preevent_baselines, tot_event)
     if exclude_offset:
-        unit_event_firing_rates = recording.__unit_event_firing_rates__(event, event_length)
+        unit_event_firing_rates = recording.unit_event_firing_rates(event, event_length)
     else:
-        unit_event_firing_rates = recording.__unit_event_firing_rates__(event, event_length, -(offset))
+        unit_event_firing_rates = recording.unit_event_firing_rates(event, event_length, -(offset))
     unit_averages, bad_units = event_avgs(unit_event_firing_rates, unit_baseline_firing_rates)
     unit_averages = wilcox_check(recording, unit_averages, bad_units)
     wilcox_df = signed_rank(unit_averages)
@@ -171,7 +171,7 @@ def wilcoxon_collection(
             Wilcoxon stats, p values, orginal unit ids, recording
     """
     is_first = True
-    for recording in spike_collection.collection:
+    for recording in spike_collection.recordings:
         recording_df = wilcoxon_rec(recording, event, event_length, baseline_window, offset, exclude_offset)
         if recording_df is not None:
             recording_df = recording_df.reset_index().rename(columns={"index": "original unit id"})
@@ -212,8 +212,8 @@ def wilcoxon_event1v2_rec(recording, event1, event2, event_length):
         row[0] are wilcoxon statistics and row[1] are p values
 
     """
-    unit_event1_firing_rates = recording.__unit_event_firing_rates__(event1, event_length)
-    unit_event2_firing_rates = recording.__unit_event_firing_rates__(event2, event_length)
+    unit_event1_firing_rates = recording.unit_event_firing_rates(event1, event_length)
+    unit_event2_firing_rates = recording.unit_event_firing_rates(event2, event_length)
     if (len(recording.event_dict[event1]) < 6) | (len(recording.event_dict[event2]) < 6):
         print(f"Wilcoxon can't be done on {recording.name} because <6 samples for either {event1} or {event2}")
         return None
@@ -250,7 +250,7 @@ def wilcoxon_event1v2_collection(spike_collection, event1, event2, event_length,
         subject and the events given
     """
     is_first = True
-    for recording in spike_collection.collection:
+    for recording in spike_collection.recordings:
         recording_df = wilcoxon_event1v2_rec(recording, event1, event2, event_length)
         if recording_df is not None:
             recording_df = recording_df.reset_index().rename(columns={"index": "original unit id"})
@@ -332,7 +332,7 @@ def baseline_v_event_plot(spike_collection, master_df, event, event_length, base
         none
     """
     all_units_to_plot = []
-    for recording in spike_collection.collection:
+    for recording in spike_collection.recordings:
         wilcoxon_df = master_df[master_df["Recording"] == recording.name]
         recording_units = wilcoxon_df[wilcoxon_df["p value"] < 0.07]["original unit id"].tolist()
         all_units_to_plot.extend([(recording, unit) for unit in recording_units])
@@ -345,7 +345,7 @@ def baseline_v_event_plot(spike_collection, master_df, event, event_length, base
 
     for recording, unit in all_units_to_plot:
         wilcoxon_df = master_df[master_df["Recording"] == recording.name]
-        unit_event_firing_rates = recording.__unit_event_firing_rates__(event, event_length, baseline_window, 0)
+        unit_event_firing_rates = recording.unit_event_firing_rates(event, event_length, baseline_window, 0)
 
         mean_arr = np.mean(unit_event_firing_rates[unit], axis=0)
         sem_arr = sem(unit_event_firing_rates[unit], axis=0)
@@ -384,7 +384,7 @@ def event1v2_plot(spike_collection, master_df, event1, event2, event_length, pre
     """
 
     all_units_to_plot = []
-    for recording in spike_collection.collection:
+    for recording in spike_collection.recordings:
         wilcoxon_df = master_df[master_df["Recording"] == recording.name]
         recording_units = wilcoxon_df[wilcoxon_df["p value"] < 0.05]["original unit id"].tolist()
         all_units_to_plot.extend([(recording, unit) for unit in recording_units])
@@ -397,8 +397,8 @@ def event1v2_plot(spike_collection, master_df, event1, event2, event_length, pre
 
     for idx, (recording, unit) in enumerate(all_units_to_plot, 1):
         wilcoxon_df = master_df[master_df["Recording"] == recording.name]
-        unit_event1_firing_rates = recording.__unit_event_firing_rates__(event1, event_length, pre_window, 0)
-        unit_event2_firing_rates = recording.__unit_event_firing_rates__(event2, event_length, pre_window, 0)
+        unit_event1_firing_rates = recording.unit_event_firing_rates(event1, event_length, pre_window, 0)
+        unit_event2_firing_rates = recording.unit_event_firing_rates(event2, event_length, pre_window, 0)
 
         mean1_arr = np.mean(unit_event1_firing_rates[unit], axis=0)
         sem1_arr = sem(unit_event1_firing_rates[unit], axis=0)
@@ -444,7 +444,7 @@ def wilcoxon_unit(recording, unit_id, events, event_length, baseline_window, off
     plt.figure(figsize=(15, 4 * height_fig))
     for event in events:
         wilcox_df = wilcoxon_rec(recording, event, event_length, baseline_window, offset, exclude_offset)
-        unit_event_firing_rates = recording.__unit_event_firing_rates__(event, event_length, baseline_window)
+        unit_event_firing_rates = recording.unit_event_firing_rates(event, event_length, baseline_window)
         mean_arr = np.mean(unit_event_firing_rates[unit_id], axis=0)
         sem_arr = sem(unit_event_firing_rates[unit_id], axis=0)
         p_value = wilcox_df["p value"].values[0]
@@ -463,7 +463,7 @@ def wilcoxon_unit(recording, unit_id, events, event_length, baseline_window, off
 
 def bootstrap(spike_collection, events, event_length, pre_window=0, num_perm=2000):
     results_dict = {}
-    for recording in spike_collection.collection:
+    for recording in spike_collection.recordings:
         results_dict[recording.name] = {}
         for event in events:
             unit_dict = bootstrap_recording(recording, event, event_length, pre_window, num_perm)
