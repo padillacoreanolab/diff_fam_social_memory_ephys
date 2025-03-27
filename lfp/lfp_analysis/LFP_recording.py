@@ -10,6 +10,8 @@ import numpy as np
 import json
 from bidict import bidict
 
+
+
 LFP_FREQ_MIN = 0.5
 LFP_FREQ_MAX = 300
 ELECTRIC_NOISE_FREQ = 60
@@ -92,7 +94,7 @@ class LFPRecording:
 
         self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
         print("RMS Traces calculated")
-        self.connectivity, self.frequencies, self.power, self.coherence, self.grangers, self.pdc = (
+        self.connectivity, self.frequencies, self.power, self.coherence, self.grangers = (
             connectivity_wrapper.connectivity_wrapper(
                 self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep, self.min_freq, self.max_freq
             )
@@ -160,8 +162,8 @@ class LFPRecording:
 
             if hasattr(recording, "power"):
                 data_group.create_dataset("power", data=recording.power, compression="gzip", compression_opts=9)
-            if hasattr(recording, "pdc"):
-                data_group.create_dataset("pdc", data=recording.pdc, compression="gzip", compression_opts=9)
+            # if hasattr(recording, "pdc"):
+            #     data_group.create_dataset("pdc", data=recording.pdc, compression="gzip", compression_opts=9)
             if recording.event_dict is not None:
                 event_group = f.create_group("event")
                 for key, value in recording.event_dict.items():
@@ -228,7 +230,7 @@ class LFPRecording:
             "has_power": hasattr(recording, "power"),
             "has_granger": hasattr(recording, "grangers"),
             "has_coherence": hasattr(recording, "coherence"),
-            "has_pdc":hasattr(recording, "pdc")
+            #"has_pdc":hasattr(recording, "pdc")
         }
 
         # Ensure output directory exists
@@ -320,8 +322,8 @@ class LFPRecording:
                 recording.frequencies = data_group["frequencies"][:]
             if "grangers" in data_group:
                 recording.grangers = data_group["grangers"][:]
-            if "pdc" in data_group:
-                recording.pdc = data_group["pdc"][:]
+            # if "pdc" in data_group:
+            #     recording.pdc = data_group["pdc"][:]
             if "power" in data_group:
                 recording.power = data_group["power"][:]
                 recording.connectivity, frequencies = connectivity_wrapper.calculate_multitaper(

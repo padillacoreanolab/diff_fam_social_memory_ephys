@@ -6,8 +6,8 @@ def connectivity_wrapper(rms_traces, downsample_rate, halfbandwidth, timewindow,
     power = calculate_power(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
     coherence = calculate_coherence(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
     granger = calculate_grangers(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
-    pdc = calculate_partial_directed_coherence(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
-    return connectivity, frequencies, power, coherence, granger, pdc
+    # pdc = calculate_partial_directed_coherence(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
+    return connectivity, frequencies, power, coherence, granger#, pdc
 
 
 def calculate_multitaper(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep):
@@ -46,11 +46,11 @@ def calculate_coherence(rms_traces, downsample_rate, halfbandwidth, timewindow, 
     print("Coherence calcualatd")
     return coherence
 
-def calculate_partial_directed_coherence(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep):
-    connectivity, frequencies = calculate_multitaper(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
-    pdc = connectivity.partial_directed_coherence()
-    print('Partial Directed Coherence calculated')
-    return pdc
+# def calculate_partial_directed_coherence(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep):
+#     connectivity, frequencies = calculate_multitaper(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
+#     pdc = connectivity.partial_directed_coherence()
+#     print('Partial Directed Coherence calculated')
+#     return pdc
     
 
 def calculate_grangers(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep):

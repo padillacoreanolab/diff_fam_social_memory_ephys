@@ -8,7 +8,8 @@ from bidict import bidict
 from collections import defaultdict
 from matplotlib import cm
 from itertools import combinations
-
+from lfp.lfp_analysis.LFP_collection import LFPCollection
+from lfp.lfp_analysis.LFP_recording import LFPRecording
 
 def all_set(collection):
     """
@@ -68,7 +69,7 @@ def _create_coherence_bidict(self):
     return pairs_to_indices
 
 
-def __get_event_averages__(recording, event, mode, event_len, pre_window, post_window):
+def __get_events__(recording, event, mode, event_len, pre_window, post_window, average = True):
     """
     takes snippets of power, coherence, or causality for events
     optional pre-event and post-event windows (s) may be included
@@ -100,7 +101,7 @@ def __get_event_averages__(recording, event, mode, event_len, pre_window, post_w
         events = recording.behavior_dict[event]
     except KeyError:
         print(f"{event} not in event dictionary. Please check spelling")
-    event_averages = []
+    all_events = []
     pre_window = math.ceil(pre_window * 1000)
     post_window = math.ceil(post_window * 1000)
     freq_timebin = recording.timestep * 1000
@@ -123,23 +124,26 @@ def __get_event_averages__(recording, event, mode, event_len, pre_window, post_w
             # whole_recording = [t, f, b]  for power
             # whole_recording = [t,f,b,b] for coherence + granger
             event_snippet = whole_recording[pre_event:post_event, ...]
-            event_average = np.nanmean(event_snippet, axis=0)
-            event_averages.append(event_average)
-    return event_averages
+            if average:
+                event_snippet = np.nanmean(event_snippet, axis=0)
+            all_events.append(event_snippet)
+    return all_events
 
 
-def plot_average_events(lfp_collection, event_averages, mode, regions=None):
+def plot_average_events(lfp_collection, event_averages, mode, regions=None, freq_range = None):
     if mode == "power":
-        plot_power_averages(lfp_collection, event_averages, regions)
+        plot_power_averages(lfp_collection, event_averages, regions, freq_range)
     if mode == "coherence":
-        plot_coherence_averages(lfp_collection, event_averages, regions)
+        plot_coherence_averages(lfp_collection, event_averages, regions, freq_range)
     if mode == "granger":
-        plot_granger_averages(lfp_collection, event_averages, regions)
+        plot_granger_averages(lfp_collection, event_averages, regions, freq_range)
 
 
-def plot_power_averages(lfp_collection, event_averages, regions=None):
+def plot_power_averages(lfp_collection, event_averages, regions=None, freq_range=None):
     if regions is None:
         regions = lfp_collection.brain_region_dict.keys()
+    if freq_range is None:
+        freq_range = [1,101]
     for region in regions:
         plt.figure(figsize=(10, 5))
         for event, averages in event_averages.items():
@@ -151,22 +155,22 @@ def plot_power_averages(lfp_collection, event_averages, regions=None):
             event_sem = stats.sem(averages, axis=0, nan_policy="omit")
             region_index = lfp_collection.brain_region_dict[region]
             # pick only the region of interest
-            y = event_average[1:101, region_index]
-            y_sem = event_sem[1:101, region_index]
-            x = np.linspace(1,100,100)
+            y = event_average[freq_range[0]:freq_range[1], region_index]
+            y_sem = event_sem[freq_range[0]:freq_range[1], region_index]
+            x = range(freq_range[0],freq_range[1])
             (line,) = plt.plot(x, y, label=event)
             plt.fill_between(x, y - y_sem, y + y_sem, alpha=0.2, color=line.get_color())
         ymin, ymax = plt.ylim()
-        plt.axvline(x=12, color="gray", linestyle="--", linewidth=0.5)
-        plt.axvline(x=4, color="gray", linestyle="--", linewidth=0.5)
-        plt.fill_betweenx(y=np.linspace(ymin, ymax, 80), x1=4, x2=12, color="red", alpha=0.1)
+        # plt.axvline(x=12, color="gray", linestyle="--", linewidth=0.5)
+        # plt.axvline(x=4, color="gray", linestyle="--", linewidth=0.5)
+        # plt.fill_betweenx(y=np.linspace(ymin, ymax, 80), x1=4, x2=12, color="red", alpha=0.1)
         plt.ylim(ymin, ymax)
         plt.title(f"{region} power")
         plt.legend()
         plt.show()
 
 
-def plot_coherence_averages(lfp_collection, event_averages, regions=None):
+def plot_coherence_averages(lfp_collection, event_averages, regions=None, freq_range=None):
     if regions is not None:
         pairs_indices = []
         for region in regions:
@@ -177,6 +181,8 @@ def plot_coherence_averages(lfp_collection, event_averages, regions=None):
             pairs_indices.append(pairs_index)
     if regions is None:
         regions = list(lfp_collection.coherence_pairs_dict.values())
+    if freq_range is None:
+        freq_range = [1,101]
     for i in range(len(regions)):
         for event, averages in event_averages.items():
             # averages = [trials, f, b, b]
@@ -189,9 +195,9 @@ def plot_coherence_averages(lfp_collection, event_averages, regions=None):
             # calculate sem for the trial average
             event_sem = stats.sem(averages, axis=0, nan_policy="omit")
             # pick only the region of interest
-            y_sem = event_sem[1:100, first_region, second_region]
-            y = event_average[1:100, first_region, second_region]
-            x = lfp_collection.frequencies[1:100]
+            y_sem = event_sem[freq_range[0]:freq_range[1], first_region, second_region]
+            y = event_average[freq_range[0]:freq_range[1], first_region, second_region]
+            x = lfp_collection.frequencies[freq_range[0]:freq_range[1]]
             (line,) = plt.plot(x, y, label=event)
             plt.fill_between(x, y - y_sem, y + y_sem, color=line.get_color(), alpha=0.2)
         ymin, ymax = plt.ylim()
@@ -204,7 +210,7 @@ def plot_coherence_averages(lfp_collection, event_averages, regions=None):
         plt.show()
 
 
-def plot_granger_averages(lfp_collection, event_averages, regions=None):
+def plot_granger_averages(lfp_collection, event_averages, regions=None, freq_range=None):
     if regions is not None:
         pair_indices = []
         for region in regions:
@@ -216,6 +222,8 @@ def plot_granger_averages(lfp_collection, event_averages, regions=None):
         regions = []
         for pair in pair_indices:
             regions.append([lfp_collection.brain_regions[pair[0]], lfp_collection.brain_regions[pair[1]]])
+    if freq_range is None:
+        freq_range = [1,101]
     for i in range(len(pair_indices)):
         for event, averages in event_averages.items():
             # averages = [trials, b, b, f]
@@ -226,9 +234,9 @@ def plot_granger_averages(lfp_collection, event_averages, regions=None):
             # calculate sem for the trial average
             event_sem = stats.sem(averages, axis=0, nan_policy="omit")
             # pick only the region of interest
-            y_sem = event_sem[1:100, pair_indices[i][0], pair_indices[i][1]]
-            y = event_average[1:100, pair_indices[i][0], pair_indices[i][1]]
-            x = lfp_collection.frequencies[1:80]
+            y_sem = event_sem[freq_range[0]:freq_range[1], pair_indices[i][0], pair_indices[i][1]]
+            y = event_average[freq_range[0]:freq_range[1], pair_indices[i][0], pair_indices[i][1]]
+            x = lfp_collection.frequencies[freq_range[0]:freq_range[1]]
             (line,) = plt.plot(x, y, label=event)
             plt.fill_between(x, y - y_sem, y + y_sem, color=line.get_color(), alpha=0.2)
         ymin, ymax = plt.ylim()
@@ -241,8 +249,9 @@ def plot_granger_averages(lfp_collection, event_averages, regions=None):
         plt.show()
 
 
+
 def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=None):
-    event_grangers = average_events(events, mode="granger", baseline=baseline, event_len=event_len, plot=False)
+    event_grangers = average_events(lfp_collection,events, mode="granger", baseline=baseline, event_len=event_len, plot=False)
     n_events = len(events)
     n_cols = min(3, n_events)  # Max 3 columns
     n_rows = (n_events + n_cols - 1) // n_cols  # Ceiling division
@@ -273,10 +282,30 @@ def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=
     # Adjust layout to prevent overlap
     plt.tight_layout()
     plt.show()
-
+    
+# def plot_spectogram(lfp_collection, events, mode, event_length, baseline=None, pre_window = 0, post_window = 0):
+#     event_averages_dict = {}
+#     if isinstance(lfp_collection , LFPCollection):
+#         recordings = lfp_collection.lfp_recordings
+#     if isinstance(lfp_collection , LFPRecording):
+#         recordings = [lfp_collection]
+#     for event in events:
+#         recording_averages = []
+#         for recording in recordings:
+#             #events = [trials, time, freq, regions]
+#             events = __get_events__(recording, event, mode, event_len, pre_window, post_window, average = False)
+#             if baseline is not None:
+#                 #TODO: edit this to work with not averages 
+#                 adj_averages = __baseline_diff__(
+#                     recording, event_averages, baseline, mode, event_len, pre_window=0, post_window=0
+#                 )
+#                 recording_averages = recording_averages + adj_averages
+#             else:
+#                 recording_averages = recording_averages + event_averages
+            
 
 def average_events(
-    lfp_collection, events, mode, baseline=None, event_len=None, pre_window=0, post_window=0, plot=False
+    lfp_collection, events, mode, baseline=None, event_len=None, pre_window=0, post_window=0, plot=False, regions = None, freq_range = None
 ):
     """
     Calculates average event measurement (power, coherence, or granger) per recording then
@@ -284,13 +313,17 @@ def average_events(
     differences in event numbers per recording)
     """
     event_averages_dict = {}
+    if isinstance(lfp_collection , LFPCollection):
+        recordings = lfp_collection.lfp_recordings
+    if isinstance(lfp_collection , LFPRecording):
+        recordings = [lfp_collection]
     for event in events:
         recording_averages = []
-        for recording in lfp_collection.lfp_recordings:
-            event_averages = __get_event_averages__(recording, event, mode, event_len, pre_window, post_window)
+        for recording in recordings:
+            event_averages = __get_events__(recording, event, mode, event_len, pre_window, post_window, average = True)
             if baseline is not None:
                 adj_averages = __baseline_diff__(
-                    recording, event_averages, baseline, mode, event_len, pre_window=0, post_window=0
+                    recording, event_averages, baseline, mode, event_len, pre_window=0, post_window=0, average = True
                 )
                 recording_averages = recording_averages + adj_averages
             else:
@@ -298,13 +331,15 @@ def average_events(
         # recording_averages = [trials, b, f] or [trials, b, b, f]
         event_averages_dict[event] = recording_averages
     if plot:
-        plot_average_events(lfp_collection, event_averages_dict, mode)
+        plot_average_events(lfp_collection, event_averages_dict, mode, regions, freq_range)
     return event_averages_dict
 
 
-def __baseline_diff__(recording, event_averages, baseline, mode, event_len, pre_window, post_window):
-    baseline_averages = __get_event_averages__(recording, baseline, mode, event_len, pre_window, post_window)
-    baseline_recording = np.nanmean(np.array(baseline_averages), axis=0)
+def __baseline_diff__(recording, event_averages, baseline, mode, event_len, pre_window, post_window, average):
+    baseline_averages = __get_events__(recording, baseline, mode, event_len, pre_window, post_window, average = average)
+    #average = trial, freq, regions
+    #not average = trial, time, freq, regions
+    baseline_recording = np.nanmean(np.nanmean(np.array(baseline_averages), axis=0), axis = 0)
     adj_averages = []
     for i in range(len(event_averages)):
         adj_average = ((event_averages[i] - baseline_recording) / (baseline_recording + 0.00001)) * 100

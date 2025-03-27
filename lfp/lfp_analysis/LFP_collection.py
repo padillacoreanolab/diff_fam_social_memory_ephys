@@ -6,6 +6,7 @@ import numpy as np
 import json
 from bidict import bidict
 
+
 DEFAULT_KWARGS = {
     "sampling_rate": 20000,
     "voltage_scaling": 0.195,
@@ -17,7 +18,6 @@ DEFAULT_KWARGS = {
     "timewindow": 1,
     "timestep": 0.5,
 }
-
 
 class LFPCollection:
     def __init__(
