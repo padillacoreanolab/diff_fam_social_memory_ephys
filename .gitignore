@@ -2,7 +2,7 @@ bin/
 data/
 proc/
 spike_interface/
-!test_data/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -14,9 +14,10 @@ __pycache__/
 
 # Pyre type checker
 .pyre/
-*.npy
+#*.npy
 *.raw
 *.dat
+!diff_fam_social_memory_ephy/spike/tests/test_data/* 
 
 #data types 
 *.xlsx
