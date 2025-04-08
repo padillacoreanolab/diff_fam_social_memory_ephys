@@ -11,7 +11,6 @@ import json
 from bidict import bidict
 
 
-
 LFP_FREQ_MIN = 0.5
 LFP_FREQ_MAX = 300
 ELECTRIC_NOISE_FREQ = 60
@@ -96,7 +95,13 @@ class LFPRecording:
         print("RMS Traces calculated")
         self.connectivity, self.frequencies, self.power, self.coherence, self.grangers = (
             connectivity_wrapper.connectivity_wrapper(
-                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep, self.min_freq, self.max_freq
+                self.rms_traces,
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep,
+                self.min_freq,
+                self.max_freq,
             )
         )
 
@@ -230,7 +235,7 @@ class LFPRecording:
             "has_power": hasattr(recording, "power"),
             "has_granger": hasattr(recording, "grangers"),
             "has_coherence": hasattr(recording, "coherence"),
-            #"has_pdc":hasattr(recording, "pdc")
+            # "has_pdc":hasattr(recording, "pdc")
         }
 
         # Ensure output directory exists

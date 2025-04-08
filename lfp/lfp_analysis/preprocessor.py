@@ -9,8 +9,8 @@ MEDIAN_ZSCORE_MULTIPLIER = 0.6745
 # median zscore constant came from here https://cloudxlab.com/assessment/displayslide/6286/robust-z-score-method
 VOLTAGE_SCALING_VALUE = 0.195
 
-@profile
 
+@profile
 def preprocess(traces, threshold, scaling):
     # brain_region_dict, traces = map_to_region(all_traces, subject_region_dict)
     voltage_scaled_traces = scale_voltage(traces, scaling)
