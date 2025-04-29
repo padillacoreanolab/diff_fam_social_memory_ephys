@@ -232,7 +232,7 @@ rclone copy source:path dest:path --progress
 
 example real command:
 ```
-rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/cuasing_issues" ./resorts --progress --dry-run
+rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/SLEAP/all_r3.slp.training_job" ./ --dry-run --progress
 ```
 
 or to upload data to dropbox: 
@@ -241,3 +241,6 @@ or to upload data to dropbox:
 rclone copy ./same pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Same_Diff (phase2)/data" --progress --dry-run
 ```
 
+sleap-train data/SLEAP/centered_instance.json data/SLEAP/all_r1.slp
+
+ conda create -y -n sleap -c conda-forge -c nvidia -c sleap/label/dev -c sleap -c anaconda sleap=1.3.0
