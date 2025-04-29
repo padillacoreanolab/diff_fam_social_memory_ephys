@@ -137,7 +137,14 @@ class SpikeCollection:
         avg_good_units = (
             sum(recording.good_neurons for recording in self.recordings) / num_recordings if num_recordings > 0 else 0
         )
-
+        total_good_units = sum(recording.good_neurons for recording in self.recordings)
+        for recording in self.recordings: 
+            if hasattr(recording, "analyzed_neurons"):
+                calculate_analyzed_neurons = True
+            else:
+                calculate_analyzed_neurons = False
+        if calculate_analyzed_neurons:
+            total_analyzed_units = sum(recording.analyzed_neurons for recording in self.recordings)
         # Calculate average number of events per event type
         event_counts = {}
         for recording in self.recordings:
@@ -162,6 +169,8 @@ class SpikeCollection:
         return (
             f"SpikeCollection Summary:\n"
             f"  Number of Recordings: {num_recordings}\n"
+            f"  Total Good Units: {total_good_units}\n"
+            f"  Total Analyzed Units: {total_analyzed_units}\n"
             f"  Average Number of Good Units: {avg_good_units:.2f}\n"
             f"  Average Number of Events per Event Type: {avg_events_per_type}\n"
             f"  {subject_info}\n"

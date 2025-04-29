@@ -62,8 +62,9 @@ class SpikeRecording:
         self.all_set = False
         self.__unit_labels__()
         self.__spike_specs__()
-        self.__unit_timestamps__()
-        self.__freq_dictionary__()
+        if ("good" in self.labels_dict.values()) or ("mua" in self.labels_dict.values()):
+            self.__unit_timestamps__()
+            self.__freq_dictionary__()
 
     def __check__(self):
         missing = []
