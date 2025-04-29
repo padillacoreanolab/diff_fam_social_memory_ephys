@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial.distance import euclidean
 from itertools import combinations
 import spike.spike_analysis.spike_collection as col
-import spike.spike_analysis.spike_recording as rec
+import spike.spike_analysis.spike_recording
 from sklearn.preprocessing import StandardScaler
 
 
@@ -196,20 +196,21 @@ def pca_matrix(
     pca_master_matrix = None
     event_count = {}
     if isinstance(spike_collection, col.SpikeCollection):
-        recordings = spike_collection.collection
+        recordings = spike_collection.recordings
         timebin = spike_collection.timebin
         if events is None:
-            events = spike_collection.collection[0].event_dict.keys()
-    if isinstance(spike_collection, rec.SpikeRecording):
-        recordings = [spike_collection]
-        timebin = spike_collection.timebin
-        if events is None:
-            events = spike_collection.event_dict.keys()
-    if isinstance(spike_collection, list):
+            events = spike_collection.recordings[0].event_dict.keys()
+    elif isinstance(spike_collection, list):
         recordings = spike_collection
         timebin = spike_collection[0].timebin
         if events is None:
             events = spike_collection[0].event_dict.keys()
+    else:
+        recordings = [spike_collection]
+        timebin = spike_collection.timebin
+        if events is None:
+            events = spike_collection.event_dict.keys()
+   
     num_points = int((event_length + pre_window + post_window) * 1000 / timebin)
     for recording in recordings:
         recording_good = check_recording(recording, min_neurons, events, to_print=True)
@@ -217,7 +218,7 @@ def pca_matrix(
             event_count[recording.name] = {}
             pca_matrix = None
             for event in events:
-                firing_rates = recording.__event_firing_rates__(event, event_length, pre_window, post_window)
+                firing_rates = recording.event_firing_rates(event, event_length, pre_window, post_window)
                 event_count[recording.name][event] = len(firing_rates)
                 if mode == "average":
                     event_firing_rates, event_keys = avg_traj(firing_rates, num_points, events)
@@ -310,10 +311,10 @@ def trial_trajectory_matrix(spike_collection, event_length, pre_window, post_win
 def event_numbers(spike_collection, events, min_neurons, to_print=False):
     mins = {}
     if events is None:
-        events = list(spike_collection.collection[0].event_dict.keys())
+        events = list(spike_collection.recordings[0].event_dict.keys())
     for event in events:
         totals = []
-        for recording in spike_collection.collection:
+        for recording in spike_collection.recordings:
             recording_good = check_recording(recording, min_neurons, events, to_print=False)
             if recording_good:
                 totals.append((recording.event_dict[event]).shape[0])
@@ -484,7 +485,7 @@ def avg_trajectories_pca(
     return pc_result
 
 
-def coniditon_pca(
+def condition_pca(
     spike_collection,
     condition_dict,
     event_length,
@@ -1029,7 +1030,7 @@ def LOO_PCA(
 ):
     pc_result_list = []
     recordings = []
-    for recording in spike_collection.collection:
+    for recording in spike_collection.recordings:
         recordings.append(recording)
     for i in range(len(recordings)):
         temp_recs = recordings.copy()
@@ -1054,7 +1055,7 @@ def LOO_PCA(
 def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None, min_neurons=0):
     all_distances_df = pd.DataFrame()
 
-    for recording in spike_collection.collection:
+    for recording in spike_collection.recordings:  
         pc_result = avg_trajectory_matrix(
             recording,
             event_length,

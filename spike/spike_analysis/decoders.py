@@ -48,7 +48,7 @@ def trial_PCA(
         recording_to_condition = {rec: cond for cond, recs in condition_dict.items() for rec in recs}
     # decoder data dict: events for keys, values is a list of len(events)
     # each element in the list is the transformed matrix
-    for recording in spike_collection.collection:
+    for recording in spike_collection.recordings:
         # trim weight matrix for only those neurons in the current recording
         try:
             subset_coeff = coefficients_df.loc[[recording.name]]
@@ -58,7 +58,7 @@ def trial_PCA(
                 else:
                     event_name = event
                 # grab all event firing rates for current event in current recording
-                event_firing_rates = recording.__event_firing_rates__(event, event_length, pre_window, post_window)
+                event_firing_rates = recording.event_firing_rates(event, event_length, pre_window, post_window)
                 for trial in range(len(event_firing_rates)):
                     # iterate through each event
                     trial_data = np.dot(event_firing_rates[trial], subset_coeff)

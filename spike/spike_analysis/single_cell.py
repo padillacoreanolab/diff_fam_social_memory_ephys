@@ -502,7 +502,7 @@ def bootstrap_recording(recording, event, event_length, pre_window, num_perm):
         # Get all event snippets at once
         all_shuffled_snippets = np.array(
             [
-                recording.__event_snippets__(event, shuffled_unit, event_length, pre_window)
+                recording.event_snippets(event, shuffled_unit, event_length, pre_window)
                 for shuffled_unit in shuffled_units
             ]
         )
@@ -510,7 +510,7 @@ def bootstrap_recording(recording, event, event_length, pre_window, num_perm):
         shuffle_means = np.mean(np.mean(all_shuffled_snippets, axis=1), axis=1)
         low_end = np.percentile(shuffle_means, 2.5)
         high_end = np.percentile(shuffle_means, 97.5)
-        event_firing_rates = recording.__event_snippets__(event, firing_rate, event_length, pre_window)
+        event_firing_rates = recording.event_snippets(event, firing_rate, event_length, pre_window)
         avg_event_firing_rate = np.mean(np.mean(event_firing_rates, axis=0))
         if avg_event_firing_rate > high_end:
             unit_dict[unit] = "significantly increased"
