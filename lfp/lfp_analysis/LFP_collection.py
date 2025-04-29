@@ -27,6 +27,9 @@ class LFPCollection:
         recording_to_subject_dict: dict,
         threshold: int,
         recording_to_event_dict=None,
+        target_confirmation_dict=None,
+        #{subject: [list of bad brain regions], each subject needs a list!
+        # subjects with all good targets needs to be assigned to an empty list i.e. {subject: []}
         trodes_directory=None,
         json_path=None,
         **kwargs,
@@ -47,8 +50,16 @@ class LFPCollection:
         if json_path is not None:
             self.load_recordings(json_path)
         else:
-            self.lfp_recordings = self._make_recordings()
-
+            self.recordings = self._make_recordings()
+            self.brain_region_dict = recordings[0].brain_region_dict
+        if target_confirmation_dict is not None:
+            self.exclude_regions(target_confirmation_dict)
+            
+                
+                
+                    
+                        
+        
     def _make_recordings(self):
         lfp_recordings = []
         for data_directory in Path(self.data_path).glob("*"):
@@ -73,14 +84,20 @@ class LFPCollection:
         return lfp_recordings
 
     def process(self):
-        is_first = True
         for recording in tqdm(self.lfp_recordings):
             recording.process(self.threshold)
-            if is_first:
-                self.frequencies = recording.frequencies
-                self.brain_region_dict = recording.brain_region_dict
-                is_first = False
+        self.frequencies = recordings[0].frequencies
 
+    def exclude_regions(self, target_confirmation_dict):
+        for recording in self.recordings:
+            bad_regions = target_confirmation_dict[recording.subject]
+            #check to see if target confirmation exclusion has already been done 
+            if hasattr(recording, 'excluded_regions'):
+                pass
+            else:
+                recording.exclude_regions(bad_regions)
+                
+        
     def save_to_json(collection, output_path, notes=""):
         """Save LFP collection metadata to JSON and individual recordings to H5 files.
 
@@ -170,7 +187,7 @@ class LFPCollection:
         )
         collection.frequencies = metadata["frequencies"]
     
-        #collection.brain_region_dict = bidict(data["dictionaries"]["brain_region_dict"])
+        collection.brain_region_dict = bidict(data["dictionaries"]["brain_region_dict"])
     
         return collection
 

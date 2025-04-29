@@ -43,10 +43,9 @@ def zscore(traces):
     return zscore_traces
 
 
-def filter(zscore, voltage_scaled, threshold):
+def zscore_filter(zscore, voltage_scaled, threshold):
     mask = np.abs(zscore) < threshold
     return np.where(mask, voltage_scaled, np.nan)
-
 
 def scale_voltage(lfp_traces: np.ndarray, voltage_scaling_value: float) -> np.ndarray:
     return lfp_traces * voltage_scaling_value
@@ -71,7 +70,7 @@ def plot_zscore(processed_traces, zscore_traces, thresholded_zscore_traces, file
 
     ax3.plot(thresholded_zscore_traces[:, 0])
     ax3.set_title("Filtered RMS Traces")
-    ax3.set_ylabel("Amplitude")
+    ax3.set_ylabel("Ampltude")
 
     # Share y-axis limits between ax1 and ax3
     y_min = ax1.get_ylim()[0]

@@ -152,6 +152,7 @@ class LFPAnalysis:
             if post_event < whole_recording.shape[0]:
                 # whole_recording = [t, f, b]  for power
                 # whole_recording = [t,f,b,b] for coherence + granger
+                print(pre_event:post_event)
                 event_snippet = whole_recording[pre_event:post_event, ...]
                 event_average = np.nanmean(event_snippet, axis=0)
                 event_averages.append(event_average)

@@ -79,7 +79,7 @@ class LFPRecording:
     def plot_to_find_threshold(self, threshold, file_path=None):
         scaled_traces = preprocessor.scale_voltage(self.traces, voltage_scaling_value=self.voltage_scaling)
         zscore_traces = preprocessor.zscore(scaled_traces)
-        thresholded_traces = preprocessor.filter(zscore_traces, threshold)
+        thresholded_traces = preprocessor.zscore_filter(zscore_traces, scaled_traces, threshold)
         preprocessor.plot_zscore(scaled_traces, zscore_traces, thresholded_traces, file_path)
 
     def process(self, threshold=None):
@@ -130,7 +130,34 @@ class LFPRecording:
                     self.first_timestamp = int(timestamps["first_timestamp"])
                     print("Extracted first timestamp")
         return
+    
+    def set_subject(self, subject: str):
+        """
+        Sets the subject attribute for the LFPRecording object
+        """
+        self.subject = subject
+        
+    def set_event_dict(self, event_dict: dict):
+        """
+        Sets the event_dict attribute for the LFPRecording object
+        """
+        self.event_dict = event_dict
+        
+    def exclude_regions(self, reg_list):
+        self.excluded_regions = bad_regions
+        for region in bad_regions:
+            reg_idx = self.brain_region_dict[region]
+            self.traces[:, reg_idx] = np.nan
+            if hasattr(self, 'power'):
+                self.power[:, :, region] = np.nan
+            if hasattr(self, 'coherence'):
+                self.coherence[:,:,region, :] = np.nan
+                self.coherence[:,:, :, region] = np.nan
+            if hasattr(self, 'grangers'):
+                self.grangers[:,:,region, :] = np.nan
+                self.grangers[:,:,:region] = np.nan
 
+        
     @staticmethod
     def save_rec_to_h5(recording, rec_path):
         h5_path = rec_path + ".h5"
