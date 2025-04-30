@@ -57,18 +57,6 @@ def all_set(collection):
     if is_good:
         print("All set to analyze")
 
-
-def _create_coherence_bidict(self):
-    pairs_to_indices = bidict()
-    region_to_index = self.brain_region_dict
-    for i in range(len(region_to_index)):
-        for j in range(i + 1, len(region_to_index)):
-            regions = frozenset([list(region_to_index.keys())[i], list(region_to_index.keys())[j]])
-            indices = (region_to_index[list(regions)[0]], region_to_index[list(regions)[1]])
-            pairs_to_indices[regions] = indices
-    return pairs_to_indices
-
-
 def __get_events__(recording, event, mode, event_len, pre_window, post_window, average = True):
     """
     takes snippets of power, coherence, or causality for events
@@ -283,26 +271,247 @@ def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=
     plt.tight_layout()
     plt.show()
     
-# def plot_spectogram(lfp_collection, events, mode, event_length, baseline=None, pre_window = 0, post_window = 0):
-#     event_averages_dict = {}
-#     if isinstance(lfp_collection , LFPCollection):
-#         recordings = lfp_collection.recordings
-#     if isinstance(lfp_collection , LFPRecording):
-#         recordings = [lfp_collection]
-#     for event in events:
-#         recording_averages = []
-#         for recording in recordings:
-#             #events = [trials, time, freq, regions]
-#             events = __get_events__(recording, event, mode, event_len, pre_window, post_window, average = False)
-#             if baseline is not None:
-#                 #TODO: edit this to work with not averages 
-#                 adj_averages = __baseline_diff__(
-#                     recording, event_averages, baseline, mode, event_len, pre_window=0, post_window=0
-#                 )
-#                 recording_averages = recording_averages + adj_averages
-#             else:
-#                 recording_averages = recording_averages + event_averages
+def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre_window = 0, post_window = 0, freq_range=(0,100)):
+      # Process collection vs single recording
+    if isinstance(lfp_collection, LFPCollection):
+        recordings = lfp_collection.lfp_recordings
+    elif isinstance(lfp_collection, LFPRecording):
+        recordings = [lfp_collection]
+    elif isinstance(lfp_collection, list): 
+        recordings = lfp_collection
+    else:
+        raise TypeError("lfp_collection must be either LFPCollection or LFPRecording")
+    
+    # Dictionary to store the average event data for each event type
+    event_averages_dict = {}
+    
+    # Process each event type
+    for i in range(len(events)):
+        all_events = []
+        for recording in recordings:
+            # Events shape: [trials, time, freq, regions]
+            recording_events = __get_events__(recording, events[i], mode, event_len, 
+                                                  pre_window, post_window, average=False)
+            print(recording.name, events[i], np.array(recording_events).shape)
+            if baseline is not None:
+                adj_averages = __baseline_diff__(
+                    recording, recording_events, baseline[i], mode, event_len, 
+                    pre_window=0, post_window=0, average = False
+                )
+                all_events.extend(adj_averages)
+            else:
+                all_events.extend(recording_events)
+        
+        # Calculate average across trials for this event type
+        average_event = np.nanmean(np.array(all_events), axis=0)
+        event_averages_dict[events[i]] = average_event
+    
+    # Get dimensions and axes from the first event (assuming all have same shape)
+    first_event = list(event_averages_dict.values())[0]
+    n_timepoints, n_freqs, n_regions = first_event.shape
+    time_axis = np.linspace(-pre_window, event_len+post_window, n_timepoints)
+    freq_axis = range(freq_range[0], freq_range[1])
+
+    # Get region names
+    region_names = [f'{lfp_collection.brain_region_dict.inverse[i]}' for i in range(n_regions)]
+    if mode == 'power':
+        # Calculate vmin and vmax per brain region across all events
+        region_bounds = []
+        for region_idx in range(n_regions):
+            # Collect data for this region across all events
+            region_data = np.array([])
+            for event_data in event_averages_dict.values():
+                # Extract only the frequency range we want to display 
+                sliced_data = event_data[:, freq_range[0]:freq_range[1], region_idx]
+                if region_data.size == 0:
+                    region_data = sliced_data.flatten()
+                else:
+                    region_data = np.concatenate([region_data, sliced_data.flatten()])
+            # Calculate percentiles for this region's data
+            region_vmin = np.percentile(region_data, 5)  # 5th percentile to avoid outliers
+            region_vmax = np.percentile(region_data, 95)  # 95th percentile to avoid outliers
+
+            # Store bounds for this region
+            region_bounds.append((region_vmin, region_vmax))
+
+        # Setup figure layout - rows are brain regions, columns are event types
+        n_rows = n_regions
+    else:
+        if mode == 'coherence': 
+            for i in range(n_regions):
+                for j in range(i+1, n_regions):  # Start from i+1 to avoid self-pairs and duplicates
+                    region_pairs.append(f"{region_names[i]}_{region_names[j]}")
+                    region_pair_indices.append((i, j))
+        if mode == 'grangers':
+            for i in range(n_regions):
+                for j in range(n_regions):
+                    if i != j:  # Skip self-pairs
+                        region_pairs.append(f"{region_names[i]} → {region_names[j]}")
+                        region_pair_indices.append((i, j))
+        n_pairs = len(region_pairs)
+
+        # Calculate vmin and vmax per region pair across all events
+        pair_bounds = []
+        for pair_idx, (region_i, region_j) in enumerate(region_pair_indices):
+            # Collect data for this region pair across all events
+            pair_data = np.array([])
+            for event_data in event_averages_dict.values():
+                # Extract only the frequency range we want to display
+                sliced_data = event_data[:, freq_range[0]:freq_range[1], region_i, region_j]
+                if pair_data.size == 0:
+                    pair_data = sliced_data.flatten()
+                else:
+                    pair_data = np.concatenate([pair_data, sliced_data.flatten()])
+
+            # Calculate percentiles for this pair's data
+            pair_vmin = np.percentile(pair_data, 5)
+            pair_vmax = np.percentile(pair_data, 95)
+
+            # Store bounds for this pair
+            pair_bounds.append((pair_vmin, pair_vmax))
+
+        # Setup figure layout - rows are region pairs, columns are event types
+        n_rows = n_pairs
+        
+    n_cols = len(events)
+    
+    # Adjust figure size based on number of subplots
+    fig_size = (15, 10)
+    adjusted_width = max(fig_size[0], 4 * n_cols)
+    adjusted_height = max(fig_size[1], 3 * n_rows)
+    
+    # Create figure with extra space for everything
+    fig = plt.figure(figsize=(adjusted_width + 4, adjusted_height))
+    
+    # Create layout with extra space for labels and colorbars
+    # Main gridspec for all content
+    outer_gs = fig.add_gridspec(1, 2, width_ratios=[0.15, 0.85], wspace=0.0)
+    # Left side for region labels
+    labels_gs = outer_gs[0].subgridspec(n_rows, 1)
+    # Right side for plots and colorbars
+    right_gs = outer_gs[1].subgridspec(1, 2, width_ratios=[0.95, 0.015], wspace=0.01)
+    # Further divide the plots area into a grid for each region and event
+    plots_gs = right_gs[0].subgridspec(n_rows, n_cols, hspace=0.3, wspace=0.3)
+    # And the colorbar area into a column for each region
+    cbar_gs = right_gs[1].subgridspec(n_rows, 1)
+    
+    # Create axes
+    label_axes = []
+    plot_axes = []
+    cbar_axes = []
+    
+    # Create label axes
+    for row_idx in range(n_rows):
+        label_ax = fig.add_subplot(labels_gs[row_idx, 0])
+        label_ax.axis('off')  # Hide axis elements
+        label_axes.append(label_ax)
+    
+    # Create plot axes
+    for row_idx in range(n_rows):
+        row_axes = []
+        for col_idx in range(n_cols):
+            ax = fig.add_subplot(plots_gs[row_idx, col_idx])
+            row_axes.append(ax)
+        plot_axes.append(row_axes)
+    
+    # Create colorbar axes
+    for row_idx in range(n_rows):
+        cbar_ax = fig.add_subplot(cbar_gs[row_idx, 0])
+        cbar_axes.append(cbar_ax)
+    
+    # Add the region labels
+    for row_idx, region_idx in enumerate(range(n_regions)):
+        if row_idx < len(region_names):
+            label_axes[row_idx].text(0.5, 0.5, region_names[region_idx],
+                                     fontsize=18, fontweight='bold',
+                                     rotation=90, ha='center', va='center',
+                                     transform=label_axes[row_idx].transAxes)
+    
+    # Plot spectrograms and add colorbars
+    if mode == 'power':
+        for row_idx, region_idx in enumerate(range(n_regions)):
+            region_vmin, region_vmax = region_bounds[region_idx]
+
+            # Reference to store the last image for colorbar
+            region_im = None
+
+            # Plot each event for this region
+            for col_idx, event in enumerate(events):
+                ax = plot_axes[row_idx][col_idx]
+                # Get the event data for this specific region
+                event_data = event_averages_dict[event][:, freq_range[0]:freq_range[1], region_idx].T
+                # Plot the spectrogram
+                im = ax.pcolormesh(time_axis, freq_axis, event_data,
+                                  cmap='viridis', vmin=region_vmin, vmax=region_vmax, shading='gouraud')
+
+                region_im = im  # Save for colorbar
+
+                # Add vertical line at t=0 (event onset)
+                ax.axvline(x=0, color='white', linestyle='--', alpha=0.7)
+
+                # Set labels only on left and bottom edges
+                if col_idx == 0:
+                    ax.set_ylabel('Frequency (Hz)')
+
+                if row_idx == n_rows - 1:
+                    ax.set_xlabel('Time (s)')
+
+                # Add event type title
+                if row_idx == 0:
+                    ax.set_title(f"{event}", fontsize=14, fontweight='bold')
+
+            # Add colorbar for this region
+            if region_im is not None:
+                cbar = plt.colorbar(region_im, cax=cbar_axes[row_idx])
+                cbar.set_label('Power', rotation=270, labelpad=15)
             
+    else:
+        for row_idx, pair_name in enumerate(region_pairs):
+            label_axes[row_idx].text(0.5, 0.5, pair_name,
+                                     fontsize=14, fontweight='bold',
+                                     rotation=0, ha='center', va='center',
+                                     transform=label_axes[row_idx].transAxes)
+    
+    # Plot spectrograms and add colorbars
+        for row_idx, (region_i, region_j) in enumerate(region_pair_indices):
+            pair_vmin, pair_vmax = pair_bounds[row_idx]
+
+            # Reference to store the last image for colorbar
+            pair_im = None
+
+            # Plot each event for this region pair
+            for col_idx, event in enumerate(events):
+                ax = plot_axes[row_idx][col_idx]
+
+                # Get the event data for this specific region pair
+                event_data = event_averages_dict[event][:, freq_range[0]:freq_range[1], region_i, region_j].T
+
+                # Plot the spectrogram
+                im = ax.pcolormesh(time_axis, freq_axis, event_data,
+                                  cmap='viridis', vmin=pair_vmin, vmax=pair_vmax, shading='gouraud')
+
+                pair_im = im  # Save for colorbar
+
+                # Add vertical line at t=0 (event onset)
+                ax.axvline(x=0, color='white', linestyle='--', alpha=0.7)
+
+                # Set labels only on left and bottom edges
+                if col_idx == 0:
+                    ax.set_ylabel('Frequency (Hz)')
+
+                if row_idx == n_rows - 1:
+                    ax.set_xlabel('Time (s)')
+
+                # Add event type title
+                if row_idx == 0:
+                    ax.set_title(f"{event}", fontsize=14, fontweight='bold')
+
+            # Add colorbar for this region pair
+            if pair_im is not None:
+                cbar = plt.colorbar(pair_im, cax=cbar_axes[row_idx])
+                measure_label = "Coherence" if mode == "coherence" else "Granger Causality"
+                cbar.set_label(measure_label, rotation=270, labelpad=15)
+    fig.suptitle(f'{mode} Spectrograms', fontsize=16, y=0.98)
 
 def average_events(
     lfp_collection, events, mode, baseline=None, event_len=None, pre_window=0, post_window=0, plot=False, regions = None, freq_range = None

@@ -15,7 +15,7 @@ def preprocess(traces, threshold, scaling):
     # brain_region_dict, traces = map_to_region(all_traces, subject_region_dict)
     voltage_scaled_traces = scale_voltage(traces, scaling)
     zscored_traces = zscore(voltage_scaled_traces)
-    filtered_traces = filter(zscored_traces, voltage_scaled_traces, threshold)
+    filtered_traces = zscore_filter(zscored_traces, voltage_scaled_traces, threshold)
     rms_traces = root_mean_square(filtered_traces)
     return rms_traces
 

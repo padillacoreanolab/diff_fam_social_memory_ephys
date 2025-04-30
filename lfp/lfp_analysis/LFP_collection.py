@@ -54,14 +54,9 @@ class LFPCollection:
             self.brain_region_dict = recordings[0].brain_region_dict
         if target_confirmation_dict is not None:
             self.exclude_regions(target_confirmation_dict)
-            
-                
-                
-                    
-                        
         
     def _make_recordings(self):
-        lfp_recordings = []
+        recordings = []
         for data_directory in Path(self.data_path).glob("*"):
             if data_directory.is_dir():
                 for rec_file in data_directory.glob("*merged.rec"):
@@ -80,11 +75,70 @@ class LFPCollection:
                         threshold=self.threshold,
                         **self.kwargs,
                     )
-                    lfp_recordings.append(lfp_rec)
-        return lfp_recordings
+                    recordings.append(lfp_rec)
+        return recordings
+
+    def diagnostic_plots(self, threshold):
+         """
+        Plot raw traces and filtered traces side by side for each brain region.
+        Skip regions that contain only NaNs.
+
+        Parameters:
+        - raw_traces: array of shape [time, channels]
+        - filtered_traces: array of shape [time, channels]
+        - brain_region_dict: bidict mapping region names to channel indices
+        """
+        for recording in self.recordings:
+            # Find valid regions (not all NaNs)
+            scaled_traces = preprocessor.scale_voltage(recording.traces)
+            zscore_traces = preprocessor.zscore(scaled_traces)
+            filtered_traces = preprocessor.zscore_filter(zscore_traces, scaled_traces, threshold)
+            brain_region_dict = recording.brain_region_dict
+            valid_regions = []
+            for region_idx in range(scaled_traces.shape[1]):
+                if not np.isnan(scaled_traces[:, region_idx]).all() and region_idx in brain_region_dict.inverse:
+                    valid_regions.append(region_idx)
+
+            if not valid_regions:
+                print("No valid regions to plot.")
+                return
+
+            # Create figure with appropriate number of rows
+            n_rows = len(valid_regions)
+            fig, axes = plt.subplots(n_rows, 2, figsize=(12, 2 * n_rows))
+
+            # Handle case where there's only one row
+            if n_rows == 1:
+                axes = axes.reshape(1, 2)
+
+            # Plot each region
+            num_samples = scaled_traces.shape[0]
+            time_in_seconds = np.arange(num_samples) / recording.resample_rate
+            time_in_minutes = time_in_seconds / 60
+            for i, region_idx in enumerate(valid_regions):
+                region_name = brain_region_dict.inverse[region_idx]
+
+                # Plot raw trace on the left
+                axes[i, 0].plot(time_in_minutes, scaled_traces[:, region_idx])
+                axes[i, 0].set_title(f"{region_name} - Scaled")
+                axes[i, 0].set_ylabel("Amplitude (uV)")
+
+                # Plot filtered trace on the right
+                axes[i, 1].plot(time_in_minutes, filtered_traces[:, region_idx])
+                axes[i, 1].set_title(f"{region_name} - Filtered")
+                axes[i, 1].set_ylabel("Amplitude (uV)")
+
+            # Set common x-label for bottom plots
+            if n_rows > 0:
+                axes[n_rows-1, 0].set_xlabel("Time (min)")
+                axes[n_rows-1, 1].set_xlabel("Time (min)")
+
+            plt.tight_layout()
+            plt.suptitle(f'{recording.name}', y = 1, fontsize = 20)
+            plt.show()
 
     def process(self):
-        for recording in tqdm(self.lfp_recordings):
+        for recording in tqdm(self.recordings):
             recording.process(self.threshold)
         self.frequencies = recordings[0].frequencies
 
@@ -96,7 +150,7 @@ class LFPCollection:
                 pass
             else:
                 recording.exclude_regions(bad_regions)
-                
+    
         
     def save_to_json(collection, output_path, notes=""):
         """Save LFP collection metadata to JSON and individual recordings to H5 files.
@@ -113,7 +167,7 @@ class LFPCollection:
         output_data = {
             "metadata": {
                 "data_path": collection.data_path,
-                "number of recordings": len(collection.lfp_recordings),
+                "number of recordings": len(collection.recordings),
                 "brain regions": list(collection.brain_region_dict.keys()),
                 "threshold": collection.threshold,
                 "frequencies": collection.frequencies,
@@ -148,7 +202,7 @@ class LFPCollection:
         recordings_dir = os.path.join(output_path, "recordings")
         os.makedirs(recordings_dir, exist_ok=True)
 
-        for rec in collection.lfp_recordings:
+        for rec in collection.recordings:
             rec_path = os.path.join(recordings_dir, f"{rec.name}")
             LFPRecording.save_rec_to_h5(rec, rec_path)
 
@@ -196,11 +250,11 @@ class LFPCollection:
         recordings_dir = os.path.join(json_dir, "recordings")
         if not os.path.exists(recordings_dir):
             raise FileNotFoundError(f"Recordings directory not found at {recordings_dir}")
-        self.lfp_recordings = []
+        self.recordings = []
         for h5_file in Path(recordings_dir).glob("*.h5"):  # Sort for consistent loading order
             try:
                 recording = LFPRecording.load_rec_from_h5(h5_file)
-                self.lfp_recordings.append(recording)
+                self.recordings.append(recording)
         
             except Exception as e:
                 raise RuntimeError(f"Failed to load recording {h5_file}: {str(e)}")
