@@ -232,7 +232,7 @@ def plot_granger_averages(lfp_collection, event_averages, regions=None, freq_ran
         plt.axvline(x=4, color="gray", linestyle="--", linewidth=0.5)
         plt.fill_betweenx(y=np.linspace(ymin, ymax, 80), x1=4, x2=12, color="red", alpha=0.1)
         plt.ylim(ymin, ymax)
-        plt.title(f"Granger causality: {region[0]} to {region[1]}")
+        plt.title(f"Granger causality: {region[1]} to {region[0]}")
         plt.legend()
         plt.show()
 
@@ -262,8 +262,8 @@ def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=
         # Rotate labels for better readability
         ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
-        ax.set_ylabel("From")
-        ax.set_xlabel("To")
+        ax.set_ylabel("To")
+        ax.set_xlabel("From")
     # Remove any empty subplots
     for idx in range(len(events), len(axes)):
         fig.delaxes(axes[idx])
@@ -346,7 +346,7 @@ def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre
             for i in range(n_regions):
                 for j in range(n_regions):
                     if i != j:  # Skip self-pairs
-                        region_pairs.append(f"{region_names[i]} → {region_names[j]}")
+                        region_pairs.append(f"{region_names[j]} → {region_names[i]}")
                         region_pair_indices.append((i, j))
         n_pairs = len(region_pairs)
 
@@ -645,14 +645,11 @@ def __get_event_snippets__(recording, event, mode, event_len, pre_window, post_w
         if event_len is None:
             pre_event = math.ceil((events[i][0] - pre_window) / freq_timebin)
             post_event = math.ceil((events[i][1] + post_window) / freq_timebin)
-        if mode != "granger":  # power is [b, t, f]; coherence is [bps, t, f]
-            if post_event < whole_recording.shape[1]:
-                event_snippet = whole_recording[:, pre_event:post_event, :]
-                event_snippets.append(event_snippet)
-        if mode == "granger":  # granger is (b, b, t, f)
-            if post_event < whole_recording.shape[2]:
-                event_snippet = whole_recording[:, :, pre_event:post_event, :]
-                event_snippets.append(event_snippet)
+         # power is [b, t, f]; coherence is [bps, t, f]
+        if post_event < whole_recording.shape[0]:
+            event_snippet = whole_recording[pre_event:post_event, ...]
+            event_snippets.append(event_snippet)
+       
     return event_snippets
 
 

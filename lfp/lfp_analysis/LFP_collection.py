@@ -1,10 +1,12 @@
 from pathlib import Path
 from tqdm import tqdm
 from lfp.lfp_analysis.LFP_recording import LFPRecording
+import lfp.lfp_analysis.preprocessor as preprocessor
 import os
 import numpy as np
 import json
 from bidict import bidict
+import matplotlib.pyplot as plt
 
 
 DEFAULT_KWARGS = {
@@ -79,7 +81,7 @@ class LFPCollection:
         return recordings
 
     def diagnostic_plots(self, threshold):
-         """
+        """
         Plot raw traces and filtered traces side by side for each brain region.
         Skip regions that contain only NaNs.
 
@@ -90,7 +92,7 @@ class LFPCollection:
         """
         for recording in self.recordings:
             # Find valid regions (not all NaNs)
-            scaled_traces = preprocessor.scale_voltage(recording.traces)
+            scaled_traces = preprocessor.scale_voltage(recording.traces, recording.voltage_scaling)
             zscore_traces = preprocessor.zscore(scaled_traces)
             filtered_traces = preprocessor.zscore_filter(zscore_traces, scaled_traces, threshold)
             brain_region_dict = recording.brain_region_dict
@@ -151,7 +153,23 @@ class LFPCollection:
             else:
                 recording.exclude_regions(bad_regions)
     
-        
+    def interpolate(self, modes = 'all', kind = 'linear'):
+        for recording in self.recordings:
+            if modes == 'all':
+                recording.interpolate_power(kind)
+                recording.interpolate_coherence(kind)
+                recording.interpolate_granger(kind)
+            else: 
+                for mode in modes:
+                    if mode == 'power':
+                        recording.interpolate_power(kind)
+                    elif mode == 'coherence':
+                        recording.interpolate_coherence(kind)
+                    elif mode == 'granger':
+                        recording.interpolate_granger(kind)
+                    else:
+                        raise ValueError("Invalid mode. Choose 'all', 'power', 'coherence', or 'granger'.")    
+           
     def save_to_json(collection, output_path, notes=""):
         """Save LFP collection metadata to JSON and individual recordings to H5 files.
 

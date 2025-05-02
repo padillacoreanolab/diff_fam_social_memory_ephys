@@ -3,6 +3,7 @@ import spikeinterface.preprocessing as sp
 import lfp.lfp_analysis.preprocessor as preprocessor
 import lfp.lfp_analysis.connectivity_wrapper as connectivity_wrapper
 import lfp.trodes.read_exported as trodes
+from scipy.interpolate import interp1d
 import os
 from pathlib import Path
 import h5py
@@ -93,7 +94,7 @@ class LFPRecording:
 
         self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
         print("RMS Traces calculated")
-        self.connectivity, self.frequencies, self.power, self.coherence, self.grangers = (
+        self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
             connectivity_wrapper.connectivity_wrapper(
                 self.rms_traces,
                 self.resample_rate,
@@ -143,21 +144,130 @@ class LFPRecording:
         """
         self.event_dict = event_dict
         
-    def exclude_regions(self, reg_list):
+    def exclude_regions(self, bad_regions):
         self.excluded_regions = bad_regions
-        for region in bad_regions:
-            reg_idx = self.brain_region_dict[region]
-            self.traces[:, reg_idx] = np.nan
-            if hasattr(self, 'power'):
-                self.power[:, :, region] = np.nan
-            if hasattr(self, 'coherence'):
-                self.coherence[:,:,region, :] = np.nan
-                self.coherence[:,:, :, region] = np.nan
-            if hasattr(self, 'grangers'):
-                self.grangers[:,:,region, :] = np.nan
-                self.grangers[:,:,:region] = np.nan
+        if not bad_regions:
+            for region in bad_regions:
+                reg_idx = self.brain_region_dict[region]
+                self.traces[:, reg_idx] = np.nan
+                if hasattr(self, 'power'):
+                    self.power[:, :, region] = np.nan
+                if hasattr(self, 'coherence'):
+                    self.coherence[:,:,region, :] = np.nan
+                    self.coherence[:,:, :, region] = np.nan
+                if hasattr(self, 'granger'):
+                    self.granger[:,:,region, :] = np.nan
+                    self.granger[:,:,:region] = np.nan
 
-        
+    def interpolate_power(self, kind="linear"):
+        if not np.isnan(self.power).any():
+            return None
+        Y_filled = self.power.copy()
+        # Return early if no NaNs
+        # Interpolate across time and frequencies for each region
+        for i in range(self.power.shape[1]): #frequency
+            for j in range (self.power.shape[2]): #region
+                y = Y_filled[:, i, j]
+                # Skip if no NaNs or all NaNs in this region
+                if not np.isnan(y).any() or np.isnan(y).all():
+                    continue
+                # Find indices of non-NaN values
+                valid_indices = np.flatnonzero(~np.isnan(y))
+                # Find indices of NaN values
+                nan_indices = np.flatnonzero(np.isnan(y))
+                # Build interpolant if we have valid points
+                if len(valid_indices) > 1:  # Need at least 2 points for interpolation
+                    # Create interpolation function
+                    f = interp1d(
+                        valid_indices, 
+                        y[valid_indices], 
+                        kind=kind, 
+                        fill_value="extrapolate",
+                        bounds_error=False
+                    )
+                    # Apply interpolation to missing values
+                    y[nan_indices] = f(nan_indices)
+                elif len(valid_indices) == 1:
+                    # If only one valid point, fill with that value
+                    y[nan_indices] = y[valid_indices[0]]
+                
+                # Check if we still have NaNs (possible at edges depending on interpolation method)
+                if np.isnan(y).any():
+                    # Use nearest-value approach for any remaining NaNs
+                    mask = np.isnan(y)
+                    idx = np.flatnonzero(~mask)
+                    if len(idx) > 0:
+                        y[mask] = np.interp(
+                            np.flatnonzero(mask),
+                            idx,
+                            y[idx]
+                        )
+                # Save the interpolated region
+                Y_filled[:, i, j] = y
+            
+        self.power = Y_filled
+
+    def interpolate_coherence(self, kind="linear"):
+        self.coherence = self.__interpolate_coherence_granger__(self.coherence, kind=kind)
+
+    def interpolate_granger(self, kind="linear"):
+        self.granger = self.__interpolate_coherence_granger__(self.granger, kind=kind)
+
+    def __interpolate_coherence_granger__(self, values, kind="linear"):
+        if not np.isnan(values).any():
+            return values
+        Y_filled = values.copy()
+        # Return early if no NaNs
+        # Interpolate across time for each region
+        for i in range(values.shape[1]):
+            for j in range(values.shape[2]):
+                for k in range(values.shape[3]):
+                    if j == k:
+                        Y_filled[:, i, j, k] = 0
+                    else:
+                        y = Y_filled[:, i, j, k]
+                        
+                        # Skip if no NaNs or all NaNs in this region
+                        if not np.isnan(y).any() or np.isnan(y).all():
+                            continue
+                        
+                        # Find indices of non-NaN values
+                        valid_indices = np.flatnonzero(~np.isnan(y))
+                        # Find indices of NaN values
+                        nan_indices = np.flatnonzero(np.isnan(y))
+                        # Build interpolant if we have valid points
+                        if len(valid_indices) > 1:  # Need at least 2 points for interpolation
+                            # Create interpolation function
+                            f = interp1d(
+                                valid_indices, 
+                                y[valid_indices], 
+                                kind=kind, 
+                                fill_value="extrapolate",
+                                bounds_error=False
+                            )
+                            
+                            # Apply interpolation to missing values
+                            y[nan_indices] = f(nan_indices)
+                        elif len(valid_indices) == 1:
+                            # If only one valid point, fill with that value
+                            y[nan_indices] = y[valid_indices[0]]
+                        
+                        # Check if we still have NaNs (possible at edges depending on interpolation method)
+                        if np.isnan(y).any():
+                            # Use nearest-value approach for any remaining NaNs
+                            mask = np.isnan(y)
+                            idx = np.flatnonzero(~mask)
+                            if len(idx) > 0:
+                                y[mask] = np.interp(
+                                    np.flatnonzero(mask),
+                                    idx,
+                                    y[idx]
+                                )
+                        
+                        # Save the interpolated region
+                        Y_filled[:, i, j, k] = y
+        return Y_filled
+
     @staticmethod
     def save_rec_to_h5(recording, rec_path):
         h5_path = rec_path + ".h5"
@@ -189,8 +299,11 @@ class LFPRecording:
                     "frequencies", data=recording.frequencies, compression="gzip", compression_opts=9
                 )
 
-            if hasattr(recording, "grangers"):
-                data_group.create_dataset("grangers", data=recording.grangers, compression="gzip", compression_opts=9)
+            if hasattr(recording, "grangers") | hasatrrs(recording, "granger"):
+                try:
+                    data_group.create_dataset("granger", data=recording.granger, compression="gzip", compression_opts=9)
+                except Exception as e:
+                    data_group.create_dataset("granger", data=recording.grangers, compression="gzip", compression_opts=9)
 
             if hasattr(recording, "power"):
                 data_group.create_dataset("power", data=recording.power, compression="gzip", compression_opts=9)
@@ -260,7 +373,7 @@ class LFPRecording:
             "has_event": hasattr(recording, "event_dict") and recording.event_dict is not None,
             "has_rms_traces": hasattr(recording, "rms_traces"),
             "has_power": hasattr(recording, "power"),
-            "has_granger": hasattr(recording, "grangers"),
+            "has_granger": (hasattr(recording, "granger") | hasattr(recording, "grangers")),
             "has_coherence": hasattr(recording, "coherence"),
             # "has_pdc":hasattr(recording, "pdc")
         }
@@ -352,8 +465,10 @@ class LFPRecording:
                 recording.coherence = data_group["coherence"][:]
             if "frequencies" in data_group:
                 recording.frequencies = data_group["frequencies"][:]
+            if "granger" in data_group:
+                recording.granger = data_group["granger"][:]
             if "grangers" in data_group:
-                recording.grangers = data_group["grangers"][:]
+                recording.granger = data_group["grangers"][:]
             # if "pdc" in data_group:
             #     recording.pdc = data_group["pdc"][:]
             if "power" in data_group:
