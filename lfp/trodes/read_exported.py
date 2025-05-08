@@ -59,7 +59,7 @@ def trodes_extract(trodes_directory, data, mode="-raw"):
     for i, folder in enumerate(folders):
         if files[i]:
             for file in files[i]:
-                command = "trodesexport " + mode + " -rec " + file
+                command = "trodesexport " + mode + " -rec " + '"' + str(file) + '"'
                 commands.append(command)
     i = 0
     for command in commands:
