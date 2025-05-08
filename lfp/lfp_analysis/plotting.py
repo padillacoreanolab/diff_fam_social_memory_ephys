@@ -528,41 +528,7 @@ def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre
                 cbar.set_label(measure_label, rotation=270, labelpad=15)
     fig.suptitle(f'{mode} Spectrograms', fontsize=16, y=0.98)
 
-def average_events(
-    lfp_collection, events, mode, baseline=None, event_len=None, pre_window=0, post_window=0, plot=False, regions = None, freq_range = None
-):
-    """
-    Calculates average event measurement (power, coherence, or granger) per recording then
-    calculates global averages across all recordings from recording averages (to account for
-    differences in event numbers per recording)
-    """
-    event_averages_dict = {}
-    if (not isinstance(baseline, list)) and (baseline is not None): 
-        baseline = [baseline]
-    if isinstance(lfp_collection , LFPCollection):
-        recordings = lfp_collection.recordings
-    if isinstance(lfp_collection , LFPRecording):
-        recordings = [lfp_collection]
-    if baseline is not None:
-        if (len(events) != len(baseline)) and (lee(baseline) == 1):
-            baseline = baseline * len(events)
-    for i in range(len(events)):
-        recording_averages = []
-        for recording in recordings:
-            print(events[i])
-            event_averages = ee.get_events(recording, events[i], mode, event_len, pre_window, post_window, average = True)
-            if baseline is not None:
-                adj_averages = __baseline_diff__(
-                    recording, event_averages, baseline[i], mode, event_len, pre_window=0, post_window=0, average = True
-                )
-                recording_averages = recording_averages + adj_averages
-            else:
-                recording_averages = recording_averages + event_averages
-        # recording_averages = [trials, b, f] or [trials, b, b, f]
-        event_averages_dict[events[i]] = recording_averages
-    if plot:
-        plot_average_events(lfp_collection, event_averages_dict, mode, regions, freq_range)
-    return event_averages_dict
+
 
 
 def event_power_bar(lfp_collection, events, baseline=None):
