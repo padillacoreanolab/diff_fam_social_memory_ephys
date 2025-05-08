@@ -10,124 +10,20 @@ from matplotlib import cm
 from itertools import combinations
 from lfp.lfp_analysis.LFP_collection import LFPCollection
 from lfp.lfp_analysis.LFP_recording import LFPRecording
+import lfp.lfp_analysis.event_extraction as ee
 
-def all_set(collection):
-    """
-    double checks that all lfp objects in the collection have
-    the attributes: subject & event_dict assigned to them and that
-    each event_dict has the same keys.
 
-    Prints statements telling user which recordings are missing subjects
-    or event_dicts.
-    Prints event_dict.keys() if they are not the same.
-    Prints "All set to analyze" and calculates spiketrains
-    and firing rates if all set.
-    """
-    is_first = True
-    is_good = True
-    missing_events = []
-    missing_subject = []
-    event_dicts_same = True
-    for i in range(len(collection.recordings)):
-        recording = collection.recordings[i]
-        if not hasattr(recording, "event_dict"):
-            missing_events.append(recording)
-        else:
-            if is_first:
-                last_recording_events = recording.event_dict.keys()
-                is_first = False
-            else:
-                if recording.event_dict.keys() != last_recording_events:
-                    event_dicts_same = False
-        if not hasattr(recording, "subject"):
-            missing_subject.append(recording.name)
-    if len(missing_events) > 0:
-        print("These recordings are missing event dictionaries:")
-        print(f"{missing_events}")
-        is_good = False
-    else:
-        if not event_dicts_same:
-            print("Your event dictionary keys are different across recordings.")
-            print("Please double check them:")
-            for recording in collection.recordings:
-                print(recording.name, "keys:", recording.event_dict.keys())
-    if len(missing_subject) > 0:
-        print(f"These recordings are missing subjects: {missing_subject}")
-        is_good = False
-    if is_good:
-        print("All set to analyze")
-
-def __get_events__(recording, event, mode, event_len, pre_window, post_window, average = True):
-    """
-    takes snippets of power, coherence, or causality for events
-    optional pre-event and post-event windows (s) may be included
-    all events can also be of equal length by extending
-    snippet lengths to the longest event
-
-    Args (6 total, 4 required):
-        recording: LFP object instance, recording to get snippets
-        event: str, event type of which ehpys snippets happen during
-        whole_recording: numpy array, power, coherence, or granger causality
-            for the whole recording
-        event_len: optional, float, length (s) of events used by padding with
-            post event time or trimming events all to event_len (s) long, if not
-            defined, full event is used
-        pre_window: int, default=0, seconds prior to start of event
-        post_window: int, default=0, seconds after end of event
-
-    Returns (1):
-        event_averages: list, event specific measures of
-            power, coherence, or casualities measures during an event including
-            pre_window & post_windows, accounting for event_len and
-            timebins; if mode is power, event_snippets has
-            dimensions of [e, t, f, b] where e = no of events, b = no. of
-            brain regions, t = no. of timebins, f = no. of frequencies
-            if mode is causality or coherence then event snippets has the
-            shape [e, t, f, b, b]
-    """
-    try:
-        events = recording.event_dict[event]
-    except KeyError:
-        print(f"{event} not in event dictionary. Please check spelling")
-    all_events = []
-    pre_window = math.ceil(pre_window * 1000)
-    post_window = math.ceil(post_window * 1000)
-    freq_timebin = recording.timestep * 1000
-    if event_len is not None:
-        event_len_ms = event_len * 1000
+#SPECTRUM LINE GRAPHS
+def plot_event_spectrum(lfp_collection, event_averages, mode, regions=None, freq_range = None):
     if mode == "power":
-        whole_recording = recording.power
-    if mode == "granger":
-        whole_recording = recording.grangers
+        plot_power_spectrum(lfp_collection, event_averages, regions, freq_range)
     if mode == "coherence":
-        whole_recording = recording.coherence
-    for i in range(events.shape[0]):
-        if event_len is not None:
-            pre_event = math.ceil((events[i][0] - pre_window) / freq_timebin)
-            post_event = math.ceil((events[i][0] + post_window + event_len_ms) / freq_timebin)
-        if event_len is None:
-            pre_event = math.ceil((events[i][0] - pre_window) / freq_timebin)
-            post_event = math.ceil((events[i][1] + post_window) / freq_timebin)
-        if post_event < whole_recording.shape[0]:
-            # whole_recording = [t, f, b]  for power
-            # whole_recording = [t,f,b,b] for coherence + granger
-            event_snippet = whole_recording[pre_event:post_event, ...]
-            if average:
-                event_snippet = np.nanmean(event_snippet, axis=0)
-            all_events.append(event_snippet)
-    return all_events
-
-
-def plot_average_events(lfp_collection, event_averages, mode, regions=None, freq_range = None):
-    if mode == "power":
-        plot_power_averages(lfp_collection, event_averages, regions, freq_range)
-    if mode == "coherence":
-        plot_coherence_averages(lfp_collection, event_averages, regions, freq_range)
+        plot_coherence_spectrum(lfp_collection, event_averages, regions, freq_range)
     if mode == "granger":
-        plot_granger_averages(lfp_collection, event_averages, regions, freq_range)
+        plot_granger_spectrum(lfp_collection, event_averages, regions, freq_range)
 
 
-def plot_power_averages(lfp_collection, event_averages, regions=None, freq_range=None):
+def plot_power_spectrum(lfp_collection, event_averages, regions=None, freq_range=None):
     if regions is None:
         regions = lfp_collection.brain_region_dict.keys()
     if freq_range is None:
@@ -149,16 +45,13 @@ def plot_power_averages(lfp_collection, event_averages, regions=None, freq_range
             (line,) = plt.plot(x, y, label=event)
             plt.fill_between(x, y - y_sem, y + y_sem, alpha=0.2, color=line.get_color())
         ymin, ymax = plt.ylim()
-        # plt.axvline(x=12, color="gray", linestyle="--", linewidth=0.5)
-        # plt.axvline(x=4, color="gray", linestyle="--", linewidth=0.5)
-        # plt.fill_betweenx(y=np.linspace(ymin, ymax, 80), x1=4, x2=12, color="red", alpha=0.1)
         plt.ylim(ymin, ymax)
         plt.title(f"{region} power")
-        plt.legend()
+        #plt.legend()
         plt.show()
 
 
-def plot_coherence_averages(lfp_collection, event_averages, regions=None, freq_range=None):
+def plot_coherence_spectrum(lfp_collection, event_averages, regions=None, freq_range=None):
     if regions is None:
         brain_regions = list(lfp_collection.brain_region_dict.values())
         pair_indices = list(combinations(brain_regions, 2))
@@ -194,11 +87,11 @@ def plot_coherence_averages(lfp_collection, event_averages, regions=None, freq_r
         ymin, ymax = plt.ylim()
         plt.ylim(ymin, ymax)
         plt.title(f"{first_region_name} & {second_region_name} coherence")
-        plt.legend()
+        #plt.legend()
         plt.show()
 
 
-def plot_granger_averages(lfp_collection, event_averages, regions=None, freq_range=None):
+def plot_granger_spectrum(lfp_collection, event_averages, regions=None, freq_range=None):
     if regions is not None:
         pair_indices = []
         for region in regions:
@@ -233,13 +126,136 @@ def plot_granger_averages(lfp_collection, event_averages, regions=None, freq_ran
         plt.fill_betweenx(y=np.linspace(ymin, ymax, 80), x1=4, x2=12, color="red", alpha=0.1)
         plt.ylim(ymin, ymax)
         plt.title(f"Granger causality: {region[1]} to {region[0]}")
-        plt.legend()
+        #plt.legend()
         plt.show()
 
-
-
+#HEATMAPS 
+def plot_heatmap(lfp_collection, events, freq, color, vmax=None, vmin = None, baselines=None, event_len=None,mode = 'granger'):
+    """
+    Plot Granger causality heatmaps for multiple events as subplots with a shared colorbar per row.
+    
+    Parameters:
+    -----------
+    lfp_collection : LFP collection object
+    events : list of strings, event names to plot
+    freq : tuple, frequency range (min_freq, max_freq)
+    color : list of two colors for colormap gradient
+    vmax : float, maximum value for colorbar (applied to all plots)
+    baselines : optional, list of baseline events corresponding to each event or single baseline for all
+    event_len : optional, event length to analyze
+    """
+    from matplotlib.gridspec import GridSpec
+    import numpy as np
+    
+    # Handle baselines parameter
+    if baselines is None:
+        # No baselines specified, use None for all events
+        event_baselines = [None] * len(events)
+    elif isinstance(baselines, list) and len(baselines) == len(events):
+        # List of baselines matching events
+        event_baselines = baselines
+    else:
+        # Single baseline for all events
+        event_baselines = [baselines] * len(events)
+    
+    # Calculate Granger causality for each event with its corresponding baseline
+    event_grangers = {}
+    for event, baseline in zip(events, event_baselines):
+        event_data = lfpa.average_events(
+            lfp_collection, [event], mode=mode, 
+            baseline=baseline, event_len=event_len, plot=False
+        )
+        event_grangers[event] = event_data[event]
+    
+    n_events = len(events)
+    n_cols = min(3, n_events)  # Max 3 columns
+    n_rows = (n_events + n_cols - 1) // n_cols  # Ceiling division
+    
+    # Create custom grid to accommodate colorbars
+    fig = plt.figure(figsize=(5 * n_cols + 0.5, 4 * n_rows))
+    gs = GridSpec(n_rows, n_cols + 1, width_ratios=[1] * n_cols + [0.05])
+    
+    # Get brain regions once since they're the same for all plots
+    brain_regions = np.empty(len(lfp_collection.brain_region_dict.keys()), dtype="<U10")
+    for i in range(len(lfp_collection.brain_region_dict.keys())):
+        brain_regions[i] = lfp_collection.brain_region_dict.inverse[i]
+    
+    # Create custom colormap
+    cmap = LinearSegmentedColormap.from_list('custom', color, N=100)
+    
+    # Calculate global vmax if not provided
+    if vmax is None:
+        all_values = []
+        for event in events:
+            event_granger = event_grangers[event]
+            avg_granger = np.nanmean(event_granger, axis=0)
+            freq_granger = avg_granger[freq[0]:freq[1], :, :]
+            avg_freq = np.nanmean(freq_granger, axis=0)
+            all_values.append(np.nanmax(avg_freq))
+        vmax = np.max(all_values)
+    if vmin is None:
+        all_values = []
+        for event in events:
+            event_granger = event_grangers[event]
+            avg_granger = np.nanmean(event_granger, axis=0)
+            freq_granger = avg_granger[freq[0]:freq[1], :, :]
+            avg_freq = np.nanmean(freq_granger, axis=0)
+            all_values.append(np.nanmin(avg_freq))
+        vmin = np.min(all_values)
+    # Get all data matrices for consistent color scaling
+    data_matrices = []
+    for event in events:
+        event_granger = event_grangers[event]
+        avg_granger = np.nanmean(event_granger, axis=0)
+        freq_granger = avg_granger[freq[0]:freq[1], :, :]
+        avg_freq = np.nanmean(freq_granger, axis=0)
+        data_matrices.append(avg_freq)
+    
+    # Plot each event
+    axes = []
+    for idx, event in enumerate(events):
+        row = idx // n_cols
+        col = idx % n_cols
+        
+        # Create subplot
+        ax = fig.add_subplot(gs[row, col])
+        axes.append(ax)
+        
+        # Get data
+        avg_freq = data_matrices[idx]
+        
+        # Create heatmap without colorbar
+        sns.heatmap(avg_freq, xticklabels=brain_regions, yticklabels=brain_regions,
+                   annot=True, cmap=cmap, ax=ax, vmax=vmax, vmin=vmin, cbar=False)
+        
+        # Add baseline information to title if available
+        baseline_info = ""
+        if event_baselines[idx] is not None:
+            baseline_info = f"\nBaseline: {event_baselines[idx]}"
+            
+        ax.set_title(f"{event} {mode}\n{freq[0]}Hz to {freq[1]}Hz{baseline_info}")
+        
+        # Rotate labels for better readability
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
+        ax.set_ylabel("From")
+        ax.set_xlabel("To")
+        
+        # Add colorbar at the end of each row
+        if col == n_cols - 1 or idx == len(events) - 1:
+            cbar_ax = fig.add_subplot(gs[row, -1])
+            plt.colorbar(ax.collections[0], cax=cbar_ax)
+    
+    # Add overall title
+    plt.suptitle(f"Granger Causality Analysis ({freq[0]}-{freq[1]}Hz)", 
+                fontsize=16, y=1.02)
+    
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
+    plt.show()
+   
 def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=None):
-    event_grangers = average_events(lfp_collection,events, mode="granger", baseline=baseline, event_len=event_len, plot=False)
+    event_granger = average_events(lfp_collection,events, mode="granger", baseline=baseline, event_len=event_len, plot=False)
     n_events = len(events)
     n_cols = min(3, n_events)  # Max 3 columns
     n_rows = (n_events + n_cols - 1) // n_cols  # Ceiling division
@@ -253,7 +269,7 @@ def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=
     for i in range(len(lfp_collection.brain_region_dict.keys())):
         brain_regions[i] = lfp_collection.brain_region_dict.inverse[i]
     for idx, (event, ax) in enumerate(zip(events, axes)):
-        event_granger = event_grangers[event]
+        event_granger = event_granger[event]
         avg_granger = np.nanmean(event_granger, axis=0)
         freq_granger = avg_granger[freq[0] : freq[1], :, :]
         avg_freq = np.nanmean(freq_granger, axis=0)
@@ -271,10 +287,11 @@ def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=
     plt.tight_layout()
     plt.show()
     
+#SPECTROGRAMS
 def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre_window = 0, post_window = 0, freq_range=(0,100)):
       # Process collection vs single recording
     if isinstance(lfp_collection, LFPCollection):
-        recordings = lfp_collection.lfp_recordings
+        recordings = lfp_collection.recordings
     elif isinstance(lfp_collection, LFPRecording):
         recordings = [lfp_collection]
     elif isinstance(lfp_collection, list): 
@@ -284,15 +301,13 @@ def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre
     
     # Dictionary to store the average event data for each event type
     event_averages_dict = {}
-    
     # Process each event type
     for i in range(len(events)):
         all_events = []
         for recording in recordings:
             # Events shape: [trials, time, freq, regions]
-            recording_events = __get_events__(recording, events[i], mode, event_len, 
+            recording_events = ee.get_events(recording, events[i], mode, event_len, 
                                                   pre_window, post_window, average=False)
-            print(recording.name, events[i], np.array(recording_events).shape)
             if baseline is not None:
                 adj_averages = __baseline_diff__(
                     recording, recording_events, baseline[i], mode, event_len, 
@@ -342,7 +357,7 @@ def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre
                 for j in range(i+1, n_regions):  # Start from i+1 to avoid self-pairs and duplicates
                     region_pairs.append(f"{region_names[i]}_{region_names[j]}")
                     region_pair_indices.append((i, j))
-        if mode == 'grangers':
+        if mode == 'granger':
             for i in range(n_regions):
                 for j in range(n_regions):
                     if i != j:  # Skip self-pairs
@@ -528,10 +543,14 @@ def average_events(
         recordings = lfp_collection.recordings
     if isinstance(lfp_collection , LFPRecording):
         recordings = [lfp_collection]
+    if baseline is not None:
+        if (len(events) != len(baseline)) and (lee(baseline) == 1):
+            baseline = baseline * len(events)
     for i in range(len(events)):
         recording_averages = []
         for recording in recordings:
-            event_averages = __get_events__(recording, events[i], mode, event_len, pre_window, post_window, average = True)
+            print(events[i])
+            event_averages = ee.get_events(recording, events[i], mode, event_len, pre_window, post_window, average = True)
             if baseline is not None:
                 adj_averages = __baseline_diff__(
                     recording, event_averages, baseline[i], mode, event_len, pre_window=0, post_window=0, average = True
@@ -545,145 +564,8 @@ def average_events(
         plot_average_events(lfp_collection, event_averages_dict, mode, regions, freq_range)
     return event_averages_dict
 
-def event_difference(lfp_collection, event1, event2, mode, baseline1=None, baseline2=None, event_len=None, pre_window=0, post_window=0, plot=False, regions = None, freq_range = None):
-    diff_dict = {}
-    n_regions = len(lfp_collection.brain_region_dict.keys())
-    if mode == 'power':
-        event1_averages = np.zeros([len(lfp_collection.recordings), 500,n_regions])
-        event2_averages = np.zeros([len(lfp_collection.recordings), 500,n_regions])
-    else:
-        event1_averages = np.zeros([len(lfp_collection.recordings), 500,n_regions, n_regions])
-        event2_averages = np.zeros([len(lfp_collection.recordings), 500,n_regions, n_regions])
-    for i in range(len(lfp_collection.recordings)):
-        recording = lfp_collection.recordings[i]
-        event1_avg = __get_events__(recording, event1, mode, event_len, pre_window, post_window)
-        event2_avg = __get_events__(recording, event2, mode, event_len, pre_window, post_window)
-        if baseline1 is not None:
-            event1_avg = __baseline_diff__(
-                    recording, event1_avg, baseline1, mode, event_len, pre_window=0, post_window=0, average = True
-                )
-        if baseline2 is not None:
-            event2_avg = __baseline_diff__(
-                    recording, event2_avg, baseline2, mode, event_len, pre_window=0, post_window=0, average = True
-                )  
-        # recording_averages = [trials, b, f] or [trials, b, b, f]
-        event1_avg = np.mean(np.array(event1_avg), axis = 0)
-        event2_avg = np.mean(np.array(event2_avg), axis = 0)
-        event1_averages[i,...] = event1_avg
-        event2_averages[i,...] = event2_avg
-    event_diff = (event1_averages - event2_averages) / (event1_averages + event2_averages)*100
-    diff_dict[f'{event1} vs {event2}'] = event_diff
-    if plot:
-        plot_average_events(lfp_collection, diff_dict, mode, regions, freq_range)
-    return diff_dict
-        
 
-
-def __baseline_diff__(recording, event_averages, baseline, mode, event_len, pre_window, post_window, average):
-    baseline_averages = __get_events__(recording, baseline, mode, event_len, pre_window, post_window, average = average)
-    #average = trial, freq, regions
-    #not average = trial, time, freq, regions
-    if not average:
-        baseline_recording = np.nanmean(np.nanmean(np.array(baseline_averages), axis=0), axis = 0)
-    if average: 
-        baseline_recording = np.nanmean(np.array(baseline_averages), axis=0)
-    adj_averages = []
-    for i in range(len(event_averages)):
-        adj_average = ((event_averages[i] - baseline_recording) / (baseline_recording + 0.00001)) * 100
-        adj_averages.append(adj_average)
-    return adj_averages
-
-
-def __get_event_snippets__(recording, event, mode, event_len, pre_window, post_window):
-    """
-    takes snippets of power, coherence, or causality for events
-    optional pre-event and post-event windows (s) may be included
-    all events can also be of equal length by extending
-    snippet lengths to the longest event
-
-    Args (6 total, 4 required):
-        recording: LFP object instance, recording to get snippets
-        event: str, event type of which ehpys snippets happen during
-        whole_recording: numpy array, power, coherence, or granger causality
-            for the whole recording
-        event_len: optional, float, length (s) of events used by padding with
-            post event time or trimming events all to event_len (s) long, if not
-            defined, full event is used
-        pre_window: int, default=0, seconds prior to start of event
-        post_window: int, default=0, seconds after end of event
-
-    Returns (1):
-        event_averages: list, event specific measures of
-            power, coherence, or casualities measures during an event including
-            pre_window & post_windows, accounting for event_len and
-            timebins; if mode is power of coherence, event_snippets has
-            dimensions of [e, b, t, f] where e = no of events, b = no. of
-            brain regions, t = no. of timebins, f = no. of frequencies
-            if mode is causality then event snippets has the shape [e, b, b, t, f]
-    """
-    try:
-        events = recording.event_dict[event]
-    except KeyError:
-        print(f"{event} not in event dictionary. Please check spelling")
-    event_snippets = []
-    pre_window = round(pre_window * 1000)
-    post_window = round(post_window * 1000)
-    freq_timebin = recording.timewindow * 1000
-    if event_len is not None:
-        event_len_ms = event_len * 1000
-        event_dur = int(event_len_ms + pre_window + post_window) / freq_timebin
-    if mode == "power":
-        whole_recording = recording.power
-    if mode == "granger":
-        whole_recording = recording.grangers
-    if mode == "coherence":
-        whole_recording = recording.coherence
-    for i in range(events.shape[0]):
-        if event_len is not None:
-            pre_event = int((events[i][0] - pre_window) / freq_timebin)
-            post_event = int(pre_event + event_dur)
-        if event_len is None:
-            pre_event = math.ceil((events[i][0] - pre_window) / freq_timebin)
-            post_event = math.ceil((events[i][1] + post_window) / freq_timebin)
-         # power is [b, t, f]; coherence is [bps, t, f]
-        if post_event < whole_recording.shape[0]:
-            event_snippet = whole_recording[pre_event:post_event, ...]
-            event_snippets.append(event_snippet)
-       
-    return event_snippets
-
-
-def band_calcs(values):
-    agent_band_dict = {}
-    for agent, calculations in values.items():
-        calculations = np.array(calculations)
-        # calculations = [trials, frequencies, brain regions]
-        delta = np.nanmean(calculations[:, 0:4, ...], axis=1)
-        theta = np.nanmean(calculations[:, 4:13, ...], axis=1)
-
-        beta = np.nanmean(calculations[:, 13:31, ...], axis=1)
-
-        low_gamma = np.nanmean(calculations[:, 31:71, ...], axis=1)
-
-        high_gamma = np.nanmean(calculations[:, 71:100, ...], axis=1)
-
-        agent_band_dict[agent] = {
-            "Delta": delta,
-            "Theta": theta,
-            "Beta": beta,
-            "Low gamma": low_gamma,
-            "High gamma": high_gamma,
-        }
-
-    band_agent_dict = defaultdict(dict)
-    for agent, bands in agent_band_dict.items():
-        for band, values in bands.items():
-            band_agent_dict[band][agent] = values
-
-    return [agent_band_dict, band_agent_dict]
-
-
-def average_power_bar(lfp_collection, events, baseline=None):
+def event_power_bar(lfp_collection, events, baseline=None):
     powers = average_events(lfp_collection, events=events, mode="power", baseline=baseline, plot=False)
     [unflipped, flipped] = band_calcs(powers)
     brain_regions = np.empty(len(lfp_collection.brain_region_dict.keys()), dtype="<U10")
@@ -745,7 +627,7 @@ def average_power_bar(lfp_collection, events, baseline=None):
         plt.show()
 
 
-def plot_coherence_bar(lfp_collection, events, baseline=None):
+def event_coherence_bar(lfp_collection, events, baseline=None):
     region_dict = lfp_collection.brain_region_dict
     brain_regions = list(combinations(list((region_dict.keys())), 2))  # Example subset names
 
@@ -804,3 +686,49 @@ def plot_coherence_bar(lfp_collection, events, baseline=None):
         plt.legend(fontsize=16, frameon=False)
         plt.subplots_adjust(hspace=0.5)
         plt.show()
+
+def band_calcs(values):
+    agent_band_dict = {}
+    for agent, calculations in values.items():
+        calculations = np.array(calculations)
+        # calculations = [trials, frequencies, brain regions]
+        delta = np.nanmean(calculations[:, 0:4, ...], axis=1)
+        theta = np.nanmean(calculations[:, 4:13, ...], axis=1)
+
+        beta = np.nanmean(calculations[:, 13:31, ...], axis=1)
+
+        low_gamma = np.nanmean(calculations[:, 31:71, ...], axis=1)
+
+        high_gamma = np.nanmean(calculations[:, 71:100, ...], axis=1)
+
+        agent_band_dict[agent] = {
+            "Delta": delta,
+            "Theta": theta,
+            "Beta": beta,
+            "Low gamma": low_gamma,
+            "High gamma": high_gamma,
+        }
+
+    band_agent_dict = defaultdict(dict)
+    for agent, bands in agent_band_dict.items():
+        for band, values in bands.items():
+            band_agent_dict[band][agent] = values
+
+    return [agent_band_dict, band_agent_dict]
+
+def diff_band_calcs(values, freq_range_dict):
+    agent_band_dict = {}
+    for agent, calculations in values.items():
+        agent_band_dict[agent] = {}
+        for name, freq_range in freq_range_dict.items():
+            calculations = np.array(calculations)
+            # calculations = [trials, frequencies, brain regions]
+            temp = np.nanmean(calculations[:, freq_range[0]:freq_range[1], ...], axis=1)
+            agent_band_dict[agent][name] = temp
+
+    band_agent_dict = defaultdict(dict)
+    for agent, bands in agent_band_dict.items():
+        for band, values in bands.items():
+            band_agent_dict[band][agent] = values
+
+    return [agent_band_dict, band_agent_dict]

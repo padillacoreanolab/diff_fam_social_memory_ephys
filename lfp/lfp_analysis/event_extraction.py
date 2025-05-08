@@ -82,6 +82,7 @@ def get_events(recording, event, mode, event_len, pre_window, post_window, avera
             if mode is causality or coherence then event snippets has the
             shape [e, t, f, b, b]
     """
+    print(event)
     try:
         events = recording.event_dict[event]
     except KeyError:
