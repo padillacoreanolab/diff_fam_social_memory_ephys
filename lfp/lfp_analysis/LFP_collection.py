@@ -53,7 +53,7 @@ class LFPCollection:
             self.load_recordings(json_path)
         else:
             self.recordings = self._make_recordings()
-            self.brain_region_dict = recordings[0].brain_region_dict
+            self.brain_region_dict = self.recordings[0].brain_region_dict
         if target_confirmation_dict is not None:
             self.exclude_regions(target_confirmation_dict)
         
@@ -142,7 +142,7 @@ class LFPCollection:
     def process(self):
         for recording in tqdm(self.recordings):
             recording.process(self.threshold)
-        self.frequencies = recordings[0].frequencies
+        self.frequencies = self.recordings[0].frequencies
 
     def exclude_regions(self, target_confirmation_dict):
         for recording in self.recordings:

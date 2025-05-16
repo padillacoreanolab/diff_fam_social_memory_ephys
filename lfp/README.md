@@ -1,4 +1,4 @@
-# Local Field Potential (LFP) Analysis
+cd # Local Field Potential (LFP) Analysis
 
 ## Installation
 
@@ -232,13 +232,13 @@ rclone copy source:path dest:path --progress
 
 example real command:
 ```
-rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/SLEAP/all_r3.slp.training_job" ./ --dry-run --progress
+rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Only_Subjects (phase 5)/sorted" ./only_subjects_spike_data --progress  --dry-run
 ```
 
 or to upload data to dropbox: 
 
 ```
-rclone copy ./same pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Same_Diff (phase2)/data" --progress --dry-run
+rclone copy ./r4_predictions pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/SLEAP/only_subject_mp4s/r4_predictions" --progress --dry-run
 ```
 
 sleap-train data/SLEAP/centered_instance.json data/SLEAP/all_r1.slp

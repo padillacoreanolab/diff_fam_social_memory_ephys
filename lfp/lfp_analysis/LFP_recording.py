@@ -39,7 +39,7 @@ class LFPRecording:
         timestep=0.5,
         load=False,
     ):
-        self.merged_rec_path = merged_rec_path
+        self.merged_rec_path = merged_rec_patos.pathh
         self.sampling_rate = sampling_rate
         self.name = os.path.basename(merged_rec_path).split("/")[-1]
         self.subject = subject
