@@ -1,40 +1,5 @@
 import numpy as np
-
-
-def threshold_bouts(start_stop_array, min_iti, min_bout):
-    """
-    thresholds behavior bouts
-    by combining behavior bouts with interbout intervals of < min_iti
-    and then removing remaining bouts of < min_bout
-
-    Args (3 total):
-        start_stop_array: numpy array of dim (# of bouts, 2)
-        min_iti: float, min interbout interval in seconds
-        min_bout: float, min bout length in seconds
-
-    Returns (1):
-        start_stop_array: numpy array (ndim=(n bouts, 2))
-            of start&stop times (ms)
-    """
-
-    start_stop_array = np.sort(start_stop_array.flatten())
-    times_to_delete = []
-    if min_iti > 0:
-        for i in range(1, len(start_stop_array) - 1, 2):
-            if (start_stop_array[i + 1] - start_stop_array[i]) < min_iti:
-                times_to_delete.extend([i, i + 1])
-    start_stop_array = np.delete(start_stop_array, times_to_delete)
-    bouts_to_delete = []
-    if min_bout > 0:
-        for i in range(0, len(start_stop_array) - 1, 2):
-            if start_stop_array[i + 1] - start_stop_array[i] < min_bout:
-                bouts_to_delete.extend([i, i + 1])
-    start_stop_array = np.delete(start_stop_array, bouts_to_delete)
-    no_bouts = len(start_stop_array) / 2
-    start_stop_array = np.reshape(start_stop_array, (int(no_bouts), 2))
-
-    return start_stop_array
-
+import behavior.behavior_epoch_tools as bet
 
 def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
     """
@@ -62,7 +27,7 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
             start_stop_array = behavior_df[["Start (s)", "Stop (s)"]].to_numpy()
             behavior_arrays.append(start_stop_array)
         start_stop_array = np.concatenate(behavior_arrays)
-        start_stop_arrays.append(threshold_bouts(start_stop_array, min_iti, min_bout))
+        start_stop_arrays.append(bet.threshold_bouts(start_stop_array, min_iti, min_bout))
     start_stop_array = np.concatenate(start_stop_arrays)
     organizer = np.argsort(start_stop_array[:, 0])
     start_stop_array = start_stop_array[organizer]
