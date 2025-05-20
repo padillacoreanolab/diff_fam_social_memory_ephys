@@ -308,8 +308,8 @@ def fisher_exact_wilcoxon(
             spike_collection, event2, event_length, baseline_window, offset, exclude_offset, plot=False
         )
     else:
-        df1 = wilcoxon_event1v2_collection(event1, event3, event_length, plot=False)
-        df2 = wilcoxon_event1v2_collection(event2, event3, event_length, plot=False)
+        df1 = wilcoxon_event1v2_collection(spike_collection, event1, event3, event_length, plot=False)
+        df2 = wilcoxon_event1v2_collection(spike_collection, event2, event3, event_length, plot=False)
     row1 = [(df1["p value"] < 0.05).sum(), (df1["p value"] > 0.05).sum()]
     row2 = [(df2["p value"] < 0.05).sum(), (df2["p value"] > 0.05).sum()]
     contingency_matrix = pd.DataFrame(
