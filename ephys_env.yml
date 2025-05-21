@@ -118,7 +118,6 @@ dependencies:
   - openssl==3.4.0
   - certifi==2024.12.14
   - parso==0.8.4
-  - pixman==0.43.4
   - pillow==11.0.0
   - intel-openmp==2025.0.0
   - six==1.16.0
