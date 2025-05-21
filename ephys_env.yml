@@ -108,7 +108,6 @@ dependencies:
   - xorg-libxau==1.0.11
   - libxgboost==2.1.3
   - lcms2==2.16
-  - ucrt==10.0.22621.0
   - importlib-metadata==8.5.0
   - packaging==24.2
   - libsodium==1.0.20
