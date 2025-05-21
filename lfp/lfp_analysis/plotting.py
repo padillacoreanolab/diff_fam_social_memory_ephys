@@ -161,7 +161,7 @@ def plot_heatmap(lfp_collection, events, freq, color, vmax=None, vmin = None, ba
     # Calculate Granger causality for each event with its corresponding baseline
     event_grangers = {}
     for event, baseline in zip(events, event_baselines):
-        event_data = lfpa.average_events(
+        event_data = ee.average_events(
             lfp_collection, [event], mode=mode, 
             baseline=baseline, event_len=event_len, plot=False
         )
@@ -253,9 +253,11 @@ def plot_heatmap(lfp_collection, events, freq, color, vmax=None, vmin = None, ba
     # Adjust layout to prevent overlap
     plt.tight_layout()
     plt.show()
+    
+    return None
    
 def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=None):
-    event_granger = average_events(lfp_collection,events, mode="granger", baseline=baseline, event_len=event_len, plot=False)
+    event_granger = ee.average_events(lfp_collection,events, mode="granger", baseline=baseline, event_len=event_len, plot=False)
     n_events = len(events)
     n_cols = min(3, n_events)  # Max 3 columns
     n_rows = (n_events + n_cols - 1) // n_cols  # Ceiling division
@@ -286,6 +288,7 @@ def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=
     # Adjust layout to prevent overlap
     plt.tight_layout()
     plt.show()
+    return None
     
 #SPECTROGRAMS
 def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre_window = 0, post_window = 0, freq_range=(0,100)):
@@ -532,7 +535,7 @@ def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre
 
 
 def event_power_bar(lfp_collection, events, baseline=None):
-    powers = average_events(lfp_collection, events=events, mode="power", baseline=baseline, plot=False)
+    powers = ee.average_events(lfp_collection, events=events, mode="power", baseline=baseline, plot=False)
     [unflipped, flipped] = band_calcs(powers)
     brain_regions = np.empty(len(lfp_collection.brain_region_dict.keys()), dtype="<U10")
     for i in range(len(lfp_collection.brain_region_dict.keys())):
@@ -596,9 +599,22 @@ def event_power_bar(lfp_collection, events, baseline=None):
 def event_coherence_bar(lfp_collection, events, baseline=None):
     region_dict = lfp_collection.brain_region_dict
     brain_regions = list(combinations(list((region_dict.keys())), 2))  # Example subset names
+    coherences = ee.average_events(lfp_collection, events=events, mode="coherence", baseline=baseline, plot=False)
+    plot_bars(lfp_collection, brain_regions, coherences, events, title = 'Coherence')
+    return None
+  
+def event_granger_bar(lfp_collection, events, baseline=None):
+    region_dict = lfp_collection.brain_region_dict
+    brain_regions = list(permutations(region_dict.keys(), 2))  # Ordered pairs
 
-    coherences = average_events(lfp_collection, events=events, mode="coherence", baseline=baseline, plot=False)
-    [unflipped, flipped] = band_calcs(coherences)
+    grangers = ee.average_events(lfp_collection, events=events, mode="granger", baseline=baseline, plot=False)
+    
+    plot_bars(lfp_collection, brain_regions, grangers, events, title= 'Granger')
+    return None
+
+def plot_bars(lfp_collection, brain_regions, values, events, title):
+    region_dict = lfp_collection.brain_region_dict
+    [unflipped, flipped] = band_calcs(values)
     avg_values = {key: {subset: {event: [] for event in events} for subset in brain_regions} for key in flipped.keys()}
     sem_values = {key: {subset: {event: [] for event in events} for subset in brain_regions} for key in flipped.keys()}
 
@@ -641,14 +657,18 @@ def event_coherence_bar(lfp_collection, events, baseline=None):
                 )
 
         plt.yticks(fontsize=16)
-        plt.xticks(x, brain_regions, fontsize=18, rotation=45)
+        if title == 'Granger':
+            region_labels = [f"{pair[1]} to {pair[0]}" for pair in brain_regions]
+        if title == 'Coherence':
+            region_labels = [f"{pair[0]} &{pair[1]}" for pair in brain_regions]
+        plt.xticks(x, region_labels, rotation=45, ha='right', fontsize = 18)
         plt.axhline(y=0, color="black", linestyle="--", alpha=0.8)
         plt.ylabel("Average Coherence", fontsize=20)
         plt.gca().spines["top"].set_visible(False)
         plt.gca().spines["right"].set_visible(False)
         plt.gca().spines["bottom"].set_linewidth(2)  # X-axis
         plt.gca().spines["left"].set_linewidth(2)
-        plt.title(f"Average Coherence for {key}", fontsize=26, font="Arial")
+        plt.title(f"Average {title} for {key}", fontsize=26)
         plt.legend(fontsize=16, frameon=False)
         plt.subplots_adjust(hspace=0.5)
         plt.show()

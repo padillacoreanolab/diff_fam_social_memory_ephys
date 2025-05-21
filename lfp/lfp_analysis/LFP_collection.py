@@ -22,12 +22,41 @@ DEFAULT_KWARGS = {
 }
 
 class LFPCollection:
+    """
+    LFPCollection is a collection of LFPRecording objects. For channel mapping, the orientation of the head stage matters. When you open trodes, the channel should match the trodes label minus 1 since trodes is 1 indexed and we want 0 indexed.
+    
+    Args (4 required, 4 optional):
+        subject_to_channel_dict: dict, subject names to brain regions to channel       
+            mapping.
+            key: str, subject name (must match with recording_to_subject_dict)
+            value: dict, brian region to channel numbers  
+                key: str, brain region, must match exactly across subjects
+                value: int, channel number (0 indexed) 
+        data_path: str, path to data folder containing your .rec folders with merged.rec files in them. Type an r in front of your path ie r"path/to/data"
+        recording_to_subject_dict: dict, exact names of your merged.rec files to the subject name
+            key: str, merged.rec file name exactly as it appears in your data folder
+            value: str, subject name matching exactly what is in your subject to channel dict
+        threshold: int, default=None, the number of median absolute deviations (MADs) to filter out of the LFP traces, similar to standard deviations (SDs)
+        recording_to_event_dict: dict, optional, default=None
+            key: str, merged.rec file name exactly as it appears in your data folder
+            value: dict, event names to start and stop time arrays
+                key: str, event name, must be consistent across recordings
+                value: numpy array, shape (n,2) where n is the number of events and 2 is the start and stop time of each event 
+        target_confirmation_dict: dict, optional, default=None
+            key: str, subject name, matching exactly with subject_to_channel and recording_to_subject dicts
+            value: list, a list of strings of brain regions (must match with subject_to_channel_dict) of brain regions to exclude per subject
+        trodes_directory: str, path to trodes folder with an r outside the string, ex. r'path/to/trodes/fodler'
+        json_path: str, path to json folder for collection in same folder with folder of rec jsons and h5s if you are loading a pre-initialized LFPCollection object, put an r outside of the path string. ex. r'path/to/json'
+        
+        
+        
+    """
     def __init__(
         self,
         subject_to_channel_dict: dict,
         data_path: str,
         recording_to_subject_dict: dict,
-        threshold: int,
+        threshold: None,
         recording_to_event_dict=None,
         target_confirmation_dict=None,
         #{subject: [list of bad brain regions], each subject needs a list!
@@ -49,6 +78,7 @@ class LFPCollection:
             self.kwargs[key] = kwargs.get(key, default_value)
 
         # Initialize recordings
+        # if json path is given, read in h5 files instead of making new recording objects
         if json_path is not None:
             self.load_recordings(json_path)
         else:
@@ -79,16 +109,31 @@ class LFPCollection:
                     )
                     recordings.append(lfp_rec)
         return recordings
+    
+    def diagnostic_plots_channel_finder(self):
+        """
+        Plots raw traces and filtered traces side by side for each brain region.
+        Skip regions that contain only NaNs.
+
+        Args (1 requires):
+            threshold: int, the number of median absolute deviations (MADs) to filter out of the LFP traces, similar to standard deviations (SDs)
+            
+        Returns: 
+            none
+        """
+        for recording in self.recordings:
+            recording.plot_all_channels()
 
     def diagnostic_plots(self, threshold):
         """
-        Plot raw traces and filtered traces side by side for each brain region.
+        Plots raw traces and filtered traces side by side for each brain region.
         Skip regions that contain only NaNs.
 
-        Parameters:
-        - raw_traces: array of shape [time, channels]
-        - filtered_traces: array of shape [time, channels]
-        - brain_region_dict: bidict mapping region names to channel indices
+        Args (1 requires):
+            threshold: int, the number of median absolute deviations (MADs) to filter out of the LFP traces, similar to standard deviations (SDs)
+            
+        Returns: 
+            none
         """
         for recording in self.recordings:
             # Find valid regions (not all NaNs)
@@ -139,11 +184,41 @@ class LFPCollection:
             plt.suptitle(f'{recording.name}', y = 1, fontsize = 20)
             plt.show()
 
-    def process(self):
+    def preprocess(self, threshold=None):
+        """
+        Calculates rms traces for all recordings in the collection. 
+        """
+        if threshold is None and self.threshold is not None:
+            threhsold = self.threshold
+        if threshold is None and self.threshold is None:
+            print('No threshold has been chosen, LFP signals will not be filtered.')
+            print('Using a threshold of 0.')
+            self.threshold = 0
         for recording in tqdm(self.recordings):
-            recording.process(self.threshold)
+            recording.preprocess(self.threshold)
+        
+    
+    def calculate_all(self):
+        for recording in tqdm(self.recordings):
+            recording.calculate_all()
         self.frequencies = self.recordings[0].frequencies
 
+    def calculate_power(self):
+        for recording in tqdm(self.recordings):
+            recording.calculate_power()
+        self.frequencies = self.recordings[0].frequencies
+        
+    def calculate_coherence(self):
+        for recording in tqdm(self.recordings):
+            recording.calculate_coherence()
+        self.frequencies = self.recordings[0].frequencies
+        
+    def calculate_granger_causality(self):
+        for recording in tqdm(self.recordings):
+            recording.calculate_granger_causality()
+        self.frequencies = self.recordings[0].frequencies
+        
+        
     def exclude_regions(self, target_confirmation_dict):
         for recording in self.recordings:
             bad_regions = target_confirmation_dict[recording.subject]
