@@ -111,7 +111,6 @@ dependencies:
   - libsodium==1.0.20
   - libwebp-base==1.4.0
   - libblas==3.9.0
-  - vs2015_runtime==14.42.34433
   - openssl==3.4.0
   - certifi==2024.12.14
   - parso==0.8.4
