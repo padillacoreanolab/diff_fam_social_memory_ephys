@@ -32,7 +32,7 @@ def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
     organizer = np.argsort(start_stop_array[:, 0])
     start_stop_array = start_stop_array[organizer]
 
-    return start_stop_array * 1000
+    return start_stop_array
 
 
 def save_behavior_bouts(directory, boris_df, subject, behavior, min_iti=0, min_bout=0, filename=None):

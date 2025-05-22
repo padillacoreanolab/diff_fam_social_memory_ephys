@@ -7,6 +7,18 @@ import matplotlib.patches as mpatches
 import random
 
 
+def random_event_generator(start, stop, len_event, no_events):
+    total_duration = stop - start
+    possible_events = np.arange(int(total_duration / len_event))
+    pot_events = np.random.choice(possible_events, size = (no_events), replace = False)
+    pot_events = np.sort(pot_events)
+    events = []
+    for i in pot_events:
+        event_start = (start + (len_event * i))
+        event_stop = (event_start + (len_event))
+        events.append(np.array([event_start, event_stop]))
+    return(np.array(events))
+
 def threshold_bouts(start_stop_array, min_iti, min_bout):
     """
     thresholds behavior bouts by combining behavior bouts with interbout intervals of
@@ -21,7 +33,8 @@ def threshold_bouts(start_stop_array, min_iti, min_bout):
         start_stop_array: numpy array (ndim=(n bouts, 2))
             of start&stop times
     """
-
+    if isinstance(start_stop_array, list):
+        start_stop_array = np.array(start_stop_array)
     start_stop_array = np.sort(start_stop_array.flatten())
     times_to_delete = []
     if min_iti > 0:
@@ -102,10 +115,11 @@ def prep_data(group):
     return time_points
 
 
-
-
 def split_events(groups, event_dict, return_nonoverlap):
+    event3 = []
     if return_nonoverlap:
+        eventA = []
+        eventB = []
         for group in groups:
         # Track events with unique IDs to handle multiple As or Bs
             time_points = []
@@ -127,11 +141,11 @@ def split_events(groups, event_dict, return_nonoverlap):
                     countA = active_labels['A']
                     countB = active_labels['B']
                     if countA > 0 and countB == 0:
-                        event_dict['eventA'].append([prev_time, time])
+                        eventA.append([prev_time, time])
                     elif countB > 0 and countA == 0:
-                        event_dict['eventB'].append([prev_time, time])
+                        eventB.append([prev_time, time])
                     elif countA > 0 and countB > 0:
-                        event_dict['event3'].append([prev_time, time])
+                        event3.append([prev_time, time])
                     # If neither are active, we ignore
 
                 # Update active sets
@@ -143,9 +157,13 @@ def split_events(groups, event_dict, return_nonoverlap):
                     active_labels[label] -= 1
 
                 prev_time = time
-    return overlap_events(groups, event_dict)
+        event_dict['eventA'] = np.array(eventA)
+        event_dict['eventB'] = np.array(eventB)
+    event_dict['event3'] = np.array(event3)
+    return event_dict
 
 def overlap_events(groups, event_dict):
+    event3 = []
     for group in groups:
         time_points = prep_data(group)
 
@@ -162,13 +180,16 @@ def overlap_events(groups, event_dict):
                 current_active -= 1
             prev_time = time
 
-        event_dict['event3'].extend(overlapping_chunks)
+        event3.extend(overlapping_chunks)
+    event_dict['event3'] = np.array(event3)
     return event_dict
 
 def combine_events(groups, event_dict):
+    event3 = []
     for group in groups:
         time_points = prep_data(group)
-        event_dict['event3'].append([time_points[0][0], time_points[-1][0]])
+        event3.append([time_points[0][0], time_points[-1][0]])
+    event_dict['event3'] = np.array(event3)
     return event_dict
 
 def overlapping_events(eventA, eventB, overlap_threshold, mode, return_nonoverlap=False):
@@ -267,7 +288,7 @@ def duplicate_events(eventA, eventB, overlap_threshold, event_dict, return_nonov
         else:
             if return_nonoverlap:
                 event_dict['eventB'].append([startB, stopB])
-
+    event_dict = {event: np.array(v) for event, v in event_dict.items()}
     return event_dict
 
 def first_eventA_after_eventB(eventA, eventB, overlap=False, delay=0):

@@ -152,7 +152,7 @@ def event_difference(lfp_collection, event1, event2, mode, baseline1=None, basel
 
 
 def __baseline_diff__(recording, event_averages, baseline, mode, event_len, pre_window, post_window, average):
-    baseline_averages = __get_events__(recording, baseline, mode, event_len, pre_window, post_window, average = average)
+    baseline_averages = get_events(recording, baseline, mode, event_len, pre_window, post_window, average = average)
     #average = trial, freq, regions
     #not average = trial, time, freq, regions
     if not average:
@@ -194,13 +194,13 @@ def average_events(
                     recording, event_averages, baseline[i], mode, event_len, pre_window=0, post_window=0, average = True
                 )
                 rec_event_average = np.mean(np.array(adj_averages), axis = 0)
-                
-                recording_averages = recording_averages.append(rec_event_average)
+                recording_averages.append(rec_event_average)
             else:
                 rec_event_average = np.mean(np.array(event_averages), axis = 0)
                 recording_averages.append(rec_event_average)
             
         # recording_averages = [trials, b, f] or [trials, b, b, f]
+        
         event_averages_dict[events[i]] = recording_averages
     if plot:
         lfplt.plot_average_events(lfp_collection, event_averages_dict, mode, regions, freq_range)

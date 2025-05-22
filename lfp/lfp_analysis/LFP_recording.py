@@ -10,6 +10,8 @@ import h5py
 import numpy as np
 import json
 from bidict import bidict
+import matplotlib.pyplot as plt
+import math
 
 
 LFP_FREQ_MIN = 0.5
@@ -39,7 +41,7 @@ class LFPRecording:
         timestep=0.5,
         load=False,
     ):
-        self.merged_rec_path = merged_rec_patos.pathh
+        self.merged_rec_path = merged_rec_path
         self.sampling_rate = sampling_rate
         self.name = os.path.basename(merged_rec_path).split("/")[-1]
         self.subject = subject
@@ -76,14 +78,59 @@ class LFPRecording:
         # Channel ids are the "names" of the channels as strings
         traces = recording.get_traces(channel_ids=sorted_channels, start_frame=start_frame)
         return traces
+    
+    def get_all_channels(self):
+        recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
+        recording = sp.notch_filter(recording, freq=self.elec_noise_freq)
+        recording = sp.bandpass_filter(recording, freq_min=self.min_freq, freq_max=self.max_freq)
+        recording = sp.resample(recording, resample_rate=self.resample_rate)
+        start_frame = self.find_start_recording_time()
+        # Channel ids are the "names" of the channels as strings
+        traces = recording.get_traces(start_frame=start_frame)
+        return traces
+    
+    
+    def plot_all_channels(self): 
+        traces = self.get_all_channels()
+        scaled_traces = preprocessor.scale_voltage(traces, self.voltage_scaling)
 
+        num_channels = traces.shape[1]
+        num_samples = traces.shape[0]
+
+        # Time axis
+        time_in_seconds = np.arange(num_samples) / self.resample_rate
+        time_in_minutes = time_in_seconds / 60
+
+        # Plot settings
+        n_cols = 4
+        n_rows = math.ceil(num_channels / n_cols)
+
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 2 * n_rows), sharex=True)
+        axes = axes.flatten()  # flatten to make indexing easier
+
+        for i in range(num_channels):
+            axes[i].plot(time_in_minutes, scaled_traces[:, i])
+            axes[i].set_title(f"Channel {i}")
+            axes[i].set_ylabel("Amplitude (uV)")
+            axes[i].set_xlabel("Time (min)")
+
+        # Hide unused subplots
+        for j in range(num_channels, len(axes)):
+            axes[j].axis('off')
+            
+        plt.tight_layout()
+        plt.suptitle(f'{self.name}', y=1.02, fontsize=20)
+        plt.show()
+
+    
+    
     def plot_to_find_threshold(self, threshold, file_path=None):
         scaled_traces = preprocessor.scale_voltage(self.traces, voltage_scaling_value=self.voltage_scaling)
         zscore_traces = preprocessor.zscore(scaled_traces)
         thresholded_traces = preprocessor.zscore_filter(zscore_traces, scaled_traces, threshold)
         preprocessor.plot_zscore(scaled_traces, zscore_traces, thresholded_traces, file_path)
 
-    def process(self, threshold=None):
+    def preprocess(self, threshold=None, mode='all'):
         print(f"processing {self.name}")
         if (threshold is None) and (self.threshold is None):
             print("Please choose a threshold")
@@ -94,17 +141,73 @@ class LFPRecording:
 
         self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
         print("RMS Traces calculated")
-        self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
-            connectivity_wrapper.connectivity_wrapper(
-                self.rms_traces,
+        
+    def calculate_all(self): 
+        if not hasattr(self, 'rms_traces'):
+            print('RMS traces for not been calculated yet.')
+            print('Choose threhold and run preprocess().')
+        else:
+            self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
+                connectivity_wrapper.connectivity_wrapper(
+                    self.rms_traces,
+                    self.resample_rate,
+                    self.halfbandwidth,
+                    self.timewindow,
+                    self.timestep,
+                )
+            )
+            
+    def calculate_power(self):
+        if not hasattr(self, 'rms_traces'):
+            print('RMS traces for not been calculated yet.')
+            print('Choose threhold and run preprocess().')
+        else:
+            self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
+                self.rms_traces, 
                 self.resample_rate,
                 self.halfbandwidth,
                 self.timewindow,
-                self.timestep,
-                self.min_freq,
-                self.max_freq,
-            )
-        )
+                self.timestep)
+            self.power = connectivity_wrapper.calculate_power(self.rms_traces, 
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep)
+            
+    def calculate_coherence(self):
+        if not hasattr(self, 'rms_traces'):
+            print('RMS traces for not been calculated yet.')
+            print('Choose threhold and run preprocess().')
+        else:
+            self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
+                self.rms_traces, 
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep)
+            self.coherence = connectivity_wrapper.calculate_coherence(self.rms_traces, 
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep)
+            
+    def calculate_granger_causality(self):
+        if not hasattr(self, 'rms_traces'):
+            print('RMS traces for not been calculated yet.')
+            print('Choose threhold and run preprocess().')
+        else:
+            self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
+                self.rms_traces, 
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep)
+            self.granger = connectivity_wrapper.calculate_granger(self.rms_traces, 
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep)
+            
 
     def export_trodes_timestamps(self, trodes_directory):
         if trodes is None:
@@ -299,7 +402,7 @@ class LFPRecording:
                     "frequencies", data=recording.frequencies, compression="gzip", compression_opts=9
                 )
 
-            if hasattr(recording, "grangers") | hasatrrs(recording, "granger"):
+            if hasattr(recording, "grangers") | hasattr(recording, "granger"):
                 try:
                     data_group.create_dataset("granger", data=recording.granger, compression="gzip", compression_opts=9)
                 except Exception as e:
