@@ -9,7 +9,7 @@ import random
 
 def threshold_bouts(start_stop_array, min_iti, min_bout):
     """
-    thresholds behavior bouts by combining behavior bouts with interbout intervals of 
+    thresholds behavior bouts by combining behavior bouts with interbout intervals of
     < min_iti and then removing remaining bouts of < min_bout
 
     Args (3 total):
@@ -21,7 +21,7 @@ def threshold_bouts(start_stop_array, min_iti, min_bout):
         start_stop_array: numpy array (ndim=(n bouts, 2))
             of start&stop times
     """
-    
+
     start_stop_array = np.sort(start_stop_array.flatten())
     times_to_delete = []
     if min_iti > 0:
@@ -86,7 +86,7 @@ def check_overlap_threshold(group, overlap_threshold):
             current_active -= 1
         prev_time = time
     percent_overlap = overlap / (time_points[-1][0] - time_points[0][0])
-    if percent_overlap >= overlap_threshold: 
+    if percent_overlap >= overlap_threshold:
         return group
     else:
         return None
@@ -103,7 +103,7 @@ def prep_data(group):
 
 
 
-        
+
 def split_events(groups, event_dict, return_nonoverlap):
     if return_nonoverlap:
         for group in groups:
@@ -164,7 +164,7 @@ def overlap_events(groups, event_dict):
 
         event_dict['event3'].extend(overlapping_chunks)
     return event_dict
-  
+
 def combine_events(groups, event_dict):
     for group in groups:
         time_points = prep_data(group)
@@ -178,7 +178,7 @@ def overlapping_events(eventA, eventB, overlap_threshold, mode, return_nonoverla
     else:
         groups = find_overlapping_groups(eventA, eventB)
         good_groups = []
-        
+
         included_events = set()
         for group in groups:
             if len(group) == 1:
@@ -227,7 +227,7 @@ def duplicate_events(eventA, eventB, overlap_threshold, event_dict, return_nonov
     Label as '1' if percent overlap >= threshold, else 'A'.
     Return list of tuples: (label, (start, stop))
     """
-  
+
 
     for startA, stopA in eventA:
         durationA = stopA - startA
@@ -273,7 +273,7 @@ def duplicate_events(eventA, eventB, overlap_threshold, event_dict, return_nonov
 def first_eventA_after_eventB(eventA, eventB, overlap=False, delay=0):
     """
     For each event in eventB, return the first eventA that starts after (startB + delay).
-    
+
     Parameters:
         eventA (array-like): Nx2 array of [start, stop] for eventA.
         eventB (array-like): Mx2 array of [start, stop] for eventB.
@@ -299,7 +299,7 @@ def first_eventA_after_eventB(eventA, eventB, overlap=False, delay=0):
             # Take the first one chronologically
             first_event = candidates[np.argmin(candidates[:, 0])]
             matched_events.append(first_event)
-            matched_events = list(set(map(tuple, matched_events))) # remove potential duplicates 
+            matched_events = list(set(map(tuple, matched_events))) # remove potential duplicates
             matched_events.sort()  # Optional: sort by start time
 
     return np.array(matched_events)
@@ -319,7 +319,7 @@ def plot_event_bars(eventA, event_dict, eventB= None, title='Event Plot'):
     # Put original A and B at the beginning
     if eventB is not None:
         full_dict = {'original A': eventA, 'original B': eventB}
-    
+
     else:
         full_dict = {'original A': eventA}
     full_dict.update(event_dict)

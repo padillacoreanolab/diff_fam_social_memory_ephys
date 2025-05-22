@@ -1,5 +1,5 @@
 import numpy as np
-import behavior.behavior_epoch_tools as bet
+import behavior.behavioral_epoch_tools as bet
 
 def get_behavior_bouts(boris_df, subject, behavior, min_iti=0, min_bout=0):
     """
@@ -64,3 +64,25 @@ def save_behavior_bouts(directory, boris_df, subject, behavior, min_iti=0, min_b
         filename = f"{subject}_{behavior}_bouts.npy"
 
     np.save(directory + filename, bouts_array)
+
+
+def reciprocal_bouts(bouts_array, time_window=None):
+    """
+    takes a numpy array of start&stop times (ms)
+    and returns a numpy array of reciprocal bouts
+    i.e. bout 1: start1, stop1, start2, stop2
+
+    Args (3 total, 1 required):
+        bouts_array: numpy array (ndim=(n bouts, 2)) of start&stop times (ms)
+        time_window: float, default=None, time window in s converted to ms. If None,
+            there will be no time window considered and all overlapping bouts will be
+            returned as reciprocal bouts. If time_window not None, only bouts that are
+            overlapping and within the time_window will be returned as reciprocal bouts.
+
+    Returns (1):
+        numpy array of arrays of start&stop times (ms)
+    """
+    if time_window is None:
+        time_window = 0
+
+    return None
