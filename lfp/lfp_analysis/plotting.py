@@ -312,7 +312,7 @@ def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre
             recording_events = ee.get_events(recording, events[i], mode, event_len, 
                                                   pre_window, post_window, average=False)
             if baseline is not None:
-                adj_averages = __baseline_diff__(
+                adj_averages = ee.__baseline_diff__(
                     recording, recording_events, baseline[i], mode, event_len, 
                     pre_window=0, post_window=0, average = False
                 )
