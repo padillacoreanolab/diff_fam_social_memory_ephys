@@ -1,0 +1,105 @@
+---
+title: "cups_glm"
+author: "Meghan Cum"
+date: "2025-03-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(Matrix)
+library(dabestr)
+library(MuMIn)
+library(effsize)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+cups <- read.csv('./cups_dataframe.csv')
+
+cups <- cups |>
+  mutate(subject = as_factor(subject),
+         agent = as_factor(agent),
+         location = as_factor(location),
+         color = as_factor(color),
+         hco.rel.rank = as_factor(hco.rel.rank),
+         um.rel.rank = as_factor(um.rel.rank))
+
+
+str(cups)
+         
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+simple_model <- lm(total_investigation_time ~ agent + subject, cups)
+
+#summary(simple_model)
+anova(simple_model)
+
+total_inv_factors <- lmer(total_investigation_time ~ agent + (1|subject), cups)
+
+anova(total_inv_factors)
+ranova(total_inv_factors)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+total_inv <- emmeans(total_inv_factors, ~ agent)
+ttest_inv <- contrast(total_inv, simple = 'each', method = 'pairwise', adjust = 'holm')
+
+ttest_inv
+
+```
+
+```{r}
+
+wide_cups <- pivot_wider(cups, id_cols = c('subject', 'hco.rel.rank', 'um.rel.rank'), names_from ='agent', values_from =  c('total_investigation_time', 'num_events', 'avg_event_length'), names_glue = "{agent}_{.value}") 
+
+wide_cups <- wide_cups |>
+    mutate(total_investigation_time = cagemate_total_investigation_time + familiar_total_investigation_time+ novel_total_investigation_time+ empty_total_investigation_time,
+           cagemate_pref = cagemate_total_investigation_time / total_investigation_time * 100,
+novel_pref = novel_total_investigation_time / total_investigation_time * 100,
+fam_pref= familiar_total_investigation_time/total_investigation_time * 100,
+empty_pref = empty_total_investigation_time/total_investigation_time*100, .before = 2)
+
+
+wide_cups
+
+
+
+cagemate_pref_model <- lm(cagemate_pref ~ hco.rel.rank, wide_cups)
+anova(cagemate_pref_model)
+summary(cagemate_pref_model)
+```
+
+```{r}
+
+long_cups <- pivot_longer(wide_cups, cols = c(cagemate_pref, novel_pref, fam_pref), names_to = "agent", values_to = "preference")
+                          
+long_cups
+
+total_inv_factors <- lmer(preference ~ agent + hco.rel.rank + um.rel.rank + (1|subject), long_cups)
+
+anova(total_inv_factors)
+ranova(total_inv_factors)
+total_inv <- emmeans(total_inv_factors, ~ agent)
+ttest_inv <- contrast(total_inv, simple = 'each', method = 'pairwise', adjust = 'holm')
+
+ttest_inv
+```
+
