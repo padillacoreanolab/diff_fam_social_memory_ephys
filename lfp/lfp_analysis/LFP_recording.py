@@ -249,18 +249,18 @@ class LFPRecording:
         
     def exclude_regions(self, bad_regions):
         self.excluded_regions = bad_regions
-        if not bad_regions:
+        if bad_regions:
             for region in bad_regions:
                 reg_idx = self.brain_region_dict[region]
-                self.traces[:, reg_idx] = np.nan
+                self.rms_traces[:, reg_idx] = np.nan
                 if hasattr(self, 'power'):
-                    self.power[:, :, region] = np.nan
+                    self.power[:, :, reg_idx] = np.nan
                 if hasattr(self, 'coherence'):
-                    self.coherence[:,:,region, :] = np.nan
-                    self.coherence[:,:, :, region] = np.nan
+                    self.coherence[:,:,reg_idx, :] = np.nan
+                    self.coherence[:,:, :, reg_idx] = np.nan
                 if hasattr(self, 'granger'):
-                    self.granger[:,:,region, :] = np.nan
-                    self.granger[:,:,:region] = np.nan
+                    self.granger[:,:,reg_idx, :] = np.nan
+                    self.granger[:,:,:reg_idx] = np.nan
 
     def interpolate_power(self, kind="linear"):
         if not np.isnan(self.power).any():
