@@ -1,0 +1,32 @@
+recording,qualifying_events,num_qualifying_events_types,sum_of__qualifying_trials,num_neurons,num_wins
+20230612_101430_standard_comp_to_training_D1_subj_1-3_t3b3L_box2_merged.rec,"['alone_rewarded', 'alone_rewarded_baseline', 'high_comp', 'high_comp_lose_baseline', 'high_comp_win', 'high_comp_win_baseline', 'low_comp', 'low_comp_lose', 'low_comp_lose_baseline', 'low_comp_win', 'low_comp_win_baseline']",11,279,22,13
+20230612_101430_standard_comp_to_training_D1_subj_1-4_t4b2L_box1_merged.rec,"['alone_rewarded', 'alone_rewarded_baseline', 'high_comp', 'high_comp_lose', 'high_comp_lose_baseline', 'high_comp_win_baseline', 'low_comp', 'low_comp_lose', 'low_comp_lose_baseline', 'low_comp_win', 'low_comp_win_baseline']",11,279,10,7
+20230612_112630_standard_comp_to_training_D1_subj_1-1_t1b3L_box2_merged.rec,"['alone_rewarded', 'alone_rewarded_baseline', 'high_comp', 'high_comp_lose', 'high_comp_lose_baseline', 'high_comp_win', 'high_comp_win_baseline', 'low_comp', 'low_comp_lose', 'low_comp_lose_baseline', 'low_comp_win', 'low_comp_win_baseline']",12,280,15,7
+20230612_112630_standard_comp_to_training_D1_subj_1-2_t2b2L_box1_merged.rec,"['alone_rewarded', 'alone_rewarded_baseline', 'high_comp', 'high_comp_lose', 'high_comp_lose_baseline', 'high_comp_win', 'high_comp_win_baseline', 'low_comp', 'low_comp_lose', 'low_comp_lose_baseline', 'low_comp_win', 'low_comp_win_baseline']",12,280,20,13
+20230613_105657_standard_comp_to_training_D2_subj_1-1_t1b2L_box1_merged.rec,"['alone_rewarded', 'high_comp', 'high_comp_win', 'low_comp', 'low_comp_win']",5,79,15,19
+20230614_114041_standard_comp_to_training_D3_subj_1-1_t1b3L_box1_merged.rec,"['alone_rewarded', 'alone_rewarded_baseline', 'high_comp', 'high_comp_lose', 'high_comp_lose_baseline', 'high_comp_win', 'high_comp_win_baseline', 'low_comp', 'low_comp_lose_baseline', 'low_comp_win', 'low_comp_win_baseline']",11,267,31,14
+20230614_114041_standard_comp_to_training_D3_subj_1-2_t2b2L_box2_merged.rec,"['alone_rewarded', 'alone_rewarded_baseline', 'high_comp', 'high_comp_lose', 'high_comp_lose_baseline', 'high_comp_win', 'high_comp_win_baseline', 'low_comp', 'low_comp_lose', 'low_comp_lose_baseline', 'low_comp_win_baseline']",11,267,27,6
+20230616_111904_standard_comp_to_training_D4_subj_1-2_t2b2L_box2_merged.rec,"['alone_rewarded', 'alone_rewarded_baseline', 'high_comp', 'high_comp_lose_baseline', 'high_comp_win', 'high_comp_win_baseline', 'low_comp', 'low_comp_lose', 'low_comp_lose_baseline', 'low_comp_win', 'low_comp_win_baseline']",11,273,19,14
+20230616_111904_standard_comp_to_training_D4_subj_1-4_t4b3L_box1_merged.rec,"['alone_rewarded', 'alone_rewarded_baseline', 'high_comp', 'high_comp_lose', 'high_comp_lose_baseline', 'high_comp_win_baseline', 'low_comp', 'low_comp_lose', 'low_comp_lose_baseline', 'low_comp_win', 'low_comp_win_baseline']",11,273,15,6
+20230617_115521_standard_comp_to_omission_D1_subj_1-1_t1b3L_box1_merged.rec,"['high_comp', 'high_comp_win', 'low_comp', 'low_comp_win']",4,40,18,19
+20230618_100636_standard_comp_to_omission_D2_subj_1-1_t1b2L_box2_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_lose', 'low_comp_win']",6,40,21,14
+20230618_100636_standard_comp_to_omission_D2_subj_1-4_t4b3L_box1_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_lose', 'low_comp_win']",6,40,12,6
+20230619_115321_standard_comp_to_omission_D3_subj_1-4_t3b3L_box2_merged.rec,"['high_comp', 'high_comp_lose', 'low_comp', 'low_comp_lose', 'low_comp_win']",5,38,18,4
+20230620_114347_standard_comp_to_omission_D4_subj_1-1_t1b2L_box_2_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_win']",5,34,10,13
+20230620_114347_standard_comp_to_omission_D4_subj_1-2_t3b3L_box_1_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_lose']",5,34,28,4
+20240317_151922_long_comp_subj_3-1_t6b6_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win']",3,56,7,18
+20240317_151922_long_comp_subj_3-3_t5b5_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win']",3,56,13,12
+20240317_172017_long_comp_subj_4-2_t6b6_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_lose']",5,78,11,6
+20240317_172017_long_comp_subj_4-3_t5b5_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_win']",5,78,22,33
+20240318_143819_long_comp_subj_3-4_t5b5_merged.rec,"['high_comp', 'high_comp_win', 'low_comp', 'low_comp_win']",4,82,6,41
+20240318_170933_long_comp_subj_4-3_t6b6_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_win']",5,78,24,35
+20240319_160457_long_comp_subj_4-2_t5b5_merged.rec,"['high_comp', 'high_comp_win', 'low_comp', 'low_comp_win']",4,77,18,38
+20240320_114629_long_comp_subj_5-3_t6b6_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_lose', 'low_comp_win']",6,80,4,26
+20240320_142408_alone_comp_subj_3-1_t6b6_merged.rec,"['alone_rewarded', 'high_comp', 'high_comp_win', 'low_comp', 'low_comp_lose', 'low_comp_win']",6,80,15,12
+20240320_142408_alone_comp_subj_3-3_t5b5_merged.rec,"['alone_rewarded', 'high_comp', 'high_comp_lose', 'low_comp', 'low_comp_lose', 'low_comp_win']",6,80,10,8
+20240320_171038_alone_comp_subj_4-3_t5b5_merged.rec,"['alone_rewarded', 'high_comp', 'high_comp_win', 'low_comp', 'low_comp_win']",5,80,23,19
+20240321_114851_long_comp_subj_5-3_t5b5_merged.rec,"['high_comp', 'high_comp_lose', 'high_comp_win']",3,66,8,28
+20240322_120625_alone_comp_subj_3-4_t5b5_merged.rec,"['alone_rewarded', 'high_comp', 'high_comp_win', 'low_comp', 'low_comp_win']",5,83,7,20
+20240322_160946_alone_comp_subj_4-3_t6b6_merged.rec,"['alone_rewarded', 'high_comp', 'high_comp_win', 'low_comp', 'low_comp_win']",5,83,24,20
+20240323_144517_alone_comp_subj_3-4_t6b6_merged.rec,"['alone_rewarded', 'high_comp', 'high_comp_win']",3,75,9,17
+20240323_165815_alone_comp_subj_4-2_t5b5_merged.rec,"['alone_rewarded', 'high_comp', 'high_comp_lose', 'high_comp_win', 'low_comp', 'low_comp_lose', 'low_comp_win']",7,74,17,6
