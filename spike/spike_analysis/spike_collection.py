@@ -263,6 +263,10 @@ class SpikeCollection:
         )
 
         collection.load_recordings(json_path)
+
+        for rec in collection.recordings:
+            rec.all_set = True
+        
         return collection
 
     def load_recordings(self, json_path):
