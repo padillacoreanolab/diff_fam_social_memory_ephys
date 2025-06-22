@@ -10,7 +10,6 @@ def save_collection(self, output_path):
             "total good units": sum(recording.good_neurons for recording in self.recordings),
             "average units per recording": (sum(recording.good_neurons for recording in 
                                                 self.recordings) / len(self.recordings))
-
     }}
 
 # Spike Recording Details
