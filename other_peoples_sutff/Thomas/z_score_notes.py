@@ -1,3 +1,15 @@
+
+'''
+Next Steps:
+    1. Brainstorm what you want to look for in analysis to make analyzing each recording easier | groupby wins, losses, event types, etc.
+    2. Speed up analysis, concatenate z_score dataframes for each recording, add anything from brainstorming that's necessary, save into files.
+    3. Create plotting functions for z-scores, firing rates, and other statistics
+'''
+
+
+
+
+
 # Spike collection Details
 # --------------------------------------------------------------------------------------------------------
 
