@@ -2,7 +2,7 @@ bin/
 data/
 proc/
 spike_interface/
-
+spike_collection.json/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -16,23 +16,23 @@ class SpikeCollection:
         sampling_rate: int, default=20000 sampling rate of ephys device in Hz
     """
 
-    def __init__(self, path, event_dict={}, subject_dict={}, sampling_rate=20000):
+    def __init__(self, path, event_dict={}, subject_dict={}, sampling_rate=20000, load = False):
         self.sampling_rate = sampling_rate
         self.path = path
         self.event_dict = event_dict
         self.subject_dict = subject_dict
-
-        self.make_collection()
-        if not event_dict:
-            print("Please assign event dictionaries to each recording")
-            print("as recording.event_dict")
-            print("event_dict = {event name(str): np.array[[start(ms), stop(ms)]...]")
-        else:
-            self.event_dict = event_dict
-        if not subject_dict:
-            print("Please assign subjects to each recording as recording.subject")
-        else:
-            self.subject_dict = subject_dict
+        if not load:
+            self.make_collection()
+            if not event_dict:
+                print("Please assign event dictionaries to each recording")
+                print("as recording.event_dict")
+                print("event_dict = {event name(str): np.array[[start(ms), stop(ms)]...]")
+            else:
+                self.event_dict = event_dict
+            if not subject_dict:
+                print("Please assign subjects to each recording as recording.subject")
+            else:
+                self.subject_dict = subject_dict
 
     def make_collection(self):
         collection = []
@@ -255,9 +255,11 @@ class SpikeCollection:
         metadata = data["metadata"]
         # Create collection instance
         collection = SpikeCollection(
-            data_path=metadata["data_path"],
-            sampling_rate=metadata["sampling_rate"],
-            json_path=json_path,
+            metadata["data_path"],
+            event_dict=metadata.get("event_dict", {}),
+            subject_dict=metadata.get("subject_dict", {}),
+            sampling_rate=metadata.get("sampling_rate", 20000), 
+            load = True
         )
 
         collection.load_recordings(json_path)
