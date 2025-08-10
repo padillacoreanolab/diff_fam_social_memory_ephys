@@ -63,6 +63,7 @@ def compute_global_baseline(recording, event_name=None, pre_window=10, verbose=F
     return global_baseline_counts
 
 
+
 def zscore_event_vs_global(recording, event_name, global_baseline_counts, pre_window=10, SD=1.65, verbose=False):
     """
     Computes z-scores for event firing rates against a global baseline.
@@ -132,11 +133,12 @@ def zscore_event_vs_global(recording, event_name, global_baseline_counts, pre_wi
 
     return pd.DataFrame(rows)
 
+
 def run_zscore_global_baseline(recording, event_name, pre_window=10, SD=1.65, verbose=False):
     """
-    Runs z-scoring of event firing rates against a global baseline.
-    This function computes the global baseline counts and then calculates the z-scores
-    for the specified event type using the global baseline.
+    Z-score event firing rates using a *pooled* baseline (all event types) per unit.
+    This function calculates the z-score of firing rates for a specific event type
+    based on a global baseline computed from all event types in the recording.
     Parameters:
     - recording: SpikeRecording object containing spike data and events.
     - event_name: Name of the event type to analyze.
@@ -145,14 +147,126 @@ def run_zscore_global_baseline(recording, event_name, pre_window=10, SD=1.65, ve
     - verbose: If True, prints additional information during processing.
     Returns:
     - A pandas DataFrame containing the z-scores and significance of firing rates for each unit
-      for the specified event type.
+    for the specified event type.
     """
+    # Step 1: Pool all baseline windows across all events for each unit
+    global_baseline_counts = {}
+    units = getattr(recording, "good_units", None) # get good units if available
+    if units is None: # if not, use labels_dict
+        units = [unit_id for unit_id, label in recording.labels_dict.items() if label == "good"]
 
+        if verbose:
+            print("Using labels_dict to determine good units.")
+            print(f"Good units found: {units}\n\nFrom labels_dict: {recording.labels_dict}\n\n")
+
+    # Initialize global baseline list per unit
+    for unit_id in units:
+        global_baseline_counts[unit_id] = []
     if verbose:
-        print(f"[RunZScore] Running for {recording.name}, event: {event_name}, pre_window={pre_window}s, SD threshold={SD}")
-    global_baseline_counts = compute_global_baseline(recording, event_name, pre_window, verbose)
-    zscore_df = zscore_event_vs_global(recording, event_name, global_baseline_counts, pre_window, SD, verbose)
-    if verbose:
-        print(f"[RunZScore] Output DataFrame shape: {zscore_df.shape}")
-        print(zscore_df.head(3))
-    return zscore_df
+        print(f"Gloabal baseline counts initialized for first 5 units: {list(global_baseline_counts.items())[:5]}\n")    
+
+    # Loop through all event types and pool all baselines
+    # creates a list of baseline counts for each unit
+    for ev_type, event_windows in recording.event_dict.items():
+        for unit_id in units:
+            spikes = recording.unit_timestamps[unit_id] # number of spikes for this unit
+            spikes_ms = spikes * (1000 / recording.sampling_rate) # convert to milliseconds since event_windows are in ms
+
+            for window in event_windows:
+                start_event = window[0]
+                start_baseline = start_event - int(pre_window * 1000)
+                if verbose:
+                    print(f"For window {window}, start_event: {start_event}, start_baseline: {start_baseline}, pre_window: {pre_window}")
+
+                end_baseline = start_event
+                baseline_count = np.sum((spikes_ms >= start_baseline) & (spikes_ms < end_baseline))
+                global_baseline_counts[unit_id].append(baseline_count) # list of counts for this unit appended to global_baseline_counts
+
+                if verbose:
+                    print(f"Unit {unit_id}, Event {ev_type}, Baseline count: {baseline_count}\n")
+
+    # Step 2: Compute global baseline mean and SD per unit using numpy
+    baseline_mean = {u: np.mean(c) for u, c in global_baseline_counts.items()}
+    baseline_sd = {u: np.std(c) for u, c in global_baseline_counts.items()}
+
+    # Step 3: For the target event, calculate z-scores
+    event_windows = recording.event_dict[event_name]
+    event_firing = {}
+    rows = []
+    for unit_id in units:
+        spikes = recording.unit_timestamps[unit_id]
+        spikes_ms = spikes * (1000 / recording.sampling_rate)
+        event_counts = []
+        for window in event_windows:
+            start_event = window[0]
+            end_event = window[1]
+            event_count = np.sum((spikes_ms >= start_event) & (spikes_ms < end_event)) # count spikes in the event window using masking
+            event_counts.append(event_count)
+
+        # getting all the important values for z-score calculation per unit
+        ev_mean = np.mean(event_counts)
+        b_mean = baseline_mean[unit_id]
+        b_sd = baseline_sd[unit_id]
+
+        # Calculate z-score
+        zscore = np.nan if b_sd == 0 else (ev_mean - b_mean) / b_sd 
+
+
+        # significance determination based on SD threshold given
+        sig = "not sig"
+        if not np.isnan(zscore):
+            if zscore > SD:
+                sig = "increase"
+            elif zscore < -SD:
+                sig = "decrease"
+
+        rows.append({
+            "Recording": recording.name,
+            "Event name": event_name,
+            "Unit number": unit_id,
+            "Global Pre-event M": b_mean,
+            "Global Pre-event SD": b_sd,
+            "Event M": ev_mean,
+            "Event Z-Score": zscore,
+            "sig": sig
+        })
+
+    df = pd.DataFrame(rows)
+    return df
+
+def generate_all_zscore_pie_plots(spike_collection, output_dir="pie_plots", SD=1.65, pre_window=10):
+    import os
+    import matplotlib.pyplot as plt
+    from collections import Counter
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    for rec in spike_collection.recordings:
+        print(f"Processing recording: {rec.name}")
+        for event_name in rec.event_dict.keys():
+            try:
+                df = run_zscore_global_baseline(rec, event_name, pre_window=pre_window, SD=SD)
+                sig_counts = df["sig"].value_counts()
+                
+                # Ensure all 3 categories are represented for consistency
+                labels = ["increase", "decrease", "not sig"]
+                sizes = [sig_counts.get(label, 0) for label in labels]
+                
+                # Skip plotting if there's no data
+                if sum(sizes) == 0:
+                    print(f"Skipping {rec.name} - {event_name}: no data")
+                    continue
+
+                plt.figure(figsize=(5, 5))
+                plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+                plt.axis('equal')
+                plt.title(f"{event_name}\n{rec.name}", fontsize=10)
+                
+                # Save to file
+                safe_rec_name = re.sub(r'[^\w\-_\. ]', '_', rec.name)  # Clean filename
+                filename = f"{safe_rec_name}__{event_name}.png"
+                filepath = os.path.join(output_dir, filename)
+                plt.savefig(filepath, bbox_inches='tight')
+                plt.close()
+            except Exception as e:
+                print(f"Error processing {rec.name}, {event_name}: {e}")
