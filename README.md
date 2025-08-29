@@ -1,4 +1,4 @@
-# ephys_analysis
+# diff_fam_social_memory_ephys
 This repository holds code to conduct ephys analysis on data files that come from trodes and phy files. It also has code to extract behavior data from Boris and ECU data and some tools to manipulate behavioral epochs. 
 
 ### Prerequisites
@@ -7,39 +7,51 @@ This repository holds code to conduct ephys analysis on data files that come fro
 ### Setup
 1. Clone this repository:
    ```
-   git clone https://github.com/padillacoreanolab/ephys_analysis.git
+   git clone https://github.com/padillacoreanolab/diff_fam_social_memory_ephys.git
    ```
    or use github desktop to clone it locally. 
    
    Open the repository in a terminal that can access conda
 
-   ``` 
-   cd users/yourname/github/ephys_analysis
-   ```
-2. Create and activate conda environment
+
+2. Change the working directory on VSCode to this diff_fam_social_memory_ephys folder itself. Go to the settings tab under workspace and change the following setting: 
+- (File>Preference>Settings or Ctrl+,)
+
+- Jupyter: Notebook File Root
+-- ${workspaceFolder}
+
+this means that the parent folder opened in VSCode is the workspaceFolder which is set as the working directory which if you opened the whole folder, diff_fam_social_memory_ephys, this should be correct. 
+
+**note: where a jupyternotebook lives is not necessarily where
+it is being run, those are two different things. 
+
+- This is important because it is brittle to have imports be relative to where the jupyter notebook file is stored for importing local modules and extremely important for [pickling and unpickling](https://stackoverflow.com/a/2121918). Eg, if you wanted to move notebooks, or have notebooks be portable from computer to computer[text]
+
+
+3. Create and activate conda environment
 ```
 conda env create -f ephys_env.yml
 conda activate ephys_env
 ```
-3. Install the packages
+4. For house-keeping, create your own folder under other_peoples_stuff/YOURNAME. 
+
+5. If you set up the working directory setting correctly you should be able to import functions like this:
 ```
-bash 
-pip install -e . 
-```
-4. Clone your own project repository and import functions from ephys_analysis at top like this:
-```
-from lfp.lfp_collection import LFPCollection
+from lfp.lfp_analysis.lfp_collection import LFPCollection
+from spike.spike_analysis.spike_collection import SpikeCollection
 ```
 
 ## What do you need
+This whole code base is made under the assumption you have left the automatic naming conventions of trodes and phy. Meaning, this code will not work if: for trodes files 1.) you have not left .rec at the end of every recording folder or 2.) you not kept the merged.rec ending for every recording file and for phy outputs you need 1.) a folder ending with merged.rec and inside that folder is a 2.) phy folder 
 - LFP: Current version of this code assumes you have recorded your data through Trodes and have kept the *.rec/*merged.rec data folder structure. 
+- Timestamps: you will need the timestamps.dat folder in a .time folder
 - Spike: current version of this code assumes you have done manual spike sorting through Phy and have saved everything under a *merged.rec/phy/.. data structure. 
 - Behavior: both Spike and LFP analysis require the same format of behavior input for analysis, currently helper functions exist under Behavior for BORIS and ECU derived behavior data. 
 
-## Setting up your Trodes folder using helper_fxns folder
+## Odds and ends of getting all the things you need
 
 ### Extracting relevant files: LFP + ECU + Analog 
-trodes_export.py has functions that will allow you batch export various files through trodes. You will need trodes installed onto your local device. 
+trodes_export.py has functions that will allow you batch export various files through trodes. It is under the trodes folder. You will need trodes installed onto your local device to use its functions. 
 - time: export needed to find the first timestamp of a recording for all LFP, ECU and analog analysis
 - DIO: if you used the ECU to record operant chamber inputs, you will need to extract DIO files 
 - analog: if you used any Ain inputs to record, you will need to extract analog files 

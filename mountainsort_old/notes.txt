@@ -1,3 +1,0 @@
-cannot seem to get this to run ,
-
-keeps getting some weird node error so i have not been able to spike sort these last issue -type files 

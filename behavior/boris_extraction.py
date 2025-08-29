@@ -61,7 +61,7 @@ def get_behavior_bouts_frame(boris_df, cameratimestamps, first_timestamp, subjec
     start_stop_arrays = []
     for mouse in subject:
         subject_df = boris_df[boris_df["Subject"] == mouse]
-        subject_df["Image index stop"] = subject_df["Image index stop"].fillna(
+        subject_df.loc[:, "Image index stop"] = subject_df["Image index stop"].fillna(
             subject_df["Image index start"].shift(-1)
         )
         behavior_arrays = []
