@@ -1,0 +1,136 @@
+level_0,subject,level_1,order,condition,score,exposure_number
+11_CNF_merged.rec1.1,11,no_events,CNF,cagemate,48.0,1
+11_CNF_merged.rec1.1,11,avg event,CNF,cagemate,2.0658468750000027,1
+11_CNF_merged.rec1.1,11,total time,CNF,cagemate,99.16065000000015,1
+11_NCF_merged.rec1.1,11,no_events,NCF,cagemate,13.0,2
+11_NCF_merged.rec1.1,11,avg event,NCF,cagemate,1.2111269230769337,2
+11_NCF_merged.rec1.1,11,total time,NCF,cagemate,15.74465000000014,2
+12_CNF_merged.rec1.2,12,no_events,CNF,cagemate,41.0,1
+12_CNF_merged.rec1.2,12,avg event,CNF,cagemate,2.1154243902439203,1
+12_CNF_merged.rec1.2,12,total time,CNF,cagemate,86.73240000000072,1
+13_NCF_merged.rec1.3,13,no_events,NCF,cagemate,18.0,2
+13_NCF_merged.rec1.3,13,avg event,NCF,cagemate,1.3050250000000878,2
+13_NCF_merged.rec1.3,13,total time,NCF,cagemate,23.490450000001584,2
+21_FCN_merged.rec2.1,21,no_events,FCN,cagemate,15.0,2
+21_FCN_merged.rec2.1,21,avg event,FCN,cagemate,2.9383299999999815,2
+21_FCN_merged.rec2.1,21,total time,FCN,cagemate,44.074949999999724,2
+21_NCF_merged.rec2.1,21,no_events,NCF,cagemate,15.0,2
+21_NCF_merged.rec2.1,21,avg event,NCF,cagemate,2.272833333333318,2
+21_NCF_merged.rec2.1,21,total time,NCF,cagemate,34.09249999999977,2
+22_FCN_merged.rec2.2,22,no_events,FCN,cagemate,3.0,2
+22_FCN_merged.rec2.2,22,avg event,FCN,cagemate,1.3165666666665736,2
+22_FCN_merged.rec2.2,22,total time,FCN,cagemate,3.9496999999997207,2
+22_NCF_merged.rec2.2,22,no_events,NCF,cagemate,9.0,2
+22_NCF_merged.rec2.2,22,avg event,NCF,cagemate,1.0317055555555141,2
+22_NCF_merged.rec2.2,22,total time,NCF,cagemate,9.285349999999628,2
+23_CNF_merged.rec2.3,23,no_events,CNF,cagemate,12.0,1
+23_CNF_merged.rec2.3,23,avg event,CNF,cagemate,1.4936416666666628,1
+23_CNF_merged.rec2.3,23,total time,CNF,cagemate,17.923699999999954,1
+23_NFC_merged.rec2.3,23,no_events,NFC,cagemate,14.0,3
+23_NFC_merged.rec2.3,23,avg event,NFC,cagemate,15.631610714285667,3
+23_NFC_merged.rec2.3,23,total time,NFC,cagemate,218.84254999999933,3
+24_CNF_merged.rec2.4,24,no_events,CNF,cagemate,8.0,1
+24_CNF_merged.rec2.4,24,avg event,CNF,cagemate,0.9308437499999709,1
+24_CNF_merged.rec2.4,24,total time,CNF,cagemate,7.446749999999767,1
+24_NFC_merged.rec2.4,24,no_events,NFC,cagemate,9.0,3
+24_NFC_merged.rec2.4,24,avg event,NFC,cagemate,2.779438888888858,3
+24_NFC_merged.rec2.4,24,total time,NFC,cagemate,25.014949999999722,3
+32_NFC_merged.rec3.2,32,no_events,NFC,cagemate,39.0,3
+32_NFC_merged.rec3.2,32,avg event,NFC,cagemate,3.4499166666666605,3
+32_NFC_merged.rec3.2,32,total time,NFC,cagemate,134.54674999999978,3
+41_FCN_merged.rec4.1,41,no_events,FCN,cagemate,21.0,2
+41_FCN_merged.rec4.1,41,avg event,FCN,cagemate,1.6150880952380664,2
+41_FCN_merged.rec4.1,41,total time,FCN,cagemate,33.91684999999939,2
+44_FCN_merged.rec4.4,44,no_events,FCN,cagemate,21.0,2
+44_FCN_merged.rec4.4,44,avg event,FCN,cagemate,1.9039261904762215,2
+44_FCN_merged.rec4.4,44,total time,FCN,cagemate,39.982450000000654,2
+11_CNF_merged.rec1.1,11,no_events,CNF,familiar,39.0,3
+11_CNF_merged.rec1.1,11,avg event,CNF,familiar,3.9955102564103075,3
+11_CNF_merged.rec1.1,11,total time,CNF,familiar,155.824900000002,3
+11_NCF_merged.rec1.1,11,no_events,NCF,familiar,32.0,3
+11_NCF_merged.rec1.1,11,avg event,NCF,familiar,1.4746453125000625,3
+11_NCF_merged.rec1.1,11,total time,NCF,familiar,47.188650000002,3
+12_CNF_merged.rec1.2,12,no_events,CNF,familiar,20.0,3
+12_CNF_merged.rec1.2,12,avg event,CNF,familiar,1.593757499999972,3
+12_CNF_merged.rec1.2,12,total time,CNF,familiar,31.87514999999944,3
+13_NCF_merged.rec1.3,13,no_events,NCF,familiar,9.0,3
+13_NCF_merged.rec1.3,13,avg event,NCF,familiar,3.1397944444445374,3
+13_NCF_merged.rec1.3,13,total time,NCF,familiar,28.25815000000084,3
+21_FCN_merged.rec2.1,21,no_events,FCN,familiar,12.0,1
+21_FCN_merged.rec2.1,21,avg event,FCN,familiar,2.413720833333316,1
+21_FCN_merged.rec2.1,21,total time,FCN,familiar,28.96464999999979,1
+21_NCF_merged.rec2.1,21,no_events,NCF,familiar,5.0,3
+21_NCF_merged.rec2.1,21,avg event,NCF,familiar,1.5127300000000745,3
+21_NCF_merged.rec2.1,21,total time,NCF,familiar,7.563650000000372,3
+22_FCN_merged.rec2.2,22,no_events,FCN,familiar,14.0,1
+22_FCN_merged.rec2.2,22,avg event,FCN,familiar,1.2842892857143056,1
+22_FCN_merged.rec2.2,22,total time,FCN,familiar,17.98005000000028,1
+22_NCF_merged.rec2.2,22,no_events,NCF,familiar,22.0,3
+22_NCF_merged.rec2.2,22,avg event,NCF,familiar,1.2388045454545538,3
+22_NCF_merged.rec2.2,22,total time,NCF,familiar,27.253700000000187,3
+23_CNF_merged.rec2.3,23,no_events,CNF,familiar,43.0,3
+23_CNF_merged.rec2.3,23,avg event,CNF,familiar,2.663558139534878,3
+23_CNF_merged.rec2.3,23,total time,CNF,familiar,114.53299999999977,3
+23_NFC_merged.rec2.3,23,no_events,NFC,familiar,40.0,2
+23_NFC_merged.rec2.3,23,avg event,NFC,familiar,3.4505750000000175,2
+23_NFC_merged.rec2.3,23,total time,NFC,familiar,138.0230000000007,2
+24_CNF_merged.rec2.4,24,no_events,CNF,familiar,19.0,3
+24_CNF_merged.rec2.4,24,avg event,CNF,familiar,1.7143368421052583,3
+24_CNF_merged.rec2.4,24,total time,CNF,familiar,32.57239999999991,3
+24_NFC_merged.rec2.4,24,no_events,NFC,familiar,25.0,2
+24_NFC_merged.rec2.4,24,avg event,NFC,familiar,2.6946599999999723,2
+24_NFC_merged.rec2.4,24,total time,NFC,familiar,67.3664999999993,2
+32_NFC_merged.rec3.2,32,no_events,NFC,familiar,1.0,2
+32_NFC_merged.rec3.2,32,avg event,NFC,familiar,1.870899999999907,2
+32_NFC_merged.rec3.2,32,total time,NFC,familiar,1.870899999999907,2
+41_FCN_merged.rec4.1,41,no_events,FCN,familiar,17.0,1
+41_FCN_merged.rec4.1,41,avg event,FCN,familiar,1.8346470588235224,1
+41_FCN_merged.rec4.1,41,total time,FCN,familiar,31.188999999999883,1
+44_FCN_merged.rec4.4,44,no_events,FCN,familiar,21.0,1
+44_FCN_merged.rec4.4,44,avg event,FCN,familiar,1.4666238095238415,1
+44_FCN_merged.rec4.4,44,total time,FCN,familiar,30.799100000000674,1
+11_CNF_merged.rec1.1,11,no_events,CNF,novel,38.0,2
+11_CNF_merged.rec1.1,11,avg event,CNF,novel,3.468418421052647,2
+11_CNF_merged.rec1.1,11,total time,CNF,novel,131.7999000000006,2
+11_NCF_merged.rec1.1,11,no_events,NCF,novel,25.0,1
+11_NCF_merged.rec1.1,11,avg event,NCF,novel,1.7190940000000037,1
+11_NCF_merged.rec1.1,11,total time,NCF,novel,42.977350000000094,1
+12_CNF_merged.rec1.2,12,no_events,CNF,novel,23.0,2
+12_CNF_merged.rec1.2,12,avg event,CNF,novel,2.115871739130447,2
+12_CNF_merged.rec1.2,12,total time,CNF,novel,48.66505000000028,2
+13_NCF_merged.rec1.3,13,no_events,NCF,novel,29.0,1
+13_NCF_merged.rec1.3,13,avg event,NCF,novel,1.951736206896579,1
+13_NCF_merged.rec1.3,13,total time,NCF,novel,56.600350000000795,1
+21_FCN_merged.rec2.1,21,no_events,FCN,novel,14.0,3
+21_FCN_merged.rec2.1,21,avg event,FCN,novel,2.6381000000000765,3
+21_FCN_merged.rec2.1,21,total time,FCN,novel,36.93340000000107,3
+21_NCF_merged.rec2.1,21,no_events,NCF,novel,17.0,1
+21_NCF_merged.rec2.1,21,avg event,NCF,novel,3.6476176470588166,1
+21_NCF_merged.rec2.1,21,total time,NCF,novel,62.00949999999988,1
+22_FCN_merged.rec2.2,22,no_events,FCN,novel,11.0,3
+22_FCN_merged.rec2.2,22,avg event,FCN,novel,1.465731818181759,3
+22_FCN_merged.rec2.2,22,total time,FCN,novel,16.12304999999935,3
+22_NCF_merged.rec2.2,22,no_events,NCF,novel,18.0,1
+22_NCF_merged.rec2.2,22,avg event,NCF,novel,1.6611222222222326,1
+22_NCF_merged.rec2.2,22,total time,NCF,novel,29.900200000000186,1
+23_CNF_merged.rec2.3,23,no_events,CNF,novel,27.0,2
+23_CNF_merged.rec2.3,23,avg event,CNF,novel,1.608774074074062,2
+23_CNF_merged.rec2.3,23,total time,CNF,novel,43.436899999999675,2
+23_NFC_merged.rec2.3,23,no_events,NFC,novel,41.0,1
+23_NFC_merged.rec2.3,23,avg event,NFC,novel,2.929713414634155,1
+23_NFC_merged.rec2.3,23,total time,NFC,novel,120.11825000000034,1
+24_CNF_merged.rec2.4,24,no_events,CNF,novel,43.0,2
+24_CNF_merged.rec2.4,24,avg event,CNF,novel,2.1129325581395313,2
+24_CNF_merged.rec2.4,24,total time,CNF,novel,90.85609999999986,2
+24_NFC_merged.rec2.4,24,no_events,NFC,novel,43.0,1
+24_NFC_merged.rec2.4,24,avg event,NFC,novel,4.340962790697697,1
+24_NFC_merged.rec2.4,24,total time,NFC,novel,186.66140000000095,1
+32_NFC_merged.rec3.2,32,no_events,NFC,novel,29.0,1
+32_NFC_merged.rec3.2,32,avg event,NFC,novel,3.7137586206896556,1
+32_NFC_merged.rec3.2,32,total time,NFC,novel,107.699,1
+41_FCN_merged.rec4.1,41,no_events,FCN,novel,10.0,3
+41_FCN_merged.rec4.1,41,avg event,FCN,novel,2.6816500000000465,3
+41_FCN_merged.rec4.1,41,total time,FCN,novel,26.816500000000467,3
+44_FCN_merged.rec4.4,44,no_events,FCN,novel,23.0,3
+44_FCN_merged.rec4.4,44,avg event,FCN,novel,2.1278304347826733,3
+44_FCN_merged.rec4.4,44,total time,FCN,novel,48.94010000000149,3

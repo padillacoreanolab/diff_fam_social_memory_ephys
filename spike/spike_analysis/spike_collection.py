@@ -2,8 +2,8 @@ import os
 from spike.spike_analysis.spike_recording import SpikeRecording
 import numpy as np
 import json
-import h5py
 from pathlib import Path
+
 
 class SpikeCollection:
     """
@@ -16,7 +16,7 @@ class SpikeCollection:
         sampling_rate: int, default=20000 sampling rate of ephys device in Hz
     """
 
-    def __init__(self, path, event_dict={}, subject_dict={}, sampling_rate=20000, load = False):
+    def __init__(self, path, event_dict={}, subject_dict={}, sampling_rate=20000, load=False):
         self.sampling_rate = sampling_rate
         self.path = path
         self.event_dict = event_dict
@@ -140,13 +140,9 @@ class SpikeCollection:
             sum(recording.good_neurons for recording in self.recordings) / num_recordings if num_recordings > 0 else 0
         )
         total_good_units = sum(recording.good_neurons for recording in self.recordings)
-        for recording in self.recordings: 
-            if hasattr(recording, "analyzed_neurons"):
-                calculate_analyzed_neurons = True
-            else:
-                calculate_analyzed_neurons = False
-        if calculate_analyzed_neurons:
-            total_analyzed_units = sum(recording.analyzed_neurons for recording in self.recordings)
+        for recording in self.recordings:
+            if hasattr(recording, "timebin"):
+                total_analyzed_units = sum(recording.analyzed_neurons for recording in self.recordings)
         # Calculate average number of events per event type
         event_counts = {}
         for recording in self.recordings:
@@ -168,13 +164,22 @@ class SpikeCollection:
             unique_subjects = len(set(recording.subject for recording in self.recordings))
             subject_info = f"Number of Unique Subjects: {unique_subjects}"
 
+        if hasattr(self, "timebin"):
+            analyze_info = [
+                f"Total Analyzed Units: {total_analyzed_units}\n",
+                f"Timebin: {self.timebin} ms\n",
+                f"Ignore Frequency: {self.ignore_freq}\n",
+                f"Smoothing Window: {self.smoothing_window}\n",
+            ]
+        else:
+            analyze_info = ""
         return (
             f"SpikeCollection Summary:\n"
             f"  Number of Recordings: {num_recordings}\n"
             f"  Total Good Units: {total_good_units}\n"
-            f"  Total Analyzed Units: {total_analyzed_units}\n"
             f"  Average Number of Good Units: {avg_good_units:.2f}\n"
             f"  Average Number of Events per Event Type: {avg_events_per_type}\n"
+            f"  {analyze_info}\n"
             f"  {subject_info}\n"
             f"\n"
         )
@@ -202,7 +207,7 @@ class SpikeCollection:
             )
         print(f"Recording Details:\n" f"{''.join(details)}")
         return None
-    
+
     def save_collection(self, output_path):
         output_data = {
             "metadata": {
@@ -210,10 +215,11 @@ class SpikeCollection:
                 "number of recordings": len(self.recordings),
                 "sampling rate": self.sampling_rate,
                 "total good units": sum(recording.good_neurons for recording in self.recordings),
-                "average units per recording": (sum(recording.good_neurons for recording in 
-                                                    self.recordings) / len(self.recordings))
-
-        }}
+                "average units per recording": (
+                    sum(recording.good_neurons for recording in self.recordings) / len(self.recordings)
+                ),
+            }
+        }
 
         collection_path = os.path.join(output_path, "spike_collection.json")
         os.makedirs(output_path, exist_ok=True)
@@ -230,7 +236,7 @@ class SpikeCollection:
             rec_path = os.path.join(recordings_dir, f"{rec.name}")
             SpikeRecording.save_rec_to_h5(rec, rec_path)
             SpikeRecording.save_metadata_to_json(rec, rec_path)
-        
+
     @staticmethod
     def load_collection(json_path):
         """Load collection from JSON metadata and H5 recordings.
@@ -258,8 +264,8 @@ class SpikeCollection:
             metadata["data_path"],
             event_dict=metadata.get("event_dict", {}),
             subject_dict=metadata.get("subject_dict", {}),
-            sampling_rate=metadata.get("sampling_rate", 20000), 
-            load = True
+            sampling_rate=metadata.get("sampling_rate", 20000),
+            load=True,
         )
 
         collection.load_recordings(json_path)
@@ -279,6 +285,6 @@ class SpikeCollection:
             try:
                 recording = SpikeRecording.load_rec_from_h5(h5_file)
                 self.recordings.append(recording)
-        
+
             except Exception as e:
                 raise RuntimeError(f"Failed to load recording {h5_file}: {str(e)}")

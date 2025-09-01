@@ -19,6 +19,9 @@ __pycache__/
 *.raw
 *.dat
 !diff_fam_social_memory_ephy/spike/tests/test_data/* 
+*.h5
+*.json
+*.svg
 
 #data types 
 *.xlsx

@@ -1,0 +1,107 @@
+---
+title: "glm_only_subjects"
+author: "Meghan Cum"
+date: "2025-08-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(Matrix)
+library(dabestr)
+library(MuMIn)
+library(effsize)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+only_subjects_behavior <- read_csv('C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/only_subjects/only_subjects_behavior_data.csv')
+
+only_subjects_behavior <- only_subjects_behavior |>
+  mutate(
+         subject = as_factor(subject),
+         condition = as_factor(condition),
+         level_1 = as_factor(level_1),
+         exposure_number = as_factor(exposure_number),
+         order = as_factor(order)
+  )
+ 
+str(only_subjects_behavior)
+only_subjects_behavior 
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+total_time <- only_subjects_behavior |>
+  filter(level_1 == "total time")
+
+
+total_time_model <- lmer(score ~ condition + (1|subject), total_time)
+print('summary')
+summary(total_time_model)
+print('anova')
+anova(total_time_model)
+print('r anova')
+ranova(total_time_model)
+
+emm_tt <- emmeans(total_time_model, ~ condition)
+ttest_tt <- contrast(emm_tt, simple = 'each', method = 'pairwise', adjust = 'holm')
+ttest_tt
+
+```
+
+
+
+```{r}
+event_len <- only_subjects_behavior |>
+  filter(level_1 == "avg event")
+
+
+event_len_model <- lmer(score ~ condition + (1|subject), event_len)
+print('summary')
+summary(event_len_model)
+print('anova')
+anova(event_len_model)
+print('r anova')
+ranova(event_len_model)
+
+emm_el <- emmeans(event_len_model, ~ condition)
+ttest_el <- contrast(emm_el, simple = 'each', method = 'pairwise', adjust = 'holm')
+ttest_el
+```
+
+
+
+
+```{r}
+no_events <- only_subjects_behavior |>
+  filter(level_1 == "no_events")
+
+
+no_events_model <- lmer(score ~ condition + (1|subject), no_events)
+print('summary')
+summary(no_events_model)
+print('anova')
+anova(no_events_model)
+print('r anova')
+ranova(no_events_model)
+
+emm_ne <- emmeans(no_events_model, ~ condition)
+ttest_ne <- contrast(emm_ne, simple = 'each', method = 'pairwise', adjust = 'holm')
+ttest_ne
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

@@ -6,6 +6,7 @@ import spike.spike_analysis.firing_rate_calculations as fr
 import json
 import h5py
 
+
 class SpikeRecording:
     """
     A class for an ephys recording after being spike sorted and manually
@@ -420,16 +421,15 @@ class SpikeRecording:
             data_group = f.create_group("data")
 
             # Save core spike data
-            data_group.create_dataset("timestamps", data=recording.timestamps, 
-                                    compression="gzip", compression_opts=9)
-            data_group.create_dataset("unit_array", data=recording.unit_array, 
-                                    compression="gzip", compression_opts=9)
+            data_group.create_dataset("timestamps", data=recording.timestamps, compression="gzip", compression_opts=9)
+            data_group.create_dataset("unit_array", data=recording.unit_array, compression="gzip", compression_opts=9)
 
             # Save unit timestamps dictionary
             unit_timestamps_group = data_group.create_group("unit_timestamps")
             for unit_id, timestamps in recording.unit_timestamps.items():
-                unit_timestamps_group.create_dataset(str(unit_id), data=timestamps, 
-                                                   compression="gzip", compression_opts=9)
+                unit_timestamps_group.create_dataset(
+                    str(unit_id), data=timestamps, compression="gzip", compression_opts=9
+                )
 
             # === METADATA GROUP ===
             metadata = f.create_group("metadata")
@@ -440,6 +440,8 @@ class SpikeRecording:
             metadata.attrs["phy_path"] = recording.phy
             metadata.attrs["sampling_rate"] = recording.sampling_rate
             metadata.attrs["good_neurons"] = recording.good_neurons
+            if hasattr(recording, "first_timestamp"):
+                metadata.attrs["first_timestamp"] = recording.first_timestamp
 
             # Optional subject
             if hasattr(recording, "subject"):
@@ -464,18 +466,21 @@ class SpikeRecording:
                 event_group = f.create_group("events")
                 for event_name, event_data in recording.event_dict.items():
                     if isinstance(event_data, (np.ndarray, list)):
-                        event_group.create_dataset(event_name, data=np.array(event_data), 
-                                                 compression="gzip", compression_opts=9)
+                        event_group.create_dataset(
+                            event_name, data=np.array(event_data), compression="gzip", compression_opts=9
+                        )
                     else:
                         event_group.attrs[event_name] = str(event_data)
 
             # === ANALYSIS FLAGS (what's available, not the data itself) ===
             analysis_flags = f.create_group("analysis_flags")
             analysis_flags.attrs["has_been_analyzed"] = hasattr(recording, "timebin")
-            analysis_flags.attrs["has_event_dict"] = hasattr(recording, "event_dict") and recording.event_dict is not None
+            analysis_flags.attrs["has_event_dict"] = (
+                hasattr(recording, "event_dict") and recording.event_dict is not None
+            )
             analysis_flags.attrs["all_set"] = getattr(recording, "all_set", False)
 
-    @staticmethod 
+    @staticmethod
     def save_metadata_to_json(recording, json_path):
         """
         Save SpikeRecording metadata to JSON file.
@@ -487,7 +492,7 @@ class SpikeRecording:
         json_path : str
             Path where JSON should be saved
         """
-        json_path = os.path.join(json_path, '.json')
+        json_path = os.path.join(json_path, ".json")
 
         # Calculate derived metrics
         recording_length_minutes = recording.timestamps[-1] / recording.sampling_rate / 60
@@ -502,34 +507,28 @@ class SpikeRecording:
             "phy_path": recording.phy,
             "sampling_rate": recording.sampling_rate,
             "recording_length_minutes": round(recording_length_minutes, 2),
-
             # Subject info
             "subject": getattr(recording, "subject", None),
-
             # Unit summary
             "total_units": len(recording.labels_dict),
             "good_units": good_unit_count,
-            "mua_units": mua_count, 
+            "mua_units": mua_count,
             "noise_units": noise_unit_count,
             "good_neurons": recording.good_neurons,
-
             # Spike summary
             "total_spikes": len(recording.timestamps),
             "first_timestamp": int(recording.timestamps[0]),
             "last_timestamp": int(recording.timestamps[-1]),
-
             # Frequency statistics
             "unit_frequencies": {unit: float(freq) for unit, freq in recording.freq_dict.items()},
             "mean_firing_rate": float(np.mean(list(recording.freq_dict.values()))) if recording.freq_dict else 0,
             "max_firing_rate": float(np.max(list(recording.freq_dict.values()))) if recording.freq_dict else 0,
-
             # Event summary
             "has_events": hasattr(recording, "event_dict") and recording.event_dict is not None,
             "event_summary": {},
-
             # Analysis status
             "has_been_analyzed": hasattr(recording, "timebin"),
-            "all_set": getattr(recording, "all_set", False)
+            "all_set": getattr(recording, "all_set", False),
         }
 
         # Add event summary if events exist
@@ -574,7 +573,7 @@ class SpikeRecording:
 
             # Restore core attributes
             recording.name = metadata.attrs["name"]
-            recording.path = metadata.attrs["path"] 
+            recording.path = metadata.attrs["path"]
             recording.phy = metadata.attrs["phy_path"]
             recording.sampling_rate = metadata.attrs["sampling_rate"]
             recording.good_neurons = metadata.attrs["good_neurons"]
@@ -600,7 +599,7 @@ class SpikeRecording:
             for unit_id, label in labels_group.attrs.items():
                 recording.labels_dict[unit_id] = label
 
-            # Restore freq_dict  
+            # Restore freq_dict
             recording.freq_dict = {}
             freq_group = f["frequencies"]
             for unit_id, freq in freq_group.attrs.items():
@@ -613,7 +612,7 @@ class SpikeRecording:
                 # Load event datasets
                 for event_name in event_group.keys():
                     recording.event_dict[event_name] = event_group[event_name][:]
-                # Load event attributes  
+                # Load event attributes
                 for event_name, event_value in event_group.attrs.items():
                     recording.event_dict[event_name] = event_value
 

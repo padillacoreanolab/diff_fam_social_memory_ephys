@@ -10,14 +10,15 @@ import random
 def random_event_generator(start, stop, len_event, no_events):
     total_duration = stop - start
     possible_events = np.arange(int(total_duration / len_event))
-    pot_events = np.random.choice(possible_events, size = (no_events), replace = False)
+    pot_events = np.random.choice(possible_events, size=(no_events), replace=False)
     pot_events = np.sort(pot_events)
     events = []
     for i in pot_events:
-        event_start = (start + (len_event * i))
-        event_stop = (event_start + (len_event))
+        event_start = start + (len_event * i)
+        event_stop = event_start + (len_event)
         events.append(np.array([event_start, event_stop]))
-    return(np.array(events))
+    return np.array(events)
+
 
 def threshold_bouts(start_stop_array, min_iti, min_bout):
     """
@@ -53,9 +54,10 @@ def threshold_bouts(start_stop_array, min_iti, min_bout):
 
     return start_stop_array
 
+
 def find_overlapping_groups(eventA, eventB):
     all_events = np.concatenate([eventA, eventB])
-    labels = np.concatenate([len(eventA)*['A'], len(eventB)*['B']])
+    labels = np.concatenate([len(eventA) * ["A"], len(eventB) * ["B"]])
 
     # Step 2: Sort by start time
     sorted_indices = np.argsort(all_events[:, 0])
@@ -83,6 +85,7 @@ def find_overlapping_groups(eventA, eventB):
     groups.append(current_group)  # Add the last group
     return groups
 
+
 def check_overlap_threshold(group, overlap_threshold):
     time_points = prep_data(group)
     # Step 3: Sweep line
@@ -93,7 +96,7 @@ def check_overlap_threshold(group, overlap_threshold):
     for time, typ in time_points:
         if prev_time is not None and current_active >= 2:
             overlap += time - prev_time
-        if typ == 'start':
+        if typ == "start":
             current_active += 1
         else:
             current_active -= 1
@@ -104,14 +107,15 @@ def check_overlap_threshold(group, overlap_threshold):
     else:
         return None
 
+
 def prep_data(group):
     time_points = []
     for label, (start, end) in group:
-        time_points.append((start, 'start'))
-        time_points.append((end, 'end'))
+        time_points.append((start, "start"))
+        time_points.append((end, "end"))
 
     # Step 2: Sort by time (with 'start' before 'end' to handle boundaries correctly)
-    time_points.sort(key=lambda x: (x[0], 0 if x[1] == 'start' else 1))
+    time_points.sort(key=lambda x: (x[0], 0 if x[1] == "start" else 1))
     return time_points
 
 
@@ -121,25 +125,25 @@ def split_events(groups, event_dict, return_nonoverlap):
         eventA = []
         eventB = []
         for group in groups:
-        # Track events with unique IDs to handle multiple As or Bs
+            # Track events with unique IDs to handle multiple As or Bs
             time_points = []
             for idx, (label, (start, end)) in enumerate(group):
                 event_id = (label, idx)
-                time_points.append((start, 'start', label, event_id))
-                time_points.append((end, 'end', label, event_id))
+                time_points.append((start, "start", label, event_id))
+                time_points.append((end, "end", label, event_id))
 
             # Sort time points
-            time_points.sort(key=lambda x: (x[0], 0 if x[1] == 'start' else 1))
+            time_points.sort(key=lambda x: (x[0], 0 if x[1] == "start" else 1))
 
             # Track active events
             active_events = set()
-            active_labels = {'A': 0, 'B': 0}
+            active_labels = {"A": 0, "B": 0}
             prev_time = None
 
             for time, typ, label, event_id in time_points:
                 if prev_time is not None and time > prev_time:
-                    countA = active_labels['A']
-                    countB = active_labels['B']
+                    countA = active_labels["A"]
+                    countB = active_labels["B"]
                     if countA > 0 and countB == 0:
                         eventA.append([prev_time, time])
                     elif countB > 0 and countA == 0:
@@ -149,7 +153,7 @@ def split_events(groups, event_dict, return_nonoverlap):
                     # If neither are active, we ignore
 
                 # Update active sets
-                if typ == 'start':
+                if typ == "start":
                     active_events.add(event_id)
                     active_labels[label] += 1
                 else:
@@ -157,10 +161,11 @@ def split_events(groups, event_dict, return_nonoverlap):
                     active_labels[label] -= 1
 
                 prev_time = time
-        event_dict['eventA'] = np.array(eventA)
-        event_dict['eventB'] = np.array(eventB)
-    event_dict['event3'] = np.array(event3)
+        event_dict["eventA"] = np.array(eventA)
+        event_dict["eventB"] = np.array(eventB)
+    event_dict["event3"] = np.array(event3)
     return event_dict
+
 
 def overlap_events(groups, event_dict):
     event3 = []
@@ -174,27 +179,29 @@ def overlap_events(groups, event_dict):
         for time, typ in time_points:
             if prev_time is not None and current_active >= 2:
                 overlapping_chunks.append([prev_time, time])
-            if typ == 'start':
+            if typ == "start":
                 current_active += 1
             else:
                 current_active -= 1
             prev_time = time
 
         event3.extend(overlapping_chunks)
-    event_dict['event3'] = np.array(event3)
+    event_dict["event3"] = np.array(event3)
     return event_dict
+
 
 def combine_events(groups, event_dict):
     event3 = []
     for group in groups:
         time_points = prep_data(group)
         event3.append([time_points[0][0], time_points[-1][0]])
-    event_dict['event3'] = np.array(event3)
+    event_dict["event3"] = np.array(event3)
     return event_dict
+
 
 def overlapping_events(eventA, eventB, overlap_threshold, mode, return_nonoverlap=False):
     event_dict = defaultdict(list)
-    if mode == 'duplicate':
+    if mode == "duplicate":
         event_dict = duplicate_events(eventA, eventB, overlap_threshold, event_dict, return_nonoverlap)
     else:
         groups = find_overlapping_groups(eventA, eventB)
@@ -204,10 +211,10 @@ def overlapping_events(eventA, eventB, overlap_threshold, mode, return_nonoverla
         for group in groups:
             if len(group) == 1:
                 if return_nonoverlap:
-                    if group[0][0] == 'A':
-                        event_dict['eventA'].append(group[0][1])
-                    if group[0][0] == 'B':
-                        event_dict['eventB'].append(group[0][1])
+                    if group[0][0] == "A":
+                        event_dict["eventA"].append(group[0][1])
+                    if group[0][0] == "B":
+                        event_dict["eventB"].append(group[0][1])
             else:
                 good_group = check_overlap_threshold(group, overlap_threshold)
                 if good_group is not None:
@@ -228,19 +235,20 @@ def overlapping_events(eventA, eventB, overlap_threshold, mode, return_nonoverla
                                     for event in good_group:
                                         included_events.add(event)
         if len(good_groups) == 0:
-            print('no overlap')
+            print("no overlap")
         if return_nonoverlap:
-            for label, interval in zip(len(eventA)*['A'] + len(eventB)*['B'], list(eventA) + list(eventB)):
+            for label, interval in zip(len(eventA) * ["A"] + len(eventB) * ["B"], list(eventA) + list(eventB)):
                 event_tuple = (label, tuple(interval))
                 if event_tuple not in included_events:
-                    event_dict[f'event{label}'].append(tuple(interval))
-        if mode == 'combine':
+                    event_dict[f"event{label}"].append(tuple(interval))
+        if mode == "combine":
             event_dict = combine_events(good_groups, event_dict)
-        if mode == 'split':
+        if mode == "split":
             event_dict = split_events(good_groups, event_dict, return_nonoverlap)
-        if mode == 'overlap':
+        if mode == "overlap":
             event_dict = overlap_events(good_groups, event_dict)
     return event_dict
+
 
 def duplicate_events(eventA, eventB, overlap_threshold, event_dict, return_nonoverlap):
     """
@@ -248,7 +256,6 @@ def duplicate_events(eventA, eventB, overlap_threshold, event_dict, return_nonov
     Label as '1' if percent overlap >= threshold, else 'A'.
     Return list of tuples: (label, (start, stop))
     """
-
 
     for startA, stopA in eventA:
         durationA = stopA - startA
@@ -264,10 +271,10 @@ def duplicate_events(eventA, eventB, overlap_threshold, event_dict, return_nonov
         percent_overlap = total_overlap / durationA if durationA > 0 else 0
 
         if percent_overlap >= overlap_threshold:
-            event_dict['event1'].append([startA, stopA])  # overlapping label
+            event_dict["event1"].append([startA, stopA])  # overlapping label
         else:
             if return_nonoverlap:
-                event_dict['eventA'].append([startA, stopA])
+                event_dict["eventA"].append([startA, stopA])
         # non-overlapping label
 
     for startB, stopB in eventB:
@@ -284,12 +291,13 @@ def duplicate_events(eventA, eventB, overlap_threshold, event_dict, return_nonov
         percent_overlap = total_overlap / durationB if durationB > 0 else 0
 
         if percent_overlap >= overlap_threshold:
-            event_dict['event2'].append([startB, stopB])  # overlapping label
+            event_dict["event2"].append([startB, stopB])  # overlapping label
         else:
             if return_nonoverlap:
-                event_dict['eventB'].append([startB, stopB])
+                event_dict["eventB"].append([startB, stopB])
     event_dict = {event: np.array(v) for event, v in event_dict.items()}
     return event_dict
+
 
 def first_eventA_after_eventB(eventA, eventB, overlap=False, delay=0):
     """
@@ -312,7 +320,9 @@ def first_eventA_after_eventB(eventA, eventB, overlap=False, delay=0):
         search_time = startB + delay
         # Mask for events that meet the condition
         if overlap:
-            candidates = eventA[((eventA[:, 0] <= search_time) & (eventA[:, 1] >= search_time)) | (eventA[:, 0] >= search_time)]
+            candidates = eventA[
+                ((eventA[:, 0] <= search_time) & (eventA[:, 1] >= search_time)) | (eventA[:, 0] >= search_time)
+            ]
         else:
             candidates = eventA[eventA[:, 0] >= search_time]
 
@@ -320,12 +330,13 @@ def first_eventA_after_eventB(eventA, eventB, overlap=False, delay=0):
             # Take the first one chronologically
             first_event = candidates[np.argmin(candidates[:, 0])]
             matched_events.append(first_event)
-            matched_events = list(set(map(tuple, matched_events))) # remove potential duplicates
+            matched_events = list(set(map(tuple, matched_events)))  # remove potential duplicates
             matched_events.sort()  # Optional: sort by start time
 
     return np.array(matched_events)
 
-def plot_event_bars(eventA, event_dict, eventB= None, title='Event Plot'):
+
+def plot_event_bars(eventA, event_dict, eventB=None, title="Event Plot"):
     """
     Plots original A and B at the top of the figure, followed by other event types.
 
@@ -339,10 +350,10 @@ def plot_event_bars(eventA, event_dict, eventB= None, title='Event Plot'):
 
     # Put original A and B at the beginning
     if eventB is not None:
-        full_dict = {'original A': eventA, 'original B': eventB}
+        full_dict = {"original A": eventA, "original B": eventB}
 
     else:
-        full_dict = {'original A': eventA}
+        full_dict = {"original A": eventA}
     full_dict.update(event_dict)
 
     # Assign a unique color to each label
@@ -358,8 +369,7 @@ def plot_event_bars(eventA, event_dict, eventB= None, title='Event Plot'):
     for i, label in enumerate(labels):
         y = n_labels - 1 - i  # Reverse y-position so first item is at top
         for start, stop in full_dict[label]:
-            ax.barh(y, stop - start, left=start, height=0.4,
-                    color=color_map[label], edgecolor='black')
+            ax.barh(y, stop - start, left=start, height=0.4, color=color_map[label], edgecolor="black")
         yticks.append(y)
         yticklabels.append(label)
 
@@ -367,11 +377,11 @@ def plot_event_bars(eventA, event_dict, eventB= None, title='Event Plot'):
     ax.set_yticklabels(yticklabels)
     ax.set_xlabel("Time")
     ax.set_title(title)
-    ax.grid(True, axis='x', linestyle='--', alpha=0.5)
+    ax.grid(True, axis="x", linestyle="--", alpha=0.5)
 
     # Legend
-    #legend_handles = [mpatches.Patch(color=color_map[k], label=k) for k in labels]
-    #ax.legend(handles=legend_handles, loc='upper right')
+    # legend_handles = [mpatches.Patch(color=color_map[k], label=k) for k in labels]
+    # ax.legend(handles=legend_handles, loc='upper right')
 
     plt.tight_layout()
     plt.show()
