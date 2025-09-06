@@ -25,19 +25,91 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r cars}
-cups <- read.csv('./cups_dataframe.csv')
+neural_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/ultra_long_neural_data.csv")
+behavior_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/behavior_dataframe.csv")
+arena_info_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/cups_dataframe.csv")
 
-cups <- cups |>
-  mutate(subject = as_factor(subject),
+
+behavior_df <- behavior_df |>
+  rename(X = level_0)
+
+
+behavior_long_time <- behavior_df |>
+  pivot_longer(cols = c('familiar', 'novel', 'cagemate', 'empty'), names_to = 'agent', values_to= 'Total Investigation')|>
+  select(-c('familiar.preference', 'novel.preference', 'cagemate.preference', 'empty.prefernce'))
+  
+
+behavior_long_pref <- behavior_df |>
+  pivot_longer(cols = c('familiar.preference', 'novel.preference', 'cagemate.preference', 'empty.prefernce'), names_to = 'agent', values_to= 'Preference') |>
+  mutate(agent = str_remove(agent, ".preference"))|>
+  select(-c('familiar', 'novel', 'cagemate', 'empty'))
+
+behavior_long_pref
+
+behavior_long <- full_join(behavior_long_time, behavior_long_pref, by = c("X", "agent", "total.cup.time"))
+behavior_long
+
+
+
+```  
+  
+         
+
+```{r}
+arena_info_trimmed_df <- arena_info_df|>
+  select(-c("X", "rank", "total_investigation_time", "avg_event_length")) |>
+  rename("X" = "subject")
+
+arena_info_trimmed_df
+neural_df <- neural_df |>
+  select(-"X") |>
+  rename("X" = "subject")
+
+arena_neural_merge <- full_join(neural_df, arena_info_trimmed_df,  by = c("X", "agent"))
+
+```
+```{r}
+more_behavior_data <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/event_data.csv")
+more_behavior_data <- more_behavior_data |>
+  rename(X = subject)
+more_behavior_data
+behavior_long_pref
+
+all_behavior <- full_join(more_behavior_data, behavior_long_pref, by = c("X", "agent"))
+all_behavior
+all_behavior <- all_behavior |>
+  mutate(trial = as_factor(trial))
+arena_neural_merge <- arena_neural_merge |>
+  mutate(trial = as_factor(trial))
+all_df <- full_join(all_behavior,arena_neural_merge,  by = c("X", "agent", "trial"))
+
+```
+```{r}
+
+
+all_df <- all_df |>
+  mutate(X =as_factor(X),
          agent = as_factor(agent),
          location = as_factor(location),
          color = as_factor(color),
          hco.rel.rank = as_factor(hco.rel.rank),
-         um.rel.rank = as_factor(um.rel.rank))
+         um.rel.rank = as_factor(um.rel.rank),
+         band = as_factor(band),
+         metric = as_factor(metric),
+         gen_baseline = as_factor(gen_baseline),
+         region_or_pair = as_factor(region_or_pair))
 
+str(all_df)
 
-str(cups)
-         
+not_gen_baseline <- all_df |>
+  filter(gen_baseline == 0) |>
+  drop_na()
+power_df  <- not_gen_baseline |>
+  filter(metric == 'power')
+coherence_df  <- not_gen_baseline |>
+  filter(metric == 'coherence')
+granger_df  <- not_gen_baseline |>
+  filter(metric == 'granger')
 ```
 
 ## Including Plots
@@ -45,15 +117,12 @@ str(cups)
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
-simple_model <- lm(total_investigation_time ~ agent + subject, cups)
+simple_model <- lmer(value ~ agent * region_or_pair * trial + (1|location) + (1|color) + (1|X), power_df)
 
 #summary(simple_model)
 anova(simple_model)
+ranova(simple_model)
 
-total_inv_factors <- lmer(total_investigation_time ~ agent + (1|subject), cups)
-
-anova(total_inv_factors)
-ranova(total_inv_factors)
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

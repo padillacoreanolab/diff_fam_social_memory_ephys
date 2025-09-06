@@ -214,7 +214,7 @@ class LFPRecording:
                     timestamps = trodes.read_trodes_extracted_data_file(timestamps_file_path)
                     self.first_timestamp = int(timestamps["first_timestamp"])
                     print("Extracted first timestamp")
-        return
+        return self.first_timestamp
 
     def set_subject(self, subject: str):
         """

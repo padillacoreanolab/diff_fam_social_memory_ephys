@@ -238,7 +238,7 @@ rclone copy pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/Objec
 or to upload data to dropbox: 
 
 ```
-rclone copy ./r4_predictions pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/SLEAP/only_subject_mp4s/r4_predictions" --progress --dry-run
+rclone copy ./mp4s pc-dropbox:"Padilla-Coreano Lab/2024/Cum_SocialMemEphys_pilot2/SLEAP/new_object_control" --progress --dry-run
 ```
 
 sleap-train data/SLEAP/centered_instance.json data/SLEAP/all_r1.slp

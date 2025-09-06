@@ -21,6 +21,8 @@ __pycache__/
 *.h5
 *.json
 *.svg
+*.rec
+*.csv
 
 #data types 
 *.xlsx
