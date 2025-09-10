@@ -124,33 +124,56 @@ granger_df  <- not_gen_baseline |>
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
-# model1 <- lmer(value ~ (region_or_pair:band)  * agent +(region_or_pair:band) * color + (1|trial) + (1|location) + (1|X), power_df)
-# model2 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|location) + (1|X) + (1|event_length), power_df)
-# model3 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|location) + (1|X) + (1|event_length) + (1|Preference), power_df)
-model6 <- lmer(value ~ (region_or_pair:band)  * agent + (agent|trial) + (agent|X) + (1|event_length) + (1|Preference), power_df)
-# model7 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (agent|X) + (1|event_length) + (1|Preference), power_df)
-# model8 <- lmer(value ~ (region_or_pair:band)  * agent + (agent|trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+#simple one term random effect deletion models 
+model1 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|location) + (1|X) + (1|event_length) + (1|Preference), power_df)
+model2 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|location) + (1|X) + (1|event_length), power_df)
+model3 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|location) + (1|X) + (1|event_length) + (1|Preference), power_df)
+model4 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+model5 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|location) + (1|trial) + (1|X) + (1|Preference), power_df)
+# from above i can drop color and location as factors, tested here as well 
+model6 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+```
 
+
+```{r pressure, echo=FALSE}
+#trial agent and agent subject relationships
+#model7 <- lmer(value ~ (region_or_pair:band)  * agent + (agent|trial) + (agent|X) + (1|event_length) + (1|Preference), power_df)
+#testing just subject agent relationships
+# model8 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (agent|X) + (1|event_length) + (1|Preference), power_df) # this was the best one, but agent in agent|x and preference has no significance as a random factor 
+# model9 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|trial) + (1|X:agent) + (1|event_length) + (1|Preference), power_df)
+# model10 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|trial) + (1|agent:X) + (1|event_length) + (1|Preference), power_df)
+# model11 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|trial) + (agent||X) + (1|event_length) + (1|Preference), power_df)
+#testing just trial agent relationships: 14 & 15 are the best
+# model12 <- lmer(value ~ (region_or_pair:band)  * agent + (agent|trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+# model13 <- lmer(value ~ (region_or_pair:band)  * agent +  (agent||trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+# model14 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|trial:agent) + (1|X) + (1|event_length) + (1|Preference), power_df)
+# model15 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|agent:trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+# 17 and 18 are equal so maybe the order does not matter
+model16 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (agent|Preference), power_df)
+model17 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (1|Preference:agent), power_df)
+model18 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (1|agent:Preference), power_df)
+model19 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (agent||Preference), power_df)
+
+#putting it all together
+model20 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial:agent) + (agent|X) + (1|event_length), power_df)
+model21 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial:agent) + (1|X) + (1|event_length) + (1|Preference:agent), power_df)
 
 ```
 
 ```{r}
-# model4 <- lmer(value ~ (region_or_pair:band)  * agent + (trial|X) + (agent|X) + (1|event_length) + (1|Preference), power_df)
-# 
-# model5 <- lmer(value ~ (region_or_pair:band)  * agent + (trial|agent) + (agent|X) + (1|event_length) + (1|Preference), power_df)
-
+anova(model21, model17, model14)
+#model 14 is the winner! 
 ```
 
 ```{r}
-anova(model1, model2, model3, model6, model7, model8)
-# anova(model1, model2, model3, model4, model5, model6, model7, model8)
+
 ```
 
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 ```{r}
 
-power_contrasts <- emmeans(model6, ~ agent * (region_or_pair:band))
+power_contrasts <- emmeans(model14, ~ agent * (region_or_pair:band))
 all_contrasts <- contrast(power_contrasts, simple = 'agent', method= 'pairwise', adjust = 'none')
 all_tests <- summary(all_contrasts)
 all_tests$p.value.adjusted <- p.adjust(all_tests$p.value, method = 'BH')
@@ -164,9 +187,7 @@ all_tests <- all_tests |>
   ))
 all_tests
 
-# color_contrasts <- emmeans(power_model, ~ color * (region_or_pair:band))
-# color_contrasts <- contrast(color_contrasts, simple = 'color', method= 'pairwise', adjust = 'none')
-# summary(color_contrasts, adjust = 'none')
+
  
 ```
 ```{r}
