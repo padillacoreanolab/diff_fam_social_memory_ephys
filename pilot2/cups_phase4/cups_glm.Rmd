@@ -124,29 +124,34 @@ granger_df  <- not_gen_baseline |>
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
-power_model <- lmer(value ~ (region_or_pair:band)  * agent +(region_or_pair:band) * color + (trial|agent) + (1|location) + (1|X), power_df)
-
-#summary(simple_model)
-anova(power_model)
-ranova(power_model)
-
+# model1 <- lmer(value ~ (region_or_pair:band)  * agent +(region_or_pair:band) * color + (1|trial) + (1|location) + (1|X), power_df)
+# model2 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|location) + (1|X) + (1|event_length), power_df)
+# model3 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|location) + (1|X) + (1|event_length) + (1|Preference), power_df)
+model6 <- lmer(value ~ (region_or_pair:band)  * agent + (agent|trial) + (agent|X) + (1|event_length) + (1|Preference), power_df)
+# model7 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (agent|X) + (1|event_length) + (1|Preference), power_df)
+# model8 <- lmer(value ~ (region_or_pair:band)  * agent + (agent|trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
 
 
 ```
+
+```{r}
+# model4 <- lmer(value ~ (region_or_pair:band)  * agent + (trial|X) + (agent|X) + (1|event_length) + (1|Preference), power_df)
+# 
+# model5 <- lmer(value ~ (region_or_pair:band)  * agent + (trial|agent) + (agent|X) + (1|event_length) + (1|Preference), power_df)
+
+```
+
+```{r}
+anova(model1, model2, model3, model6, model7, model8)
+# anova(model1, model2, model3, model4, model5, model6, model7, model8)
+```
+
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 ```{r}
 
-power_contrasts <- emmeans(power_model, ~ agent * (region_or_pair:band))
+power_contrasts <- emmeans(model6, ~ agent * (region_or_pair:band))
 all_contrasts <- contrast(power_contrasts, simple = 'agent', method= 'pairwise', adjust = 'none')
-summary(all_contrasts, adjust = 'none')
-
-color_contrasts <- emmeans(power_model, ~ color * (region_or_pair:band))
-color_contrasts <- contrast(color_contrasts, simple = 'color', method= 'pairwise', adjust = 'none')
-summary(color_contrasts, adjust = 'none')
- 
-```
-```{r}
 all_tests <- summary(all_contrasts)
 all_tests$p.value.adjusted <- p.adjust(all_tests$p.value, method = 'BH')
 all_tests <- all_tests |>
@@ -158,6 +163,14 @@ all_tests <- all_tests |>
     TRUE                     ~ ""
   ))
 all_tests
+
+# color_contrasts <- emmeans(power_model, ~ color * (region_or_pair:band))
+# color_contrasts <- contrast(color_contrasts, simple = 'color', method= 'pairwise', adjust = 'none')
+# summary(color_contrasts, adjust = 'none')
+ 
+```
+```{r}
+
 ```
 
 ```{r}
