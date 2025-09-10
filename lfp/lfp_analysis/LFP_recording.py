@@ -72,13 +72,13 @@ class LFPRecording:
         return recording
 
     def _get_selected_traces(self, recording):
-        start_frame = self.find_start_recording_time()
+        # start_frame = self.find_start_recording_time()
         self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_dict)
         sorted_channels = [str(channel) for channel in sorted_channels]
         # Channel ids are the "names" of the channels as strings
-        traces = recording.get_traces(channel_ids=sorted_channels, start_frame=start_frame)
+        traces = recording.get_traces(channel_ids=sorted_channels)
         return traces
-    
+
     def get_all_channels(self):
         recording = se.read_spikegadgets(self.merged_rec_path, stream_id="trodes")
         recording = sp.notch_filter(recording, freq=self.elec_noise_freq)
@@ -88,9 +88,8 @@ class LFPRecording:
         # Channel ids are the "names" of the channels as strings
         traces = recording.get_traces(start_frame=start_frame)
         return traces
-    
-    
-    def plot_all_channels(self): 
+
+    def plot_all_channels(self):
         traces = self.get_all_channels()
         scaled_traces = preprocessor.scale_voltage(traces, self.voltage_scaling)
 
@@ -116,21 +115,19 @@ class LFPRecording:
 
         # Hide unused subplots
         for j in range(num_channels, len(axes)):
-            axes[j].axis('off')
-            
+            axes[j].axis("off")
+
         plt.tight_layout()
-        plt.suptitle(f'{self.name}', y=1.02, fontsize=20)
+        plt.suptitle(f"{self.name}", y=1.02, fontsize=20)
         plt.show()
 
-    
-    
     def plot_to_find_threshold(self, threshold, file_path=None):
         scaled_traces = preprocessor.scale_voltage(self.traces, voltage_scaling_value=self.voltage_scaling)
         zscore_traces = preprocessor.zscore(scaled_traces)
         thresholded_traces = preprocessor.zscore_filter(zscore_traces, scaled_traces, threshold)
         preprocessor.plot_zscore(scaled_traces, zscore_traces, thresholded_traces, file_path)
 
-    def preprocess(self, threshold=None, mode='all'):
+    def preprocess(self, threshold=None, mode="all"):
         print(f"processing {self.name}")
         if (threshold is None) and (self.threshold is None):
             print("Please choose a threshold")
@@ -141,11 +138,11 @@ class LFPRecording:
 
         self.rms_traces = preprocessor.preprocess(self.traces, threshold, self.voltage_scaling)
         print("RMS Traces calculated")
-        
-    def calculate_all(self): 
-        if not hasattr(self, 'rms_traces'):
-            print('RMS traces for not been calculated yet.')
-            print('Choose threhold and run preprocess().')
+
+    def calculate_all(self):
+        if not hasattr(self, "rms_traces"):
+            print("RMS traces for not been calculated yet.")
+            print("Choose threhold and run preprocess().")
         else:
             self.connectivity, self.frequencies, self.power, self.coherence, self.granger = (
                 connectivity_wrapper.connectivity_wrapper(
@@ -156,58 +153,42 @@ class LFPRecording:
                     self.timestep,
                 )
             )
-            
+
     def calculate_power(self):
-        if not hasattr(self, 'rms_traces'):
-            print('RMS traces for not been calculated yet.')
-            print('Choose threhold and run preprocess().')
+        if not hasattr(self, "rms_traces"):
+            print("RMS traces for not been calculated yet.")
+            print("Choose threhold and run preprocess().")
         else:
             self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
-                self.rms_traces, 
-                self.resample_rate,
-                self.halfbandwidth,
-                self.timewindow,
-                self.timestep)
-            self.power = connectivity_wrapper.calculate_power(self.rms_traces, 
-                self.resample_rate,
-                self.halfbandwidth,
-                self.timewindow,
-                self.timestep)
-            
+                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+            )
+            self.power = connectivity_wrapper.calculate_power(
+                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+            )
+
     def calculate_coherence(self):
-        if not hasattr(self, 'rms_traces'):
-            print('RMS traces for not been calculated yet.')
-            print('Choose threhold and run preprocess().')
+        if not hasattr(self, "rms_traces"):
+            print("RMS traces for not been calculated yet.")
+            print("Choose threhold and run preprocess().")
         else:
             self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
-                self.rms_traces, 
-                self.resample_rate,
-                self.halfbandwidth,
-                self.timewindow,
-                self.timestep)
-            self.coherence = connectivity_wrapper.calculate_coherence(self.rms_traces, 
-                self.resample_rate,
-                self.halfbandwidth,
-                self.timewindow,
-                self.timestep)
-            
+                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+            )
+            self.coherence = connectivity_wrapper.calculate_coherence(
+                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+            )
+
     def calculate_granger_causality(self):
-        if not hasattr(self, 'rms_traces'):
-            print('RMS traces for not been calculated yet.')
-            print('Choose threhold and run preprocess().')
+        if not hasattr(self, "rms_traces"):
+            print("RMS traces for not been calculated yet.")
+            print("Choose threhold and run preprocess().")
         else:
             self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
-                self.rms_traces, 
-                self.resample_rate,
-                self.halfbandwidth,
-                self.timewindow,
-                self.timestep)
-            self.granger = connectivity_wrapper.calculate_granger(self.rms_traces, 
-                self.resample_rate,
-                self.halfbandwidth,
-                self.timewindow,
-                self.timestep)
-            
+                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+            )
+            self.granger = connectivity_wrapper.calculate_granger(
+                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+            )
 
     def export_trodes_timestamps(self, trodes_directory):
         if trodes is None:
@@ -215,7 +196,7 @@ class LFPRecording:
         trodes.trodes_extract_single_file(trodes_directory, self.merged_rec_path, mode="-time")
         # need to go to merged.time folder and read merged.timestamps.dat file
 
-    def find_start_recording_time(self):
+    def find_first_timstamp(self):
         """If the timestamps file is found at self.merged_rec_path, then use it. Otherwise ask user to create it"""
         timestamps_path = str(Path(self.merged_rec_path).with_suffix(".time"))
         if os.path.exists(timestamps_path):
@@ -233,34 +214,34 @@ class LFPRecording:
                     timestamps = trodes.read_trodes_extracted_data_file(timestamps_file_path)
                     self.first_timestamp = int(timestamps["first_timestamp"])
                     print("Extracted first timestamp")
-        return
-    
+        return self.first_timestamp
+
     def set_subject(self, subject: str):
         """
         Sets the subject attribute for the LFPRecording object
         """
         self.subject = subject
-        
+
     def set_event_dict(self, event_dict: dict):
         """
         Sets the event_dict attribute for the LFPRecording object
         """
         self.event_dict = event_dict
-        
+
     def exclude_regions(self, bad_regions):
         self.excluded_regions = bad_regions
         if bad_regions:
             for region in bad_regions:
                 reg_idx = self.brain_region_dict[region]
                 self.rms_traces[:, reg_idx] = np.nan
-                if hasattr(self, 'power'):
+                if hasattr(self, "power"):
                     self.power[:, :, reg_idx] = np.nan
-                if hasattr(self, 'coherence'):
-                    self.coherence[:,:,reg_idx, :] = np.nan
-                    self.coherence[:,:, :, reg_idx] = np.nan
-                if hasattr(self, 'granger'):
-                    self.granger[:,:,reg_idx, :] = np.nan
-                    self.granger[:,:,:reg_idx] = np.nan
+                if hasattr(self, "coherence"):
+                    self.coherence[:, :, reg_idx, :] = np.nan
+                    self.coherence[:, :, :, reg_idx] = np.nan
+                if hasattr(self, "granger"):
+                    self.granger[:, :, reg_idx, :] = np.nan
+                    self.granger[:, :, :reg_idx] = np.nan
 
     def interpolate_power(self, kind="linear"):
         if not np.isnan(self.power).any():
@@ -268,8 +249,8 @@ class LFPRecording:
         Y_filled = self.power.copy()
         # Return early if no NaNs
         # Interpolate across time and frequencies for each region
-        for i in range(self.power.shape[1]): #frequency
-            for j in range (self.power.shape[2]): #region
+        for i in range(self.power.shape[1]):  # frequency
+            for j in range(self.power.shape[2]):  # region
                 y = Y_filled[:, i, j]
                 # Skip if no NaNs or all NaNs in this region
                 if not np.isnan(y).any() or np.isnan(y).all():
@@ -282,32 +263,24 @@ class LFPRecording:
                 if len(valid_indices) > 1:  # Need at least 2 points for interpolation
                     # Create interpolation function
                     f = interp1d(
-                        valid_indices, 
-                        y[valid_indices], 
-                        kind=kind, 
-                        fill_value="extrapolate",
-                        bounds_error=False
+                        valid_indices, y[valid_indices], kind=kind, fill_value="extrapolate", bounds_error=False
                     )
                     # Apply interpolation to missing values
                     y[nan_indices] = f(nan_indices)
                 elif len(valid_indices) == 1:
                     # If only one valid point, fill with that value
                     y[nan_indices] = y[valid_indices[0]]
-                
+
                 # Check if we still have NaNs (possible at edges depending on interpolation method)
                 if np.isnan(y).any():
                     # Use nearest-value approach for any remaining NaNs
                     mask = np.isnan(y)
                     idx = np.flatnonzero(~mask)
                     if len(idx) > 0:
-                        y[mask] = np.interp(
-                            np.flatnonzero(mask),
-                            idx,
-                            y[idx]
-                        )
+                        y[mask] = np.interp(np.flatnonzero(mask), idx, y[idx])
                 # Save the interpolated region
                 Y_filled[:, i, j] = y
-            
+
         self.power = Y_filled
 
     def interpolate_coherence(self, kind="linear"):
@@ -329,11 +302,11 @@ class LFPRecording:
                         Y_filled[:, i, j, k] = 0
                     else:
                         y = Y_filled[:, i, j, k]
-                        
+
                         # Skip if no NaNs or all NaNs in this region
                         if not np.isnan(y).any() or np.isnan(y).all():
                             continue
-                        
+
                         # Find indices of non-NaN values
                         valid_indices = np.flatnonzero(~np.isnan(y))
                         # Find indices of NaN values
@@ -342,31 +315,23 @@ class LFPRecording:
                         if len(valid_indices) > 1:  # Need at least 2 points for interpolation
                             # Create interpolation function
                             f = interp1d(
-                                valid_indices, 
-                                y[valid_indices], 
-                                kind=kind, 
-                                fill_value="extrapolate",
-                                bounds_error=False
+                                valid_indices, y[valid_indices], kind=kind, fill_value="extrapolate", bounds_error=False
                             )
-                            
+
                             # Apply interpolation to missing values
                             y[nan_indices] = f(nan_indices)
                         elif len(valid_indices) == 1:
                             # If only one valid point, fill with that value
                             y[nan_indices] = y[valid_indices[0]]
-                        
+
                         # Check if we still have NaNs (possible at edges depending on interpolation method)
                         if np.isnan(y).any():
                             # Use nearest-value approach for any remaining NaNs
                             mask = np.isnan(y)
                             idx = np.flatnonzero(~mask)
                             if len(idx) > 0:
-                                y[mask] = np.interp(
-                                    np.flatnonzero(mask),
-                                    idx,
-                                    y[idx]
-                                )
-                        
+                                y[mask] = np.interp(np.flatnonzero(mask), idx, y[idx])
+
                         # Save the interpolated region
                         Y_filled[:, i, j, k] = y
         return Y_filled
@@ -406,7 +371,9 @@ class LFPRecording:
                 try:
                     data_group.create_dataset("granger", data=recording.granger, compression="gzip", compression_opts=9)
                 except Exception as e:
-                    data_group.create_dataset("granger", data=recording.grangers, compression="gzip", compression_opts=9)
+                    data_group.create_dataset(
+                        "granger", data=recording.grangers, compression="gzip", compression_opts=9
+                    )
 
             if hasattr(recording, "power"):
                 data_group.create_dataset("power", data=recording.power, compression="gzip", compression_opts=9)
@@ -423,7 +390,8 @@ class LFPRecording:
             # Save recording metadata
             metadata.attrs["subject"] = recording.subject
             metadata.attrs["merged_rec_path"] = str(recording.merged_rec_path)
-            metadata.attrs["first_timestamp"] = recording.first_timestamp
+            if hasattr(recording, "first_timestamp"):
+                metadata.attrs["first_timestamp"] = recording.first_timestamp
             metadata.attrs["name"] = recording.name
             metadata.attrs["electrical noise frequency"] = recording.elec_noise_freq
             metadata.attrs["sampling rate"] = recording.sampling_rate
@@ -553,7 +521,8 @@ class LFPRecording:
             )
 
             # Load additional attributes that aren't part of initialization
-            recording.first_timestamp = metadata.attrs["first_timestamp"]
+            if ["first_timestamp"] in metadata.attrs.keys():
+                recording.first_timestamp = metadata.attrs["first_timestamp"]
             recording.name = metadata.attrs["name"]
             recording.rec_length = metadata.attrs["recording length"]
             recording.brain_region_dict = brain_region_dict

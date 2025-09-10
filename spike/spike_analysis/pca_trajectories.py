@@ -210,7 +210,7 @@ def pca_matrix(
         timebin = spike_collection.timebin
         if events is None:
             events = spike_collection.event_dict.keys()
-   
+
     num_points = int((event_length + pre_window + post_window) * 1000 / timebin)
     for recording in recordings:
         recording_good = check_recording(recording, min_neurons, events, to_print=True)
@@ -1038,7 +1038,7 @@ def LOO_PCA(
         if plot:
             print(recordings[i].name)
         if condition_dict is not None:
-            pc_result = coniditon_pca(
+            pc_result = condition_pca(
                 temp_recs, condition_dict, event_length, pre_window, post_window, events, min_neurons, plot
             )
         else:
@@ -1055,7 +1055,7 @@ def LOO_PCA(
 def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None, min_neurons=0):
     all_distances_df = pd.DataFrame()
 
-    for recording in spike_collection.recordings:  
+    for recording in spike_collection.recordings:
         pc_result = avg_trajectory_matrix(
             recording,
             event_length,
