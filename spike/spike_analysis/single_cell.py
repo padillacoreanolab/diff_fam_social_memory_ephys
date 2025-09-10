@@ -4,8 +4,6 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 from scipy.stats import sem, ranksums, fisher_exact, wilcoxon
-from multiprocessing import Pool
-from sklearn.preprocessing import StandardScaler
 import spike.spike_analysis.normalization as normalization
 
 

@@ -10,6 +10,7 @@ from lfp.lfp_analysis.LFP_collection import LFPCollection
 from lfp.lfp_analysis.LFP_recording import LFPRecording
 import lfp.lfp_analysis.plotting as lfplt
 
+
 def all_set(collection):
     """
     double checks that all lfp objects in the collection have
@@ -19,7 +20,7 @@ def all_set(collection):
     Prints statements telling user which recordings are missing subjects
     or event_dicts.
     Prints event_dict.keys() if they are not the same.
-    Prints "All set to analyze" 
+    Prints "All set to analyze"
     """
     is_first = True
     is_good = True
@@ -55,7 +56,8 @@ def all_set(collection):
     if is_good:
         print("All set to analyze")
 
-def get_events(recording, event, mode, event_len, pre_window, post_window, average = True):
+
+def get_events(recording, event, mode, event_len, pre_window, post_window, average=True):
     """
     takes snippets of power, coherence, or causality for events
     optional pre-event and post-event windows (s) may be included
@@ -117,47 +119,68 @@ def get_events(recording, event, mode, event_len, pre_window, post_window, avera
     return all_events
 
 
-def event_difference(lfp_collection, event1, event2, mode, baseline1=None, baseline2=None, event_len=None, pre_window=0, post_window=0, plot=False, regions = None, freq_range = None):
+def event_difference(
+    lfp_collection,
+    event1,
+    event2,
+    mode,
+    baseline1=None,
+    baseline2=None,
+    event_len=None,
+    pre_window=0,
+    post_window=0,
+    plot=False,
+    regions=None,
+    freq_range=None,
+):
     diff_dict = {}
     n_regions = len(lfp_collection.brain_region_dict.keys())
-    if mode == 'power':
-        event1_averages = np.zeros([len(lfp_collection.recordings), 500,n_regions])
-        event2_averages = np.zeros([len(lfp_collection.recordings), 500,n_regions])
+    if mode == "power":
+        event1_averages = np.zeros([len(lfp_collection.recordings), 500, n_regions])
+        event2_averages = np.zeros([len(lfp_collection.recordings), 500, n_regions])
     else:
-        event1_averages = np.zeros([len(lfp_collection.recordings), 500,n_regions, n_regions])
-        event2_averages = np.zeros([len(lfp_collection.recordings), 500,n_regions, n_regions])
+        event1_averages = np.zeros([len(lfp_collection.recordings), 500, n_regions, n_regions])
+        event2_averages = np.zeros([len(lfp_collection.recordings), 500, n_regions, n_regions])
     for i in range(len(lfp_collection.recordings)):
         recording = lfp_collection.recordings[i]
         event1_avg = __get_events__(recording, event1, mode, event_len, pre_window, post_window)
         event2_avg = __get_events__(recording, event2, mode, event_len, pre_window, post_window)
         if baseline1 is not None:
             event1_avg = __baseline_diff__(
-                    recording, event1_avg, baseline1, mode, event_len, pre_window=0, post_window=0, average = True
-                )
+                recording, event1_avg, baseline1, mode, event_len, pre_window=0, post_window=0, average=True
+            )
         if baseline2 is not None:
             event2_avg = __baseline_diff__(
-                    recording, event2_avg, baseline2, mode, event_len, pre_window=0, post_window=0, average = True
-                )  
+                recording, event2_avg, baseline2, mode, event_len, pre_window=0, post_window=0, average=True
+            )
         # recording_averages = [trials, b, f] or [trials, b, b, f]
-        event1_avg = np.mean(np.array(event1_avg), axis = 0)
-        event2_avg = np.mean(np.array(event2_avg), axis = 0)
+<<<<<<< Updated upstream
+        event1_avg = np.mean(np.array(event1_avg), axis=0)
+        event2_avg = np.mean(np.array(event2_avg), axis=0)
+        event1_averages[i, ...] = event1_avg
+        event2_averages[i, ...] = event2_avg
+    event_diff = (event1_averages - event2_averages) / (event1_averages + event2_averages) * 100
+    diff_dict[f"{event1} vs {event2}"] = event_diff
+=======
+        event1_avg = np.nanmean(np.array(event1_avg), axis = 0)
+        event2_avg = np.nanmean(np.array(event2_avg), axis = 0)
         event1_averages[i,...] = event1_avg
         event2_averages[i,...] = event2_avg
     event_diff = (event1_averages - event2_averages) / (event1_averages + event2_averages)*100
     diff_dict[f'{event1} vs {event2}'] = event_diff
+>>>>>>> Stashed changes
     if plot:
         plot_average_events(lfp_collection, diff_dict, mode, regions, freq_range)
     return diff_dict
-        
 
 
 def __baseline_diff__(recording, event_averages, baseline, mode, event_len, pre_window, post_window, average):
-    baseline_averages = get_events(recording, baseline, mode, event_len, pre_window, post_window, average = average)
-    #average = trial, freq, regions
-    #not average = trial, time, freq, regions
+    baseline_averages = get_events(recording, baseline, mode, event_len, pre_window, post_window, average=average)
+    # average = trial, freq, regions
+    # not average = trial, time, freq, regions
     if not average:
-        baseline_recording = np.nanmean(np.nanmean(np.array(baseline_averages), axis=0), axis = 0)
-    if average: 
+        baseline_recording = np.nanmean(np.nanmean(np.array(baseline_averages), axis=0), axis=0)
+    if average:
         baseline_recording = np.nanmean(np.array(baseline_averages), axis=0)
     adj_averages = []
     for i in range(len(event_averages)):
@@ -167,6 +190,64 @@ def __baseline_diff__(recording, event_averages, baseline, mode, event_len, pre_
 
 
 def average_events(
+    lfp_collection,
+    events,
+    mode,
+    baseline=None,
+    event_len=None,
+    pre_window=0,
+    post_window=0,
+    plot=False,
+    regions=None,
+    freq_range=None,
+):
+    """
+    Calculates average event measurement (power, coherence, or granger) per recording then
+    calculates global averages across all recordings from recording averages (to account for
+    differences in event numbers per recording)
+    """
+    event_averages_dict = {}
+    if (not isinstance(baseline, list)) and (baseline is not None):
+        baseline = [baseline]
+    if isinstance(lfp_collection, LFPCollection):
+        recordings = lfp_collection.recordings
+    if isinstance(lfp_collection, LFPRecording):
+        recordings = [lfp_collection]
+    if baseline is not None:
+        if (len(events) != len(baseline)) and (len(baseline) == 1):
+            baseline = baseline * len(events)
+    for i in range(len(events)):
+        recording_averages = []
+        for recording in recordings:
+            event_averages = get_events(recording, events[i], mode, event_len, pre_window, post_window, average=True)
+
+            if baseline is not None:
+                adj_averages = __baseline_diff__(
+                    recording, event_averages, baseline[i], mode, event_len, pre_window=0, post_window=0, average=True
+                )
+<<<<<<< Updated upstream
+                rec_event_average = np.mean(np.array(adj_averages), axis=0)
+                recording_averages.append(rec_event_average)
+            else:
+                rec_event_average = np.mean(np.array(event_averages), axis=0)
+=======
+                rec_event_average = np.nanmean(np.array(adj_averages), axis = 0)
+                recording_averages.append(rec_event_average)
+            else:
+                rec_event_average = np.nanmean(np.array(event_averages), axis = 0)
+>>>>>>> Stashed changes
+                recording_averages.append(rec_event_average)
+
+        # recording_averages = [trials, b, f] or [trials, b, b, f]
+
+        event_averages_dict[events[i]] = recording_averages
+    if plot:
+        lfplt.plot_average_events(lfp_collection, event_averages_dict, mode, regions, freq_range)
+    return event_averages_dict
+<<<<<<< Updated upstream
+=======
+
+def baselined_events(
     lfp_collection, events, mode, baseline=None, event_len=None, pre_window=0, post_window=0, plot=False, regions = None, freq_range = None
 ):
     """
@@ -182,7 +263,7 @@ def average_events(
     if isinstance(lfp_collection , LFPRecording):
         recordings = [lfp_collection]
     if baseline is not None:
-        if (len(events) != len(baseline)) and (lee(baseline) == 1):
+        if (len(events) != len(baseline)) and (len(baseline) == 1):
             baseline = baseline * len(events)
     for i in range(len(events)):
         recording_averages = []
@@ -193,15 +274,17 @@ def average_events(
                 adj_averages = __baseline_diff__(
                     recording, event_averages, baseline[i], mode, event_len, pre_window=0, post_window=0, average = True
                 )
-                rec_event_average = np.mean(np.array(adj_averages), axis = 0)
-                recording_averages.append(rec_event_average)
+           
+                recording_averages.append(adj_averages)
             else:
-                rec_event_average = np.mean(np.array(event_averages), axis = 0)
-                recording_averages.append(rec_event_average)
+  
+                recording_averages.append(event_averages)
             
         # recording_averages = [trials, b, f] or [trials, b, b, f]
+        rec_avg_array = np.moveaxis((np.array(recording_averages)), 1, -1)
         
-        event_averages_dict[events[i]] = recording_averages
-    if plot:
-        lfplt.plot_average_events(lfp_collection, event_averages_dict, mode, regions, freq_range)
+        event_averages_dict[events[i]] = rec_avg_array
+    # if plot:
+    #     lfplt.plot_average_events(lfp_collection, event_averages_dict, mode, regions, freq_range)
     return event_averages_dict
+>>>>>>> Stashed changes

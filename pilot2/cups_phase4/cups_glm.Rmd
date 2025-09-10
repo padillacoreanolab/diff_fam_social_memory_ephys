@@ -25,19 +25,98 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r cars}
-cups <- read.csv('./cups_dataframe.csv')
+neural_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/ultra_long_neural_data.csv")
+behavior_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/behavior_dataframe.csv")
+arena_info_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/cups_dataframe.csv")
 
-cups <- cups |>
-  mutate(subject = as_factor(subject),
+
+behavior_df <- behavior_df |>
+  rename(X = level_0)
+
+
+behavior_long_time <- behavior_df |>
+  pivot_longer(cols = c('familiar', 'novel', 'cagemate', 'empty'), names_to = 'agent', values_to= 'Total Investigation')|>
+  select(-c('familiar.preference', 'novel.preference', 'cagemate.preference', 'empty.prefernce'))
+  
+
+behavior_long_pref <- behavior_df |>
+  pivot_longer(cols = c('familiar.preference', 'novel.preference', 'cagemate.preference', 'empty.prefernce'), names_to = 'agent', values_to= 'Preference') |>
+  mutate(agent = str_remove(agent, ".preference"))|>
+  select(-c('familiar', 'novel', 'cagemate', 'empty'))
+
+behavior_long_pref
+
+behavior_long <- full_join(behavior_long_time, behavior_long_pref, by = c("X", "agent", "total.cup.time"))
+behavior_long
+
+
+
+```  
+  
+         
+
+```{r}
+arena_info_trimmed_df <- arena_info_df|>
+  select(-c("X", "rank", "total_investigation_time", "avg_event_length")) |>
+  rename("X" = "subject")
+
+arena_info_trimmed_df
+neural_df <- neural_df |>
+  select(-"X") |>
+  rename("X" = "subject") |>
+  rename("agent" = "event")
+
+arena_neural_merge <- full_join(neural_df, arena_info_trimmed_df,  by = c("X", "agent"))
+
+```
+```{r}
+more_behavior_data <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/event_data.csv")
+more_behavior_data <- more_behavior_data |>
+  rename(X = subject)
+more_behavior_data
+behavior_long_pref
+
+all_behavior <- full_join(more_behavior_data, behavior_long_pref, by = c("X", "agent"))
+all_behavior
+all_behavior <- all_behavior |>
+  mutate(trial = as_factor(trial))
+arena_neural_merge <- arena_neural_merge |>
+  mutate(trial = as_factor(trial))
+all_df <- full_join(all_behavior,arena_neural_merge,  by = c("X", "agent", "trial"))
+
+```
+```{r}
+
+
+all_df <- all_df |>
+  mutate(X =as_factor(X),
          agent = as_factor(agent),
          location = as_factor(location),
          color = as_factor(color),
          hco.rel.rank = as_factor(hco.rel.rank),
-         um.rel.rank = as_factor(um.rel.rank))
+         um.rel.rank = as_factor(um.rel.rank),
+         band = as_factor(band),
+         metric = as_factor(metric),
+         gen_baseline = as_factor(gen_baseline),
+         region_or_pair = as_factor(region_or_pair))
 
+str(all_df)
 
-str(cups)
-         
+not_gen_baseline <- all_df |>
+  filter(gen_baseline == 0) |>
+  drop_na()
+power_df  <- not_gen_baseline |>
+  filter(metric == 'power') |>
+  filter(agent != 'empty') |>
+  drop_na()
+coherence_df  <- not_gen_baseline |>
+  filter(metric == 'coherence')  |>
+  filter(agent != 'empty') |>
+  drop_na()
+granger_df  <- not_gen_baseline |>
+  filter(metric == 'granger') |>
+  filter(agent != 'empty') |>
+  drop_na()
 ```
 
 ## Including Plots
@@ -45,24 +124,86 @@ str(cups)
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
-simple_model <- lm(total_investigation_time ~ agent + subject, cups)
-
-#summary(simple_model)
-anova(simple_model)
-
-total_inv_factors <- lmer(total_investigation_time ~ agent + (1|subject), cups)
-
-anova(total_inv_factors)
-ranova(total_inv_factors)
+#simple one term random effect deletion models 
+model1 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|location) + (1|X) + (1|event_length) + (1|Preference), power_df)
+model2 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|location) + (1|X) + (1|event_length), power_df)
+model3 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|location) + (1|X) + (1|event_length) + (1|Preference), power_df)
+model4 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+model5 <- lmer(value ~ (region_or_pair:band)  * agent + (1|color) + (1|location) + (1|trial) + (1|X) + (1|Preference), power_df)
+# from above i can drop color and location as factors, tested here as well 
+model6 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r pressure, echo=FALSE}
+#trial agent and agent subject relationships
+#model7 <- lmer(value ~ (region_or_pair:band)  * agent + (agent|trial) + (agent|X) + (1|event_length) + (1|Preference), power_df)
+#testing just subject agent relationships
+# model8 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (agent|X) + (1|event_length) + (1|Preference), power_df) # this was the best one, but agent in agent|x and preference has no significance as a random factor 
+# model9 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|trial) + (1|X:agent) + (1|event_length) + (1|Preference), power_df)
+# model10 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|trial) + (1|agent:X) + (1|event_length) + (1|Preference), power_df)
+# model11 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|trial) + (agent||X) + (1|event_length) + (1|Preference), power_df)
+#testing just trial agent relationships: 14 & 15 are the best
+# model12 <- lmer(value ~ (region_or_pair:band)  * agent + (agent|trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+# model13 <- lmer(value ~ (region_or_pair:band)  * agent +  (agent||trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+# model14 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|trial:agent) + (1|X) + (1|event_length) + (1|Preference), power_df)
+# model15 <- lmer(value ~ (region_or_pair:band)  * agent +  (1|agent:trial) + (1|X) + (1|event_length) + (1|Preference), power_df)
+# 17 and 18 are equal so maybe the order does not matter
+model16 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (agent|Preference), power_df)
+model17 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (1|Preference:agent), power_df)
+model18 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (1|agent:Preference), power_df)
+model19 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial) + (1|X) + (1|event_length) + (agent||Preference), power_df)
+
+#putting it all together
+model20 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial:agent) + (agent|X) + (1|event_length), power_df)
+model21 <- lmer(value ~ (region_or_pair:band)  * agent + (1|trial:agent) + (1|X) + (1|event_length) + (1|Preference:agent), power_df)
+
+```
 
 ```{r}
-total_inv <- emmeans(total_inv_factors, ~ agent)
-ttest_inv <- contrast(total_inv, simple = 'each', method = 'pairwise', adjust = 'holm')
+anova(model21, model17, model14)
+#model 14 is the winner! 
+```
 
-ttest_inv
+```{r}
+
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+
+power_contrasts <- emmeans(model14, ~ agent * (region_or_pair:band))
+all_contrasts <- contrast(power_contrasts, simple = 'agent', method= 'pairwise', adjust = 'none')
+all_tests <- summary(all_contrasts)
+all_tests$p.value.adjusted <- p.adjust(all_tests$p.value, method = 'BH')
+all_tests <- all_tests |>
+   mutate(sig = case_when(
+    p.value.adjusted < 0.001 ~ "***",
+    p.value.adjusted < 0.01  ~ "**", 
+    p.value.adjusted < 0.05  ~ "*",
+    p.value.adjusted < 0.1   ~ ".",
+    TRUE                     ~ ""
+  ))
+all_tests
+
+
+ 
+```
+```{r}
+
+```
+
+```{r}
+coherence_model <- lmer(value ~ (region_or_pair:band) * agent + (1|trial) + (1|location) + (1|X), coherence_df)
+anova(coherence_model)
+ranova(coherence_model)
+
+```
+```{r}
+granger_model <- lmer(value ~ region_or_pair * band + (1|trial) + (1|location) + (1|X) + (1|agent) + (1|color), granger_df)
+anova(granger_model)
+ranova(granger_model)
 
 ```
 

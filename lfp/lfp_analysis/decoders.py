@@ -2,7 +2,8 @@ from sklearn.metrics import roc_auc_score
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
-import lfp.lfp_analysis.LFP_analysis as lfp
+import lfp.lfp_analysis.plotting as lfplt
+import lfp.lfp_analysis.event_extraction as ee
 import xgboost as xgb
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.model_selection import cross_validate
@@ -15,6 +16,8 @@ import multiprocessing
 import pickle
 from sklearn.model_selection import StratifiedKFold
 import pandas as pd
+import math 
+from scipy.stats import sem
 
 class CustomCallback(xgb.callback.TrainingCallback):
     def __init__(self):
@@ -202,7 +205,7 @@ def calc_top_feat_trial_decoder(lfp_collection, num_features,
     return feature_dict
         
 def __prep_feature_data__(lfp_collection, events, baseline, event_len, pre_window, post_window, mode, data_dict, all_features):
-    data = lfp.average_events(lfp_collection,
+    data = ee.average_events(lfp_collection,
                 events=events,
                 mode=mode,
                 baseline=baseline,
@@ -211,7 +214,7 @@ def __prep_feature_data__(lfp_collection, events, baseline, event_len, pre_windo
                 post_window=post_window,
                 plot=False,
             )
-    [agent_band_dict, band_agent_dict] = lfp.band_calcs(data)
+    [agent_band_dict, band_agent_dict] = lfplt.band_calcs(data)
     data, features, feature_names = __reshape_data__(lfp_collection, agent_band_dict, mode)
     band_names = agent_band_dict.keys()
     for event in data_dict.keys():
@@ -291,26 +294,26 @@ class all_results:
         height_fig = math.ceil(no_plots / 2)
         i = 1
         bar_width = 0.2
-        total_event = self.event_length + self.post_window
+        #total_event = self.event_length + self.post_window
         plt.figure(figsize=(8, 4 * height_fig))
         for key, results in self.results.items():
             plt.subplot(height_fig, 2, i)
-            x = np.linspace(-self.pre_window, total_event, np.array(results.roc_auc).shape[0])
-            if start is not None:
-                start = np.where(x >= start)[0][0]
-            if stop is None:
-                stop = results.roc_auc.shape[0]
-            if stop is not None:
-                stop = np.where(x <= stop)[0][-1] + 1
-            rf_avg = np.mean(np.mean(results.roc_auc[start:stop], axis=0), axis=0)
-            rf_sem = sem(np.mean(results.roc_auc[start:stop], axis=0))
-            rf_shuffle_avg = np.mean(np.mean(results.roc_auc_shuffle[start:stop], axis=0), axis=0)
-            rf_shuffle_sem = sem(np.mean(results.roc_auc_shuffle[start:stop], axis=0))
+            # x = np.linspace(-self.pre_window, total_event, np.array(results.roc_auc).shape[0])
+            # if start is not None:
+            #     start = np.where(x >= start)[0][0]
+            # if stop is None:
+            #     stop = len(results.auc)
+            # # if stop is not None:
+            #     stop = np.where(x <= stop)[0][-1] + 1
+            rf_avg = np.mean(np.mean(results.auc))
+            rf_sem = sem(np.mean(results.auc))
+            rf_shuffle_avg = np.mean(np.mean(results.shuffle))
+            rf_shuffle_sem = sem(np.mean(results.shuffle))
             bar_positions = np.array([0.3, 0.6])
             plt.bar(bar_positions[0], rf_avg, bar_width, label="RF", yerr=rf_sem, capsize=5)
             plt.bar(bar_positions[1], rf_shuffle_avg, bar_width, label="RF Shuffle", yerr=rf_shuffle_sem, capsize=5)
             plt.title(f"{key}")
-            plt.ylim(0.4, 1)
+            plt.ylim(0, 1)
             if i == 2:
                 plt.legend(bbox_to_anchor=(1, 1))
             i += 1
@@ -347,7 +350,7 @@ class model_results:
     def __repr__(self):
         output = ["Model Results"]
         output.append(f"Average AUC score: {self.avg_auc}")
-        output.append(f"Average AUC score for shuffled data: {self.avg_shuffle_auc}")
+        output.append(f"Average AUC score for shuffled data: {self.avg_shuffle}")
         # output.append(f"Total positive trials:{self.pos_labels}: Total neg trials:{self.neg_labels}")
         return "\n".join(output)
 

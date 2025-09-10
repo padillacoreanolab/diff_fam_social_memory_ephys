@@ -11,6 +11,7 @@ from itertools import combinations
 from lfp.lfp_analysis.LFP_collection import LFPCollection
 from lfp.lfp_analysis.LFP_recording import LFPRecording
 import lfp.lfp_analysis.event_extraction as ee
+from matplotlib.colors import LinearSegmentedColormap
 
 
 #SPECTRUM LINE GRAPHS
@@ -47,7 +48,7 @@ def plot_power_spectrum(lfp_collection, event_averages, regions=None, freq_range
         ymin, ymax = plt.ylim()
         plt.ylim(ymin, ymax)
         plt.title(f"{region} power")
-        #plt.legend()
+        plt.legend()
         plt.show()
 
 
@@ -99,10 +100,10 @@ def plot_granger_spectrum(lfp_collection, event_averages, regions=None, freq_ran
             second_index = lfp_collection.brain_region_dict[region[1]]
             pair_indices.append([first_index, second_index])
     if regions is None:
-        pair_indices = list(permutations(range(len(lfp_collection.brain_regions)), 2))
+        pair_indices = list(permutations(range(len(lfp_collection.brain_region_dict.keys())), 2))
         regions = []
         for pair in pair_indices:
-            regions.append([lfp_collection.brain_regions[pair[0]], lfp_collection.brain_regions[pair[1]]])
+            regions.append([lfp_collection.brain_region_dict.inverse[pair[0]], lfp_collection.brain_region_dict.inverse[pair[1]]])
     if freq_range is None:
         freq_range = [1,101]
     for i in range(len(pair_indices)):
@@ -117,16 +118,13 @@ def plot_granger_spectrum(lfp_collection, event_averages, regions=None, freq_ran
             # pick only the region of interest
             y_sem = event_sem[freq_range[0]:freq_range[1], pair_indices[i][0], pair_indices[i][1]]
             y = event_average[freq_range[0]:freq_range[1], pair_indices[i][0], pair_indices[i][1]]
-            x = lfp_collection.frequencies[freq_range[0]:freq_range[1]]
+            x = np.arange(freq_range[0],freq_range[1])
             (line,) = plt.plot(x, y, label=event)
             plt.fill_between(x, y - y_sem, y + y_sem, color=line.get_color(), alpha=0.2)
         ymin, ymax = plt.ylim()
-        plt.axvline(x=12, color="gray", linestyle="--", linewidth=0.5)
-        plt.axvline(x=4, color="gray", linestyle="--", linewidth=0.5)
-        plt.fill_betweenx(y=np.linspace(ymin, ymax, 80), x1=4, x2=12, color="red", alpha=0.1)
         plt.ylim(ymin, ymax)
         plt.title(f"Granger causality: {region[1]} to {region[0]}")
-        #plt.legend()
+        plt.legend()
         plt.show()
 
 #HEATMAPS 
