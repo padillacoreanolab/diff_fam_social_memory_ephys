@@ -72,11 +72,11 @@ class LFPRecording:
         return recording
 
     def _get_selected_traces(self, recording):
-        start_frame = self.find_start_recording_time()
+        # start_frame = self.find_start_recording_time()
         self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_dict)
         sorted_channels = [str(channel) for channel in sorted_channels]
         # Channel ids are the "names" of the channels as strings
-        traces = recording.get_traces(channel_ids=sorted_channels, start_frame=start_frame)
+        traces = recording.get_traces(channel_ids=sorted_channels)
         return traces
 
     def get_all_channels(self):
@@ -196,7 +196,7 @@ class LFPRecording:
         trodes.trodes_extract_single_file(trodes_directory, self.merged_rec_path, mode="-time")
         # need to go to merged.time folder and read merged.timestamps.dat file
 
-    def find_start_recording_time(self):
+    def find_first_timstamp(self):
         """If the timestamps file is found at self.merged_rec_path, then use it. Otherwise ask user to create it"""
         timestamps_path = str(Path(self.merged_rec_path).with_suffix(".time"))
         if os.path.exists(timestamps_path):
@@ -390,7 +390,8 @@ class LFPRecording:
             # Save recording metadata
             metadata.attrs["subject"] = recording.subject
             metadata.attrs["merged_rec_path"] = str(recording.merged_rec_path)
-            metadata.attrs["first_timestamp"] = recording.first_timestamp
+            if hasattr(recording, "first_timestamp"):
+                metadata.attrs["first_timestamp"] = recording.first_timestamp
             metadata.attrs["name"] = recording.name
             metadata.attrs["electrical noise frequency"] = recording.elec_noise_freq
             metadata.attrs["sampling rate"] = recording.sampling_rate
@@ -520,7 +521,8 @@ class LFPRecording:
             )
 
             # Load additional attributes that aren't part of initialization
-            recording.first_timestamp = metadata.attrs["first_timestamp"]
+            if ["first_timestamp"] in metadata.attrs.keys():
+                recording.first_timestamp = metadata.attrs["first_timestamp"]
             recording.name = metadata.attrs["name"]
             recording.rec_length = metadata.attrs["recording length"]
             recording.brain_region_dict = brain_region_dict
