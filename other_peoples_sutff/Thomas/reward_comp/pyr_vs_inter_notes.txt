@@ -1,0 +1,22 @@
+input:
+    - Units_df - dataframe of units, their recordings, events the unit was significant for, not sig events, 
+    - event - event we are evaluating the neurons for
+
+output: 
+    - event_summary df:
+        - Each event it was evaluated for, alone_rewarded, high_comp, etc
+        - n_tested_pyramidal, the number of neurons tested for that event, basically all units 
+        that were either not significant or significant for that event, basically ensuring we don't get
+        incorrect ratios where we use neurons/units that weren't even in a recording with that event
+        - n_sig_pyramidal, number of significant pyramidal neurons for that event
+        - pct_sig_pyramidal, the ratio found by number of significant pyramidal neurons divided by the number of tested neurons, for that event
+
+
+
+
+Analysis routes:
+    - Descriptive Statistics with confidence intervals
+        - We take n_tested, n_sig and find the proportion n_sig/n_tested, what we already have pct_sig_neurontype
+        - using either wilsons or jeffreys we make confidence intervals, telling us how certain we are that the percentages are accurate
+
+            - wilsons: 
