@@ -16,7 +16,7 @@ import pickle
 import re
 import ast
 
-# 
+
 import matplotlib_venn
 from matplotlib_venn import venn2, venn3, venn2_circles, venn3_circles
 from itertools import combinations
@@ -29,20 +29,20 @@ def get_significant_units_for_event(df, event_name, significance_type='both'):
     filtered for significance.
     
     Returns:
-    set: Set of unit numbers that are significant for this event
+    set: Set of unique unit identifiers that are significant for this event
     """
     event_df = df[df['Event name'] == event_name]
     
     if significance_type == 'both':
-        significant_units = event_df[event_df['sig'].isin(['increase', 'decrease'])]['Unit number'].unique()
+        significant_units = event_df[event_df['sig'].isin(['increase', 'decrease'])]['Unit number'].tolist()
     elif significance_type == 'increase':
-        significant_units = event_df[event_df['sig'] == 'increase']['Unit number'].unique()
+        significant_units = event_df[event_df['sig'] == 'increase']['Unit number'].tolist()
     elif significance_type == 'decrease':
-        significant_units = event_df[event_df['sig'] == 'decrease']['Unit number'].unique()
+        significant_units = event_df[event_df['sig'] == 'decrease']['Unit number'].tolist()
     else:
         raise ValueError("significance_type must be 'both', 'increase', or 'decrease'")
-    
-    return set(significant_units)
+        
+    return significant_units
 
 # Plot Creation Function, finds number of significant units for every event to compare then uses plotting functions
 def create_overlap_visualization(df, compare_events, significance_type='both', title=""):
@@ -54,11 +54,17 @@ def create_overlap_visualization(df, compare_events, significance_type='both', t
     """
     
     # Get sets of significant units for each event
+    event_dicts = {}
+    for event in compare_events:
+        event_dicts[event] = get_significant_units_for_event(df, event, significance_type)
+        print(f"{event}: {len(event_dicts[event])} significant units")
+
+    # map identifiers of each unit 1-n to so when we convert to a set we don't lose units from different subjects/recordings with the same unit number
     event_sets = {}
     for event in compare_events:
-        event_sets[event] = get_significant_units_for_event(df, event, significance_type)
-        print(f"{event}: {len(event_sets[event])} significant units")
-    
+        event_sets[event] = set([f"{rec}__Unit{unit}" for rec, unit in zip(df[df['Event name'] == event]['Recording'], event_dicts[event])])
+
+
     if len(compare_events) <= 4:
         # Use Venn diagrams for 2-4 events
         return _create_venn_diagram(event_sets, compare_events, significance_type, title)
@@ -77,10 +83,14 @@ def _create_venn_diagram(event_sets, compare_events, significance_type, title):
                      set_labels=compare_events)
         venn2_circles([event_sets[compare_events[0]], event_sets[compare_events[1]]], linewidth=1)
         
+        # Increase font size of the numbers in the circles
+        for text in venn.subset_labels:
+            if text:
+                text.set_fontsize(16)
+        
         # Calculate overlap: Events A intersection B
         intersection = event_sets[compare_events[0]] & event_sets[compare_events[1]]
         print(f"\nOverlap between {compare_events[0]} and {compare_events[1]}: {len(intersection)} units")
-        # print(f"Overlap units: {sorted(list(intersection))}")
         
     # Three-way Venn diagram
     elif len(compare_events) == 3:
@@ -88,6 +98,11 @@ def _create_venn_diagram(event_sets, compare_events, significance_type, title):
         venn = venn3([event_sets[compare_events[0]], event_sets[compare_events[1]], event_sets[compare_events[2]]], 
                      set_labels=compare_events)
         venn3_circles([event_sets[compare_events[0]], event_sets[compare_events[1]], event_sets[compare_events[2]]], linewidth=1)
+        
+        # Increase font size of the numbers in the circles
+        for text in venn.subset_labels:
+            if text:
+                text.set_fontsize(16)
         
         # Calculate overlap statistics, making sure plot is accurate
         all_intersection = event_sets[compare_events[0]] & event_sets[compare_events[1]] & event_sets[compare_events[2]]
@@ -137,6 +152,11 @@ def _create_four_way_venn(event_sets, compare_events, significance_type, title):
                      set_labels=[compare_events[i], compare_events[j]])
         venn2_circles([event_sets[compare_events[i]], event_sets[compare_events[j]]], linewidth=1)
         
+        # Increase font size of the numbers in the circles
+        for text in venn.subset_labels:
+            if text:
+                text.set_fontsize(14)
+        
         # Calculate overlap
         intersection = event_sets[compare_events[i]] & event_sets[compare_events[j]]
         pairwise_stats.append((compare_events[i], compare_events[j], len(intersection)))
@@ -162,6 +182,7 @@ def _create_four_way_venn(event_sets, compare_events, significance_type, title):
     plt.show()
     
     # Print detailed statistics
+    '''
     print(f"\n=== FOUR-WAY OVERLAP STATISTICS ===")
     print(f"Four-way intersection (all events): {len(all_four)} units")
     if len(all_four) > 0:
@@ -182,6 +203,7 @@ def _create_four_way_venn(event_sets, compare_events, significance_type, title):
     for i, j in remaining_pairs:
         intersection = event_sets[compare_events[i]] & event_sets[compare_events[j]]
         print(f"  {compare_events[i]} & {compare_events[j]}: {len(intersection)} units")
+    '''
     
     return event_sets
 
