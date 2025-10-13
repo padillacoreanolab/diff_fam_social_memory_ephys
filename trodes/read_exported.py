@@ -11,6 +11,35 @@ import glob
 import re
 
 
+def play_indexed_cameratimestamps(path, first_timestamp_dict):
+    """
+
+    Args (2 requires):
+        path: str, path to a folder containing  .videotimestamp files
+        first_timestamp_dict: dict,
+            keys: str, video names as seen in the videotimestamp files
+            value: int, first timestamp for that recording
+
+    Returns (1):
+        play_indexed_cts: dict
+            key: str, video names as seen in the videotimestamp files, same as the
+                values in the input dict first_timestamp_dict
+            values: np.array, timestamps for each frame play indexed, such that
+                the index of an element corresponds to the frame number in the video
+                and the zeroth second is when play was clicked in trodes
+    """
+
+    play_indexed_dict = {}
+    for root, dirs, file in os.walk(path):
+        if file.endswith(".videoTimeStamps"):
+            videotsfile = os.path.join(root, file)
+            videotsarray = readCameraModuleTimeStamps(videotsfile)
+            first_ts = first_timestamp_dict[root]
+            videotsarray_play_indexed = videotsarray - first_ts
+            play_indexed_dict[root] = videotsarray_play_indexed
+    return play_indexed_dict
+
+
 def readCameraModuleTimeStamps(filename):
     CLOCK_STRING = "Clock rate: "
     HEADER_END_STRING = "End settings"

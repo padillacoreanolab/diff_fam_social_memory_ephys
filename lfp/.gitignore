@@ -4,6 +4,7 @@ tests/test_data/Example_Recording.zip
 tests/test_data/Example_recording/*
 .idea/*
 .DS_Store
+*.csv
 *.rec
 *.pkl
 trodes/__pycache__/*

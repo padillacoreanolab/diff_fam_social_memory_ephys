@@ -134,6 +134,11 @@ def get_behavior_bouts_fps(boris_df, cameratimestamps, first_timestamp, subject,
                 behavior_arrays.append(start_stop_array)
             start_stop_array = np.concatenate(behavior_arrays)
             start_stop_array = np.round(start_stop_array).astype(int) * fps
+            if start_stop_array[-1, 1] > len(cameratimestamps):
+                if start_stop_array[-1, 1] - len(cameratimestamps) == 1:
+                    print("last stop: ", start_stop_array[-1, 1])
+                    print("number of timestamps: ", len(cameratimestamps))
+                    start_stop_array[-1, 1] = len(cameratimestamps) - 1
             start_stop_array_s = cameratimestamps[start_stop_array]
             start_stop_arrays.append(bet.threshold_bouts(start_stop_array_s, min_iti, min_bout))
         else:
