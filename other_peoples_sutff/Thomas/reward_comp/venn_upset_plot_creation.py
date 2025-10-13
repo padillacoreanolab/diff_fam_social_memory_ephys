@@ -35,10 +35,19 @@ def get_significant_units_for_event(df, event_name, significance_type='both'):
     
     if significance_type == 'both':
         significant_units = event_df[event_df['sig'].isin(['increase', 'decrease'])]['Unit number'].tolist()
+
+        inc = event_df[event_df['sig'] == 'increase']['Unit number'].tolist()
+        dec = event_df[event_df['sig'] == 'decrease']['Unit number'].tolist()
+
+        print("Significant units for increase:", inc)
+        print("Significant units for decrease:", dec)
+        print("All significant units:", significant_units)
     elif significance_type == 'increase':
         significant_units = event_df[event_df['sig'] == 'increase']['Unit number'].tolist()
+        print("Significant units for increase:", significant_units)
     elif significance_type == 'decrease':
         significant_units = event_df[event_df['sig'] == 'decrease']['Unit number'].tolist()
+        print("Significant units for decrease:", significant_units)
     else:
         raise ValueError("significance_type must be 'both', 'increase', or 'decrease'")
         
@@ -60,10 +69,63 @@ def create_overlap_visualization(df, compare_events, significance_type='both', t
         print(f"{event}: {len(event_dicts[event])} significant units")
 
     # map identifiers of each unit 1-n to so when we convert to a set we don't lose units from different subjects/recordings with the same unit number
+    # Extract subject ID from recording name (e.g., "20230621_111240_standard_comp_to_omission_D5_subj_1-4_t3b3L_box1_merged.rec" -> "subj_1-4")
     event_sets = {}
     for event in compare_events:
-        event_sets[event] = set([f"{rec}__Unit{unit}" for rec, unit in zip(df[df['Event name'] == event]['Recording'], event_dicts[event])])
-
+        # Filter dataframe to only include significant units for this event and significance type
+        event_df = df[df['Event name'] == event]
+        if significance_type == 'both':
+            filtered_event_df = event_df[event_df['sig'].isin(['increase', 'decrease'])]
+        elif significance_type == 'increase':
+            filtered_event_df = event_df[event_df['sig'] == 'increase']
+        elif significance_type == 'decrease':
+            filtered_event_df = event_df[event_df['sig'] == 'decrease']
+        else:
+            raise ValueError("significance_type must be 'both', 'increase', or 'decrease'")
+        
+        unique_identifiers = []
+        
+        for _, row in filtered_event_df.iterrows():
+            rec = row['Recording']
+            unit = row['Unit number']
+            
+            # Extract multiple components for a more unique identifier
+            # Expected format: "YYYYMMDD_HHMMSS_...subj_X-Y_...merged.rec"
+            
+            # Extract date (first 8 digits)
+            date_match = re.search(r'^(\d{8})', rec)
+            date_part = date_match.group(1) if date_match else "unknown_date"
+            
+            # Extract subject ID using regex to find "subj_X-Y" pattern
+            subject_match = re.search(r'subj_[\d-]+', rec)
+            subject_id = subject_match.group() if subject_match else "unknown_subj"
+            
+            # Extract additional session info (like box, condition markers)
+            # Look for patterns like "box1", "t3b3L", etc.
+            box_match = re.search(r'box\d+', rec)
+            box_part = box_match.group() if box_match else ""
+            
+            session_match = re.search(r't\d+b\d+[A-Z]*', rec)
+            session_part = session_match.group() if session_match else ""
+            
+            # Create comprehensive unique identifier
+            # Format: date_subject_session_box_Unit{unit} or fallback to recording_Unit{unit}
+            if subject_match and date_match:
+                identifier_parts = [date_part, subject_id]
+                if session_part:
+                    identifier_parts.append(session_part)
+                if box_part:
+                    identifier_parts.append(box_part)
+                identifier_parts.append(f"Unit{unit}")
+                unique_identifier = "_".join(identifier_parts)
+            else:
+                # Fallback to using sanitized recording name if pattern extraction fails
+                sanitized_rec = re.sub(r'[^\w\-]', '_', rec.replace('.rec', ''))
+                unique_identifier = f"{sanitized_rec}_Unit{unit}"
+            
+            unique_identifiers.append(unique_identifier)
+        
+        event_sets[event] = set(unique_identifiers)
 
     if len(compare_events) <= 4:
         # Use Venn diagrams for 2-4 events
@@ -86,12 +148,17 @@ def _create_venn_diagram(event_sets, compare_events, significance_type, title):
         # Increase font size of the numbers in the circles
         for text in venn.subset_labels:
             if text:
-                text.set_fontsize(16)
+                text.set_fontsize(35)
         
         # Calculate overlap: Events A intersection B
         intersection = event_sets[compare_events[0]] & event_sets[compare_events[1]]
+        print("Significant units for overlap:", intersection)
         print(f"\nOverlap between {compare_events[0]} and {compare_events[1]}: {len(intersection)} units")
-        
+
+        # Print units in each event
+        print(f"units in {compare_events[0]}: {event_sets[compare_events[0]]}")
+        print(f"units in {compare_events[1]}: {event_sets[compare_events[1]]}")
+
     # Three-way Venn diagram
     elif len(compare_events) == 3:
         plt.figure(figsize=(10, 8))
@@ -102,7 +169,7 @@ def _create_venn_diagram(event_sets, compare_events, significance_type, title):
         # Increase font size of the numbers in the circles
         for text in venn.subset_labels:
             if text:
-                text.set_fontsize(16)
+                text.set_fontsize(35)
         
         # Calculate overlap statistics, making sure plot is accurate
         all_intersection = event_sets[compare_events[0]] & event_sets[compare_events[1]] & event_sets[compare_events[2]]
@@ -123,13 +190,10 @@ def _create_venn_diagram(event_sets, compare_events, significance_type, title):
         return _create_four_way_venn(event_sets, compare_events, significance_type, title)
     
     if len(compare_events) <= 3:
-        # Create title for 2-3 way diagrams
-        sig_text = "All Significant" if significance_type == 'both' else significance_type.title()
-        title = f"Overlapping {sig_text} Neurons (Venn)\n{' vs '.join(compare_events)}"
-        if title:
-            title += f" ({title})"
+        # Create simple title for 2-3 way diagrams
+        simple_title = ' vs '.join(compare_events)
         
-        plt.title(title, fontsize=14, pad=20)
+        plt.title(simple_title, fontsize=10, pad=20)
         plt.show()
     
     return event_sets
@@ -155,7 +219,7 @@ def _create_four_way_venn(event_sets, compare_events, significance_type, title):
         # Increase font size of the numbers in the circles
         for text in venn.subset_labels:
             if text:
-                text.set_fontsize(14)
+                text.set_fontsize(35)
         
         # Calculate overlap
         intersection = event_sets[compare_events[i]] & event_sets[compare_events[j]]
@@ -171,13 +235,10 @@ def _create_four_way_venn(event_sets, compare_events, significance_type, title):
         three_way = event_sets[compare_events[combo[0]]] & event_sets[compare_events[combo[1]]] & event_sets[compare_events[combo[2]]]
         three_way_intersections.append((combo, len(three_way)))
     
-    # Overall title
-    sig_text = "All Significant" if significance_type == 'both' else significance_type.title()
-    title = f"Four-Way {sig_text} Neuron Overlaps\n{' vs '.join(compare_events)}"
-    if title:
-        title += f" ({title})"
+    # Simple overall title
+    simple_title = ' vs '.join(compare_events)
     
-    fig.suptitle(title, fontsize=16, y=0.95)
+    fig.suptitle(simple_title, fontsize=10, y=0.95)
     plt.tight_layout()
     plt.show()
     
@@ -269,13 +330,10 @@ def _create_upset_plot(event_sets, compare_events, significance_type, title):
     ax2.set_xlabel('Events')
     ax2.tick_params(axis='x', rotation=45)
     
-    # Overall title
-    sig_text = "All Significant" if significance_type == 'both' else significance_type.title()
-    title = f"Overlapping {sig_text} Neurons (UpSet Style)\n{len(compare_events)} Events"
-    if title:
-        title += f" ({title})"
+    # Simple overall title
+    simple_title = ' vs '.join(compare_events)
     
-    fig.suptitle(title, fontsize=14)
+    fig.suptitle(simple_title, fontsize=10)
     plt.tight_layout()
     plt.show()
     
