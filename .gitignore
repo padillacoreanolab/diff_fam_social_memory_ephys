@@ -2,8 +2,7 @@ bin/
 data/
 proc/
 spike_interface/
-spike_collection.json/
-outputs/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -154,3 +153,7 @@ dmypy.json
 .DS_Store
 **/.DS_Store
 **/__MACOSX/
+
+
+# Notes .md files
+foam-notes/
