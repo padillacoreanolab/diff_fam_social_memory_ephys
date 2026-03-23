@@ -72,7 +72,6 @@ class LFPRecording:
         return recording
 
     def _get_selected_traces(self, recording):
-        # start_frame = self.find_start_recording_time()
         self.brain_region_dict, sorted_channels = preprocessor.map_to_region(self.channel_dict)
         sorted_channels = [str(channel) for channel in sorted_channels]
         # Channel ids are the "names" of the channels as strings
@@ -84,9 +83,8 @@ class LFPRecording:
         recording = sp.notch_filter(recording, freq=self.elec_noise_freq)
         recording = sp.bandpass_filter(recording, freq_min=self.min_freq, freq_max=self.max_freq)
         recording = sp.resample(recording, resample_rate=self.resample_rate)
-        start_frame = self.find_start_recording_time()
         # Channel ids are the "names" of the channels as strings
-        traces = recording.get_traces(start_frame=start_frame)
+        traces = recording.get_traces()
         return traces
 
     def plot_all_channels(self):
@@ -122,7 +120,9 @@ class LFPRecording:
         plt.show()
 
     def plot_to_find_threshold(self, threshold, file_path=None):
-        scaled_traces = preprocessor.scale_voltage(self.traces, voltage_scaling_value=self.voltage_scaling)
+        scaled_traces = preprocessor.scale_voltage(
+            self.traces, voltage_scaling_value=self.voltage_scaling
+        )
         zscore_traces = preprocessor.zscore(scaled_traces)
         thresholded_traces = preprocessor.zscore_filter(zscore_traces, scaled_traces, threshold)
         preprocessor.plot_zscore(scaled_traces, zscore_traces, thresholded_traces, file_path)
@@ -160,10 +160,18 @@ class LFPRecording:
             print("Choose threhold and run preprocess().")
         else:
             self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
-                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+                self.rms_traces,
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep,
             )
             self.power = connectivity_wrapper.calculate_power(
-                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+                self.rms_traces,
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep,
             )
 
     def calculate_coherence(self):
@@ -172,10 +180,18 @@ class LFPRecording:
             print("Choose threhold and run preprocess().")
         else:
             self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
-                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+                self.rms_traces,
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep,
             )
             self.coherence = connectivity_wrapper.calculate_coherence(
-                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+                self.rms_traces,
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep,
             )
 
     def calculate_granger_causality(self):
@@ -184,10 +200,18 @@ class LFPRecording:
             print("Choose threhold and run preprocess().")
         else:
             self.connectivity, self.frequencies = connectivity_wrapper.calculate_multitaper(
-                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+                self.rms_traces,
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep,
             )
             self.granger = connectivity_wrapper.calculate_granger(
-                self.rms_traces, self.resample_rate, self.halfbandwidth, self.timewindow, self.timestep
+                self.rms_traces,
+                self.resample_rate,
+                self.halfbandwidth,
+                self.timewindow,
+                self.timestep,
             )
 
     def export_trodes_timestamps(self, trodes_directory):
@@ -214,7 +238,7 @@ class LFPRecording:
                     timestamps = trodes.read_trodes_extracted_data_file(timestamps_file_path)
                     self.first_timestamp = int(timestamps["first_timestamp"])
                     print("Extracted first timestamp")
-        return 
+        return
 
     def set_subject(self, subject: str):
         """
@@ -263,7 +287,11 @@ class LFPRecording:
                 if len(valid_indices) > 1:  # Need at least 2 points for interpolation
                     # Create interpolation function
                     f = interp1d(
-                        valid_indices, y[valid_indices], kind=kind, fill_value="extrapolate", bounds_error=False
+                        valid_indices,
+                        y[valid_indices],
+                        kind=kind,
+                        fill_value="extrapolate",
+                        bounds_error=False,
                     )
                     # Apply interpolation to missing values
                     y[nan_indices] = f(nan_indices)
@@ -315,7 +343,11 @@ class LFPRecording:
                         if len(valid_indices) > 1:  # Need at least 2 points for interpolation
                             # Create interpolation function
                             f = interp1d(
-                                valid_indices, y[valid_indices], kind=kind, fill_value="extrapolate", bounds_error=False
+                                valid_indices,
+                                y[valid_indices],
+                                kind=kind,
+                                fill_value="extrapolate",
+                                bounds_error=False,
                             )
 
                             # Apply interpolation to missing values
@@ -350,7 +382,9 @@ class LFPRecording:
             for key, value in recording.brain_region_dict.items():
                 brain_region_dict.attrs[key] = str(value)
             data_group = f.create_group("data")
-            data_group.create_dataset("traces", data=recording.traces, compression="gzip", compression_opts=9)
+            data_group.create_dataset(
+                "traces", data=recording.traces, compression="gzip", compression_opts=9
+            )
 
             # Save RMS traces if they exist
             if hasattr(recording, "rms_traces"):
@@ -360,23 +394,32 @@ class LFPRecording:
 
             # Save connectivity analysis results if they exist
             if hasattr(recording, "coherence"):
-                data_group.create_dataset("coherence", data=recording.coherence, compression="gzip", compression_opts=9)
+                data_group.create_dataset(
+                    "coherence", data=recording.coherence, compression="gzip", compression_opts=9
+                )
 
             if hasattr(recording, "frequencies"):
                 data_group.create_dataset(
-                    "frequencies", data=recording.frequencies, compression="gzip", compression_opts=9
+                    "frequencies",
+                    data=recording.frequencies,
+                    compression="gzip",
+                    compression_opts=9,
                 )
 
             if hasattr(recording, "grangers") | hasattr(recording, "granger"):
                 try:
-                    data_group.create_dataset("granger", data=recording.granger, compression="gzip", compression_opts=9)
+                    data_group.create_dataset(
+                        "granger", data=recording.granger, compression="gzip", compression_opts=9
+                    )
                 except Exception as e:
                     data_group.create_dataset(
                         "granger", data=recording.grangers, compression="gzip", compression_opts=9
                     )
 
             if hasattr(recording, "power"):
-                data_group.create_dataset("power", data=recording.power, compression="gzip", compression_opts=9)
+                data_group.create_dataset(
+                    "power", data=recording.power, compression="gzip", compression_opts=9
+                )
             # if hasattr(recording, "pdc"):
             #     data_group.create_dataset("pdc", data=recording.pdc, compression="gzip", compression_opts=9)
             if recording.event_dict is not None:
