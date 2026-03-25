@@ -94,10 +94,10 @@ class SpikeCollection:
                 missing_events.append(recording.name)
             else:
                 if is_first:
-                    last_recording_events = list(recording.event_dict.keys()).sort()
+                    last_recording_events = sorted(recording.event_dict.keys())
                     is_first = False
                 else:
-                    if list(recording.event_dict.keys()).sort() != last_recording_events:
+                    if sorted(recording.event_dict.keys()) != last_recording_events:
                         event_dicts_same = False
                 for value in recording.event_dict.values():
                     if type(value) is np.ndarray:
@@ -209,6 +209,12 @@ class SpikeCollection:
         return None
 
     def save_collection(self, output_path):
+        # Allow passing either a directory or a full .json path
+        output_path = Path(output_path)
+        if output_path.suffix == ".json":
+            output_path = output_path.parent
+        output_path = str(output_path)
+
         output_data = {
             "metadata": {
                 "data_path": self.path,
@@ -238,20 +244,24 @@ class SpikeCollection:
             SpikeRecording.save_metadata_to_json(rec, rec_path)
 
     @staticmethod
-    def load_collection(json_path):
+    def load_collection(output_path):
         """Load collection from JSON metadata and H5 recordings.
 
         Parameters
         ----------
-        json_path : str or Path
-            Path to the JSON metadata file
+        output_path : str or Path
+            Path to the collection directory (same path passed to save_collection).
+            Can also be the full path to spike_collection.json.
 
         Returns
         -------
         SpikeCollection
             Loaded collection object
         """
-        json_path = Path(json_path)
+        output_path = Path(output_path)
+        if output_path.suffix == ".json":
+            output_path = output_path.parent
+        json_path = output_path / "spike_collection.json"
 
         # Load JSON metadata
         with open(json_path, "r") as f:
@@ -268,12 +278,11 @@ class SpikeCollection:
             load=True,
         )
 
-        collection.load_recordings(json_path)
+        collection.load_recordings(output_path)
         return collection
 
-    def load_recordings(self, json_path):
-        json_dir = os.path.dirname(json_path)
-        recordings_dir = os.path.join(json_dir, "recordings")
+    def load_recordings(self, output_path):
+        recordings_dir = os.path.join(output_path, "recordings")
         if not os.path.exists(recordings_dir):
             raise FileNotFoundError(f"Recordings directory not found at {recordings_dir}")
         self.recordings = []

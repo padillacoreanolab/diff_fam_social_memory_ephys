@@ -1,14 +1,17 @@
 import unittest
 import numpy as np
 import io
+from pathlib import Path
 from unittest.mock import patch
 from spike.spike_analysis.spike_recording import SpikeRecording
+
+TEST_DATA_PATH = str(Path(__file__).parent / "test_data")
 
 
 class TestSpikeRecording(unittest.TestCase):
     def test_cluster_dict(self):
         with patch("sys.stdout", new=io.StringIO()):
-            data_path = r"tests/test_data/test_recording_merged.rec"
+            data_path = str(Path(TEST_DATA_PATH) / "test_recording_merged.rec")
             test_recording = SpikeRecording(data_path)
             try:
                 test_recording.labels_dict
@@ -25,27 +28,25 @@ class TestSpikeRecording(unittest.TestCase):
 
     def test_delete_noise(self):
         with patch("sys.stdout", new=io.StringIO()):
-            data_path = r"tests/test_data/test_recording_merged.rec"
+            data_path = str(Path(TEST_DATA_PATH) / "test_recording_merged.rec")
             test_recording = SpikeRecording(data_path)
             self.assertIsInstance(test_recording.unit_array, np.ndarray)
             self.assertNotIn("224", test_recording.unit_array)
 
     def test_unsorted_clusters(self):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
-            data_path = r"tests/test_data/test_recording_merged.rec"
+            data_path = str(Path(TEST_DATA_PATH) / "test_recording_merged.rec")
             test_recording = SpikeRecording(data_path)
+            # unsorted unit 169 is removed from labels_dict during __init__
             self.assertNotIn("169", test_recording.labels_dict)
-            test_recording.spike_specs()
-            # Get what was printed
+            # __spike_specs__ prints the warning during __init__
             printed_output = fake_stdout.getvalue()
-            # Assert the expected message is in the output
-            expected_message = "Unit 169 is unsorted & has 88 spikes"
-            self.assertIn(expected_message, printed_output)
+            self.assertIn("Unit 169 is unsorted & has 88 spikes", printed_output)
             self.assertIn("Unit 169 will be deleted", printed_output)
 
     def test_unit_dict(self):
         with patch("sys.stdout", new=io.StringIO()):
-            data_path = r"tests/test_data/test_recording_merged.rec"
+            data_path = str(Path(TEST_DATA_PATH) / "test_recording_merged.rec")
             test_recording = SpikeRecording(data_path)
             self.assertEqual(len(test_recording.unit_timestamps.keys()), 26)
             for key, value in test_recording.unit_timestamps.items():
@@ -130,7 +131,7 @@ class TestSpikeRecording(unittest.TestCase):
     #                 self.assertEqual(recording.unit_firing_rates["3"][0], 0)
     #                 self.assertEqual(recording.unit_firing_rate_array.shape, (46833, 2))
     def test_event_snippets(self):
-        data_path = r"tests/test_data/test_recording_merged.rec"
+        data_path = str(Path(TEST_DATA_PATH) / "test_recording_merged.rec")
         recording = SpikeRecording(data_path)
         recording.event_dict = {"event": np.array([[0, 2000], [3000, 8000], [2338650, 2341650]])}
         recording.subject = 1
@@ -141,7 +142,7 @@ class TestSpikeRecording(unittest.TestCase):
         self.assertEqual(len(event_snippets[0]), 40)
 
     def test_early_event_snippets(self):
-        data_path = r"tests/test_data/test_recording_merged.rec"
+        data_path = str(Path(TEST_DATA_PATH) / "test_recording_merged.rec")
         recording = SpikeRecording(data_path)
         recording.event_dict = {"event": np.array([[0, 2000], [3000, 8000], [2338650, 2341650]])}
         recording.subject = 1
@@ -152,7 +153,7 @@ class TestSpikeRecording(unittest.TestCase):
         self.assertEqual(len(event_snippets[1]), 60)
 
     def test_late_event_snippets(self):
-        data_path = r"tests/test_data/test_rec_fewgoodunits_merged.rec"
+        data_path = str(Path(TEST_DATA_PATH) / "test_rec_fewgoodunits_merged.rec")
         recording = SpikeRecording(data_path)
         recording.event_dict = {"event": np.array([[0, 2000], [3000, 8000], [2338650, 2341650]])}
         recording.subject = 1
