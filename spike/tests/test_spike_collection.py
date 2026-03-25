@@ -1,14 +1,17 @@
 import unittest
+from pathlib import Path
 from spike.spike_analysis.spike_collection import SpikeCollection
 from unittest.mock import patch
 import io
 import numpy as np
 
+TEST_DATA_PATH = str(Path(__file__).parent / "test_data")
+
 
 class TestSpikeCollection(unittest.TestCase):
     def test_collection(self):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
-            test_collection = SpikeCollection(r"tests/test_data")
+            test_collection = SpikeCollection(TEST_DATA_PATH)
             test_collection.make_collection()
             # Get what was printed
             printed_output = fake_stdout.getvalue()
@@ -21,7 +24,7 @@ class TestSpikeCollection(unittest.TestCase):
     def test_all_set_no_subjects_no_dicts(self):
         # to do create missing dictionaries, dictionaries, subjects, etc.
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
-            test_collection = SpikeCollection(r"tests/test_data")
+            test_collection = SpikeCollection(TEST_DATA_PATH)
             test_collection.analyze(timebin=50, ignore_freq=0.5)
             # Get what was printed
             printed_output = fake_stdout.getvalue()
@@ -33,7 +36,7 @@ class TestSpikeCollection(unittest.TestCase):
 
     def test_all_set_no_dicts(self):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
-            test_collection = SpikeCollection(r"tests/test_data")
+            test_collection = SpikeCollection(TEST_DATA_PATH)
             i = 0
             for recording in test_collection.recordings:
                 recording.subject = i
@@ -49,7 +52,7 @@ class TestSpikeCollection(unittest.TestCase):
 
     def test_all_set_no_subjects(self):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
-            test_collection = SpikeCollection(r"tests/test_data")
+            test_collection = SpikeCollection(TEST_DATA_PATH)
             i = 0
             for recording in test_collection.recordings:
                 recording.event_dict = {"event": [i, i + 1]}
@@ -66,7 +69,7 @@ class TestSpikeCollection(unittest.TestCase):
 
     def test_all_set_diff_events(self):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
-            test_collection = SpikeCollection(r"tests/test_data")
+            test_collection = SpikeCollection(TEST_DATA_PATH)
             i = 0
             for recording in test_collection.recordings:
                 recording.event_dict = {f"event{i}": [i, i + 1]}
@@ -85,7 +88,7 @@ class TestSpikeCollection(unittest.TestCase):
 
     def test_all_good(self):
         with patch("sys.stdout", new=io.StringIO()) as fake_stdout:
-            test_collection = SpikeCollection(r"tests/test_data")
+            test_collection = SpikeCollection(TEST_DATA_PATH)
             i = 0
             for recording in test_collection.recordings:
                 recording.event_dict = {"event": np.array([[i, i + 1]])}

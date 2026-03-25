@@ -7,6 +7,18 @@ import json
 import h5py
 
 
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy scalar and array types."""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
 class SpikeRecording:
     """
     A class for an ephys recording after being spike sorted and manually
@@ -492,7 +504,7 @@ class SpikeRecording:
         json_path : str
             Path where JSON should be saved
         """
-        json_path = os.path.join(json_path, ".json")
+        json_path = json_path + ".json"
 
         # Calculate derived metrics
         recording_length_minutes = recording.timestamps[-1] / recording.sampling_rate / 60
@@ -544,7 +556,7 @@ class SpikeRecording:
 
         # Save to JSON
         with open(json_path, "w") as f:
-            json.dump(metadata, f, indent=4)
+            json.dump(metadata, f, indent=4, cls=NumpyEncoder)
 
         return json_path
 
@@ -572,11 +584,11 @@ class SpikeRecording:
             recording = object.__new__(SpikeRecording)
 
             # Restore core attributes
-            recording.name = metadata.attrs["name"]
-            recording.path = metadata.attrs["path"]
-            recording.phy = metadata.attrs["phy_path"]
-            recording.sampling_rate = metadata.attrs["sampling_rate"]
-            recording.good_neurons = metadata.attrs["good_neurons"]
+            recording.name = str(metadata.attrs["name"])
+            recording.path = str(metadata.attrs["path"])
+            recording.phy = str(metadata.attrs["phy_path"])
+            recording.sampling_rate = int(metadata.attrs["sampling_rate"])
+            recording.good_neurons = int(metadata.attrs["good_neurons"])
 
             # Restore subject if it exists
             if "subject" in metadata.attrs:

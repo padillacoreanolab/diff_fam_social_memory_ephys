@@ -167,11 +167,15 @@ def trial_traj(event_firing_rates, num_points, min_event):
 
 
 def check_recording(recording, min_neurons, events, to_print=True):
-    if recording.good_neurons < min_neurons:
+    if recording.analyzed_neurons < min_neurons:
         if to_print:
             print(f"Excluding {recording.name} with {recording.good_neurons} neurons")
         return False
     for event in events:
+        if len(recording.event_dict[event]) == 0:
+            if to_print:
+                print(f"Excluding {recording.name}, it has no {event} events")
+            return False
         if len(recording.event_dict[event]) == 1:
             if recording.event_dict[event][0][1] - recording.event_dict[event][0][0] == 0:
                 if to_print:
