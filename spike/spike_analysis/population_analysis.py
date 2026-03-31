@@ -2,7 +2,8 @@ import numpy as np
 from sklearn.decomposition import PCA
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.spatial.distance import euclidean
+from scipy.spatial.distance import euclidean, pdist
+from scipy.stats import spearmanr, sem
 from itertools import combinations
 import spike.spike_analysis.spike_collection as col
 import spike.spike_analysis.spike_recording
@@ -172,14 +173,20 @@ def check_recording(recording, min_neurons, events, to_print=True):
             print(f"Excluding {recording.name} with {recording.good_neurons} neurons")
         return False
     for event in events:
-        if len(recording.event_dict[event]) == 0:
+        events_array = recording.event_dict[event]
+
+        # check 1: nothing in the array at all
+        if events_array is None or events_array.size == 0:
             if to_print:
                 print(f"Excluding {recording.name}, it has no {event} events")
             return False
-        if len(recording.event_dict[event]) == 1:
-            if recording.event_dict[event][0][1] - recording.event_dict[event][0][0] == 0:
+
+        # check 2: only one event and it has zero duration
+        if len(events_array) == 1:
+            start, end = events_array[0][0], events_array[0][1]
+            if end - start == 0:
                 if to_print:
-                    print(f"Excluding {recording.name}, it has no {event} events")
+                    print(f"Excluding {recording.name}, it has a zero-length {event} event")
                 return False
     return True
 
@@ -1087,3 +1094,451 @@ def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_w
             all_distances_df = pd.concat([all_distances_df, recording_df])
 
     return all_distances_df
+
+
+def _rsa_core(matrix1, matrix2, metric="euclidean"):
+    """Core RSA computation between two (T x N) population matrices.
+
+    Computes a pairwise distance vector (RDM) for each matrix across timepoints,
+    then returns the Spearman correlation between the two RDMs.
+
+    Args:
+        matrix1, matrix2: np.ndarray of shape (T, N) — T timepoints, N neurons
+        metric: distance metric passed to scipy pdist
+
+    Returns:
+        rsa_score: float, Spearman r
+        pval: float, two-tailed p-value
+    """
+    rdm1 = pdist(matrix1, metric=metric)
+    rdm2 = pdist(matrix2, metric=metric)
+    rsa_score, pval = spearmanr(rdm1, rdm2)
+    return rsa_score, pval
+
+
+def rsa(
+    spike_collection,
+    events,
+    event_length,
+    pre_window=0,
+    post_window=0,
+    across_subjects=False,
+    across_events=False,
+    metric="euclidean",
+    plot=True,
+):
+    """Representational Similarity Analysis on population firing rate matrices.
+
+    Args:
+        spike_collection: SpikeCollection, fully analyzed
+        events: list of str, event types to include
+        event_length: float, seconds
+        pre_window: float, seconds before event onset
+        post_window: float, seconds after event offset
+        across_subjects: bool — compare same event type between every pair of subjects
+        across_events: bool — compare different event types within each subject
+        metric: str, distance metric for pdist (default "euclidean")
+
+    Returns:
+        list of dicts, one per comparison — convertible to a DataFrame
+    """
+    if across_subjects and across_events:
+        raise ValueError("Set either across_subjects or across_events, not both.")
+
+    results = []
+
+    # within subject, within event: RSA between every pair of trials, averaged per recording+event
+    if not across_subjects and not across_events:
+        for recording in spike_collection.recordings:
+            for event in events:
+                trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
+                if len(trials) < 2:
+                    continue
+                trial_rsa_scores = []
+                for trial1, trial2 in combinations(trials, 2):
+                    score, _ = _rsa_core(trial1, trial2, metric)
+                    trial_rsa_scores.append(score)
+                results.append({
+                    "comparison": "within_subject_within_event",
+                    "recording": recording.name,
+                    "subject": getattr(recording, "subject", None),
+                    "event": event,
+                    "rsa": np.mean(trial_rsa_scores),
+                    "n_pairs": len(trial_rsa_scores),
+                })
+
+    if across_subjects:
+        for event in events:
+            # build {subject: avg_matrix (T x N)} for this event
+            subject_matrices = {}
+            for recording in spike_collection.recordings:
+                trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
+                if len(trials) == 0:
+                    continue
+                avg_matrix = np.mean(trials, axis=0)  # (T, N)
+                subject_matrices[recording.subject] = avg_matrix
+
+            for (subj1, mat1), (subj2, mat2) in combinations(subject_matrices.items(), 2):
+                rsa_score, pval = _rsa_core(mat1, mat2, metric)
+                results.append({
+                    "comparison": "across_subjects",
+                    "event": event,
+                    "subject_1": subj1,
+                    "subject_2": subj2,
+                    "rsa": rsa_score,
+                    "pval": pval,
+                })
+
+    if across_events:
+        for recording in spike_collection.recordings:
+            # build {event: avg_matrix (T x N)} for this recording
+            event_matrices = {}
+            for event in events:
+                trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
+                if len(trials) == 0:
+                    continue
+                event_matrices[event] = np.mean(trials, axis=0)  # (T, N)
+
+            for (event1, mat1), (event2, mat2) in combinations(event_matrices.items(), 2):
+                rsa_score, pval = _rsa_core(mat1, mat2, metric)
+                results.append({
+                    "comparison": "across_events",
+                    "recording": recording.name,
+                    "subject": getattr(recording, "subject", None),
+                    "event_1": event1,
+                    "event_2": event2,
+                    "rsa": rsa_score,
+                    "pval": pval,
+                })
+
+    if plot and results:
+        if not across_subjects and not across_events:
+            # group per-subject average RSA by event, then mean/SEM across subjects
+            event_rsa = {}
+            for r in results:
+                event_rsa.setdefault(r["event"], []).append(r["rsa"])
+            labels = list(event_rsa.keys())
+            means = [np.mean(event_rsa[e]) for e in labels]
+            errors = [sem(event_rsa[e]) for e in labels]
+            x = np.arange(len(labels))
+            plt.figure(figsize=(max(4, len(labels) * 1.5), 4))
+            plt.bar(x, means, yerr=errors, capsize=5, width=0.5)
+            plt.xticks(x, labels)
+            plt.ylabel("RSA (Spearman r)")
+            plt.title("Within-subject trial-to-trial RSA per event")
+            plt.tight_layout()
+            plt.show()
+
+        elif across_subjects:
+            # group RSA values by event across all subject pairs
+            event_rsa = {}
+            for r in results:
+                event_rsa.setdefault(r["event"], []).append(r["rsa"])
+            labels = list(event_rsa.keys())
+            means = [np.mean(event_rsa[e]) for e in labels]
+            errors = [sem(event_rsa[e]) for e in labels]
+            x = np.arange(len(labels))
+            plt.figure(figsize=(max(4, len(labels) * 1.5), 4))
+            plt.bar(x, means, yerr=errors, capsize=5, width=0.5)
+            plt.xticks(x, labels)
+            plt.ylabel("RSA (Spearman r)")
+            plt.title("RSA across subjects — average subject pair per event")
+            plt.tight_layout()
+            plt.show()
+
+        elif across_events:
+            # group RSA values by event pair across all subjects
+            pair_rsa = {}
+            for r in results:
+                pair_label = f"{r['event_1']} vs {r['event_2']}"
+                pair_rsa.setdefault(pair_label, []).append(r["rsa"])
+            labels = list(pair_rsa.keys())
+            means = [np.mean(pair_rsa[p]) for p in labels]
+            errors = [sem(pair_rsa[p]) for p in labels]
+            x = np.arange(len(labels))
+            plt.figure(figsize=(max(4, len(labels) * 1.5), 4))
+            plt.bar(x, means, yerr=errors, capsize=5, width=0.5)
+            plt.xticks(x, labels, rotation=15, ha="right")
+            plt.ylabel("RSA (Spearman r)")
+            plt.title("RSA across events — average across subjects per event pair")
+            plt.tight_layout()
+            plt.show()
+
+    return results
+
+
+def dpca_matrix(
+    spike_collection,
+    event_length,
+    pre_window,
+    post_window=0,
+    events=None,
+    min_neurons=0,
+):
+    """Build trial-averaged (N, T, E) matrix for dPCA.
+
+    Pools neurons across all recordings that pass check_recording, mirroring avg_trajectory_matrix.
+
+    Args:
+        spike_collection: SpikeCollection or list of SpikeRecording
+        event_length: float, seconds
+        pre_window: float, seconds before event onset
+        post_window: float, seconds after event offset
+        events: list of str — event types to include; if None uses all events in first recording
+        min_neurons: int, minimum analyzed_neurons for a recording to be included
+
+    Returns:
+        R           : np.ndarray (N, T, E) — trial-averaged, mean-centered per neuron
+        labels      : str — dPCA labels string for the non-neuron axes, always 'te'
+        neuron_keys : list of str, recording name for each neuron row (length N)
+        event_list  : list of str, event name for each event slice (length E)
+    """
+    if isinstance(spike_collection, col.SpikeCollection):
+        recordings = spike_collection.recordings
+        timebin = spike_collection.timebin
+    elif isinstance(spike_collection, list):
+        recordings = spike_collection
+        timebin = spike_collection[0].timebin
+    else:
+        recordings = [spike_collection]
+        timebin = spike_collection.timebin
+
+    if events is None:
+        events = list(recordings[0].event_dict.keys())
+
+    num_points = int((event_length + pre_window + post_window) * 1000 / timebin)  # T
+
+    valid_recordings = [
+        r for r in recordings if check_recording(r, min_neurons, events, to_print=True)
+    ]
+    if not valid_recordings:
+        return None, None, None, None
+
+    R_list = []
+    neuron_keys = []
+
+    for recording in valid_recordings:
+        n_neurons = recording.analyzed_neurons
+        rec_R = np.zeros((n_neurons, num_points, len(events)))  # (N_rec, T, E)
+
+        for e_idx, event in enumerate(events):
+            trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
+            avg = np.mean(np.stack(trials, axis=0), axis=0)  # (T, N_rec)
+            rec_R[:, :, e_idx] = avg.T                        # (N_rec, T)
+
+        R_list.append(rec_R)
+        neuron_keys.extend([recording.name] * n_neurons)
+
+    R = np.concatenate(R_list, axis=0)  # (N_total, T, E)
+
+    
+    N = R.shape[0]
+    # mean-center per neuron across all conditions and timepoints
+    # R -= np.mean(R.reshape(N, -1), axis=1)[:, None, None]
+    # standardize per neuron across all conditions and timepoints
+    NR = StandardScaler().fit_transform(R.reshape(N, -1)).reshape(R.shape)
+
+    return R, 'te', neuron_keys, list(events), NR
+
+
+class dPCAResult:
+    """Result object returned by run_dpca, analogous to PCAResult.
+
+    Attributes
+    ----------
+    R            : np.ndarray (N, T, E) — mean-centered trial-averaged firing rates
+    NR           : np.ndarray (N, T, E) — standardized version of R (used in fit)
+    Z            : dict — dPCA components keyed by marginalization ('t', 'e', 'te')
+    dpca         : fitted dPCA object
+    neuron_keys  : list of str — recording name for each neuron row (length N)
+    event_list   : list of str — event name for each event slice (length E)
+    time         : np.ndarray (T,) — time axis in seconds relative to event onset
+    timebin      : float — ms per bin
+    event_length : float — seconds
+    pre_window   : float — seconds
+    post_window  : float — seconds
+    """
+
+    _MARG_LABELS = {"t": "time", "e": "event", "te": "mixed"}
+
+    def __init__(
+        self,
+        raw_matrix,
+        normalized_matrix,
+        transformed_matrix,
+        dpca,
+        neuron_keys,
+        event_list,
+        timebin,
+        event_length,
+        pre_window,
+        post_window,
+    ):
+        self.raw_matrix = raw_matrix                    # (N, T, E) mean-centered
+        self.normalized_matrix = normalized_matrix      # (N, T, E) standardized
+        self.transformed_matrix = transformed_matrix    # dict keyed by marginalization
+        self.dpca = dpca
+        self.neuron_keys = neuron_keys
+        self.event_list = event_list
+        self.timebin = timebin
+        self.event_length = event_length
+        self.pre_window = pre_window
+        self.post_window = post_window
+        self.time = np.linspace(-pre_window, event_length + post_window, raw_matrix.shape[1])
+        self.explained_variance = dpca.explained_variance_ratio_
+        self.get_cumulative_variance()
+
+    def get_cumulative_variance(self):
+        """Compute cumulative explained variance per marginalization, mirroring PCAResult."""
+        if self.explained_variance is not None:
+            self.cumulative_variance = {
+                key: np.cumsum(vals) for key, vals in self.explained_variance.items()
+            }
+        else:
+            self.cumulative_variance = None
+
+    @property
+    def n_neurons(self):
+        return self.raw_matrix.shape[0]
+
+    @property
+    def n_timebins(self):
+        return self.raw_matrix.shape[1]
+
+    @property
+    def n_events(self):
+        return self.raw_matrix.shape[2]
+
+    def plot_components(self):
+        """Plot the first dPC for each marginalization over time."""
+        marg_keys = list(self.transformed_matrix.keys())
+        plt.figure(figsize=(5 * len(marg_keys), 4))
+        for i, key in enumerate(marg_keys, 1):
+            plt.subplot(1, len(marg_keys), i)
+            label = self._MARG_LABELS.get(key, key)
+            for e_idx, event_name in enumerate(self.event_list):
+                if label == 'event':
+                    plt.plot(self.transformed_matrix[key][0, :, e_idx], self.transformed_matrix[key][1, :, e_idx], label=event_name)
+                else:
+                    plt.plot(self.time, self.transformed_matrix[key][0, :, e_idx], label=event_name)
+            if label == 'event':
+                plt.xlabel("dPC 1")
+                plt.ylabel("dPC 2")
+            else:
+                plt.axvline(x=0, color="k", linestyle="--", linewidth=0.8)
+                plt.xlabel("time (s)")
+                plt.ylabel("dPC projection")
+            plt.title(f"1st {label} component")
+            plt.legend(fontsize=8)
+        plt.suptitle("dPCA components")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_components_trajectory(self):
+        """Plot dPC1 vs dPC2 trajectory for each marginalization."""
+        marg_keys = list(self.transformed_matrix.keys())
+        plt.figure(figsize=(5 * len(marg_keys), 4))
+        for i, key in enumerate(marg_keys, 1):
+            plt.subplot(1, len(marg_keys), i)
+            label = self._MARG_LABELS.get(key, key)
+            for e_idx, event_name in enumerate(self.event_list):
+                # transformed_matrix[key] shape: (n_components, T, E)
+                plt.plot(
+                    self.transformed_matrix[key][0, :, e_idx],
+                    self.transformed_matrix[key][1, :, e_idx],
+                    label=event_name,
+                )
+            plt.xlabel("dPC 1")
+            plt.ylabel("dPC 2")
+            plt.title(f"{label} component (dPC1 vs dPC2)")
+            plt.legend(fontsize=8)
+        plt.suptitle("dPCA component trajectories")
+        plt.tight_layout()
+        plt.show()
+
+    def __str__(self):
+        marg_keys = list(self.transformed_matrix.keys())
+        pcs_for_90 = {
+            key: int(np.where(cv >= 0.9)[0][0]) + 1 if np.any(cv >= 0.9) else None
+            for key, cv in (self.cumulative_variance or {}).items()
+        }
+        return (
+            f"dPCA Result\n"
+            f"  Events           : {', '.join(self.event_list)}\n"
+            f"  Neurons          : {self.n_neurons}\n"
+            f"  Timebins         : {self.n_timebins}  ({self.timebin} ms/bin)\n"
+            f"  Marginalizations : {marg_keys}\n"
+            f"  PCs for 90% var  : {pcs_for_90}"
+        )
+
+    def __repr__(self):
+        return (
+            f"dPCAResult | {self.n_neurons} neurons × "
+            f"{self.n_timebins} timebins × {self.n_events} events | "
+            f"marginalizations: {list(self.transformed_matrix.keys())}"
+        )
+
+
+def run_dpca(
+    spike_collection,
+    event_length,
+    pre_window,
+    post_window=0,
+    events=None,
+    min_neurons=0,
+    protect_time=True,
+    plot=True,
+):
+    """Fit dPCA on population firing rates organized as (N, T, E).
+
+    Args:
+        spike_collection : SpikeCollection or list of SpikeRecording
+        event_length     : float, seconds
+        pre_window       : float, seconds before event onset
+        post_window      : float, seconds after event offset
+        events           : list of str — event types; if None uses all events in first recording
+        min_neurons      : int, minimum analyzed_neurons threshold
+        protect_time     : bool — set dpca.protect=['t'] to protect time axis during shuffle
+        plot             : bool — call result.plot_components() before returning
+
+    Returns:
+        dPCAResult object
+    """
+    from dPCA import dPCA as dPCA_lib
+
+    if isinstance(spike_collection, col.SpikeCollection):
+        timebin = spike_collection.timebin
+    elif isinstance(spike_collection, list):
+        timebin = spike_collection[0].timebin
+    else:
+        timebin = spike_collection.timebin
+
+    R, labels, neuron_keys, event_list, NR = dpca_matrix(
+        spike_collection, event_length, pre_window, post_window, events, min_neurons
+    )
+    if R is None:
+        return None
+
+    dpca = dPCA_lib.dPCA(labels=labels)
+    if protect_time:
+        dpca.protect = ["t"]
+
+    Z = dpca.fit_transform(NR)
+
+    result = dPCAResult(
+        raw_matrix=R,
+        normalized_matrix=NR,
+        transformed_matrix=Z,
+        dpca=dpca,
+        neuron_keys=neuron_keys,
+        event_list=event_list,
+        timebin=timebin,
+        event_length=event_length,
+        pre_window=pre_window,
+        post_window=post_window,
+    )
+
+    if plot:
+        result.plot_components()
+
+    return result

@@ -18,7 +18,7 @@ import unittest
 import numpy as np
 from pathlib import Path
 from spike.spike_analysis.spike_collection import SpikeCollection
-import spike.spike_analysis.pca_trajectories as pca_traj
+import spike.spike_analysis.population_analysis as pca_traj
 
 
 TEST_DATA_PATH = str(Path(__file__).parent / "test_data")
@@ -28,6 +28,57 @@ EXPECTED_RECORDINGS = {
     "test_rec2_merged.rec",
     "test_rec_fewgoodunits_merged.rec",
 }
+
+
+def fabricate_firing_rates(collection, n_timebins=6000, split_ms=30000):
+    """Replace each recording's unit_firing_rate_array with fabricated data.
+
+    Neurons are assigned sequential global indices across recordings.
+    Neuron with global index i has firing rate +i before split_ms and -i from split_ms onward.
+    Shape: (n_timebins, n_neurons).
+    """
+    global_offset = 0
+    for recording in collection.recordings:
+        n = recording.analyzed_neurons
+        rates = np.tile(
+            np.arange(global_offset, global_offset + n, dtype=float),
+            (n_timebins, 1)
+        )
+        split_bin = int(split_ms / recording.timebin)
+        rates[split_bin:] *= -1
+        recording.unit_firing_rate_array = rates
+        global_offset += n
+    return collection
+
+
+# Per-recording event dicts — 2-second events, event A before 30000ms, event B after 30000ms
+# rec1 (test_rec2_merged.rec):          A=2 trials, B=3 trials
+# rec2 (test_recording_merged.rec):     A=4 trials, B=5 trials
+# rec3 (test_rec_fewgoodunits_merged):  A=3 trials, B=2 trials
+FABRICATED_EVENT_DICTS = [
+    {
+        "A": np.array([[0, 2000], [5000, 7000]]),
+        "B": np.array([[30000, 32000], [35000, 37000], [40000, 42000]]),
+    },
+    {
+        "A": np.array([[0, 2000], [5000, 7000], [10000, 12000], [15000, 17000]]),
+        "B": np.array([[30000, 32000], [35000, 37000], [40000, 42000], [45000, 47000], [50000, 52000]]),
+    },
+    {
+        "A": np.array([[0, 2000], [5000, 7000], [10000, 12000]]),
+        "B": np.array([[30000, 32000], [35000, 37000]]),
+    },
+]
+
+
+def make_fabricated_collection(timebin=50, ignore_freq=0.1):
+    """Load real test recordings, replace firing rates with fabricated data,
+    and assign per-recording event dicts with known trial counts."""
+    collection = make_test_collection(timebin=timebin, ignore_freq=ignore_freq)
+    fabricate_firing_rates(collection)
+    for recording, event_dict in zip(collection.recordings, FABRICATED_EVENT_DICTS):
+        recording.event_dict = event_dict
+    return collection
 
 
 def make_test_collection(timebin=50, ignore_freq=0.1):
@@ -40,6 +91,190 @@ def make_test_collection(timebin=50, ignore_freq=0.1):
         recording.event_dict = {"event_a": events_a, "event_b": events_b}
     collection.analyze(timebin=timebin, ignore_freq=ignore_freq)
     return collection
+
+
+class TestFabricatedFiringRates(unittest.TestCase):
+    def test_fabricated_collection_loads(self):
+        collection = make_fabricated_collection()
+        self.assertEqual(len(collection.recordings), 3)
+
+
+class TestPCAMatrixContent(unittest.TestCase):
+    """Explicit value checks on raw_data using fabricated firing rates.
+
+    With fabricated data:
+      - Event A trials fall in the positive half → neuron j has rate +j
+      - Event B trials fall in the negative half → neuron j has rate -j
+    raw_data shape: (num_points * 2, N_total) = (80, 30) with timebin=50, event_length=2s
+      rows   0:40 → event A averages
+      rows  40:80 → event B averages
+    """
+
+    def setUp(self):
+        self.event_length = 2.0
+        self.timebin = 50
+        self.num_points = int(self.event_length * 1000 / self.timebin)  # 40
+        self.events = ["A", "B"]
+        collection = make_fabricated_collection(timebin=self.timebin)
+        result = pca_traj.avg_trajectory_matrix(
+            collection, self.event_length, pre_window=0, post_window=0, events=self.events
+        )
+        self.raw = result.raw_data
+
+    # --- neuron 1 (global index 1, rate +1 / -1) ---
+
+    def test_neuron1_event_A_all_positive_one(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[:self.num_points, 1],
+            np.ones(self.num_points)
+        )
+
+    def test_neuron1_event_B_all_negative_one(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[self.num_points:, 1],
+            -np.ones(self.num_points)
+        )
+
+    # --- neuron 7 (rate +7 / -7) ---
+
+    def test_neuron7_event_A(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[:self.num_points, 7],
+            np.full(self.num_points, 7.0)
+        )
+
+    def test_neuron7_event_B(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[self.num_points:, 7],
+            np.full(self.num_points, -7.0)
+        )
+
+    # --- neuron 20 (rate +20 / -20) ---
+
+    def test_neuron20_event_A(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[:self.num_points, 20],
+            np.full(self.num_points, 20.0)
+        )
+
+    def test_neuron20_event_B(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[self.num_points:, 20],
+            np.full(self.num_points, -20.0)
+        )
+
+
+class TestPCAMatrixTrialContent(unittest.TestCase):
+    """Explicit value checks on raw_data for mode='trial'.
+
+    min trials: A=min(2,4,3)=2, B=min(3,5,2)=2  →  each event contributes 2*40=80 rows
+    raw_data shape: (160, 30)
+      rows   0:80  → event A (2 trials × 40 timebins), neuron j = +j
+      rows  80:160 → event B (2 trials × 40 timebins), neuron j = -j
+    """
+
+    def setUp(self):
+        self.event_length = 2.0
+        self.timebin = 50
+        self.num_points = int(self.event_length * 1000 / self.timebin)  # 40
+        self.min_trials = 2
+        self.n_event_A_rows = self.num_points * self.min_trials  # 80
+        self.events = ["A", "B"]
+        collection = make_fabricated_collection(timebin=self.timebin)
+        result = pca_traj.trial_trajectory_matrix(
+            collection, self.event_length, pre_window=0, post_window=0, events=self.events
+        )
+        self.raw = result.raw_data
+
+    def test_raw_data_shape(self):
+        expected_rows = self.num_points * self.min_trials * len(self.events)  # 160
+        self.assertEqual(self.raw.shape, (expected_rows, 30))
+
+    # --- neuron 3 ---
+    def test_neuron3_event_A(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[:self.n_event_A_rows, 3],
+            np.full(self.n_event_A_rows, 3.0)
+        )
+
+    def test_neuron3_event_B(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[self.n_event_A_rows:, 3],
+            np.full(self.n_event_A_rows, -3.0)
+        )
+
+    # --- neuron 14 ---
+    def test_neuron14_event_A(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[:self.n_event_A_rows, 14],
+            np.full(self.n_event_A_rows, 14.0)
+        )
+
+    def test_neuron14_event_B(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[self.n_event_A_rows:, 14],
+            np.full(self.n_event_A_rows, -14.0)
+        )
+
+    # --- neuron 25 ---
+    def test_neuron25_event_A(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[:self.n_event_A_rows, 25],
+            np.full(self.n_event_A_rows, 25.0)
+        )
+
+    def test_neuron25_event_B(self):
+        np.testing.assert_array_almost_equal(
+            self.raw[self.n_event_A_rows:, 25],
+            np.full(self.n_event_A_rows, -25.0)
+        )
+
+
+class TestDPCAMatrixContent(unittest.TestCase):
+    """Explicit value checks on R from dpca_matrix.
+
+    R shape: (N=30, T=40, E=2)
+      R[j, :, 0] = +j  (event A, positive half)
+      R[j, :, 1] = -j  (event B, negative half)
+    Mean per neuron across all T*E = (j + -j)/2 = 0, so centering leaves values unchanged.
+    """
+
+    def setUp(self):
+        self.event_length = 2.0
+        self.timebin = 50
+        self.num_points = int(self.event_length * 1000 / self.timebin)  # 40
+        self.events = ["A", "B"]
+        collection = make_fabricated_collection(timebin=self.timebin)
+        R, labels, neuron_keys, event_list, NR = pca_traj.dpca_matrix(
+            collection, self.event_length, pre_window=0, post_window=0, events=self.events
+        )
+        self.R = R
+        self.NR = NR
+
+    def test_R_shape(self):
+        self.assertEqual(self.NR.shape, (30, self.num_points, 2))
+        self.assertEqual(self.R.shape, (30, self.num_points, 2))
+
+    # --- neuron 5 ---
+    def test_neuron5_event_A(self):
+        np.testing.assert_array_almost_equal(self.R[5, :, 0], np.full(self.num_points, 5.0))
+
+    def test_neuron5_event_B(self):
+        np.testing.assert_array_almost_equal(self.R[5, :, 1], np.full(self.num_points, -5.0))
+
+    # --- neuron 12 ---
+    def test_neuron12_event_A(self):
+        np.testing.assert_array_almost_equal(self.R[12, :, 0], np.full(self.num_points, 12.0))
+
+    def test_neuron12_event_B(self):
+        np.testing.assert_array_almost_equal(self.R[12, :, 1], np.full(self.num_points, -12.0))
+
+    # --- neuron 28 ---
+    def test_neuron28_event_A(self):
+        np.testing.assert_array_almost_equal(self.R[28, :, 0], np.full(self.num_points, 28.0))
+
+    def test_neuron28_event_B(self):
+        np.testing.assert_array_almost_equal(self.R[28, :, 1], np.full(self.num_points, -28.0))
 
 
 class TestAvgTrajectoryMatrix(unittest.TestCase):
