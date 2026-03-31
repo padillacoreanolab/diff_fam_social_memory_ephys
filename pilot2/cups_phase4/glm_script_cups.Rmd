@@ -1,0 +1,988 @@
+---
+title: "glm_script"
+output: html_document
+date: "2025-11-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(Matrix)
+library(pbkrtest)
+library(broom.mixed)
+emm_options(lmerTest.limit = 10000)
+emm_options(pbkrtest.limit = 10000)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+select_best_lmer <- function(data, 
+                             fixed_effects,
+                             conserved_random_effects = NULL,
+                             test_random_effects,
+                             criterion = "AIC",
+                             REML = FALSE,
+                             verbose = TRUE) {
+  #' Select best linear mixed model by testing random effects combinations
+  #' 
+  #' @param data Tibble/dataframe with model data
+  #' @param fixed_effects String with fixed effects formula (e.g., "value ~ band * agent")
+  #' @param conserved_random_effects Character vector of random effects to always include (e.g., c("X", "subject"))
+  #' @param test_random_effects Character vector of random effects to test in combinations
+  #' @param criterion "AIC" or "BIC" for model selection
+  #' @param REML Logical, use REML (TRUE) or ML (FALSE) estimation
+  #' @param verbose Logical, print progress updates
+  #' 
+  #' @return List with: best_model (lmer object), model_results (tibble), best_model_info (tibble row)
+  
+  # Build conserved random effects string
+  if (!is.null(conserved_random_effects) && length(conserved_random_effects) > 0) {
+    conserved_re_str <- paste0("(1|", conserved_random_effects, ")", collapse = " + ")
+    base_formula <- paste(fixed_effects, "+", conserved_re_str)
+  } else {
+    base_formula <- fixed_effects
+    conserved_re_str <- ""
+  }
+  
+  # Generate all possible combinations of test random effects
+  all_combinations <- lapply(1:length(test_random_effects), function(n) {
+    combn(test_random_effects, n, simplify = FALSE)
+  }) %>% unlist(recursive = FALSE)
+  
+  if (verbose) {
+    cat("Testing", length(all_combinations), "random effects combinations\n")
+    cat("Base formula:", base_formula, "\n\n")
+  }
+  
+  # Initialize results storage
+  model_results <- tibble(
+    model_num = integer(),
+    random_effects = character(),
+    n_random = integer(),
+    AIC = numeric(),
+    BIC = numeric(),
+    logLik = numeric(),
+    converged = logical(),
+    formula = character()
+  )
+  
+  # Fit all models
+  for (i in seq_along(all_combinations)) {
+    
+    # Build formula with current random effects combination
+    test_re_terms <- paste0("(1|", all_combinations[[i]], ")", collapse = " + ")
+    
+    if (conserved_re_str != "") {
+      formula_str <- paste(base_formula, "+", test_re_terms)
+    } else {
+      formula_str <- paste(base_formula, "+", test_re_terms)
+    }
+    
+    model_formula <- as.formula(formula_str)
+    
+    # Try to fit the model
+    model_fit <- tryCatch({
+      lmer(model_formula, data = data, REML = REML)
+    }, error = function(e) {
+      if (verbose) cat("Model", i, "failed:", e$message, "\n")
+      return(NULL)
+    }, warning = function(w) {
+      if (verbose) cat("Model", i, "warning:", w$message, "\n")
+      lmer(model_formula, data = data, REML = REML)
+    })
+    
+    # Extract results if model fit
+    if (!is.null(model_fit)) {
+      # Check convergence
+      conv_check <- if (is.null(model_fit@optinfo$conv$lme4$messages)) {
+        TRUE
+      } else {
+        !any(grepl("failed to converge", model_fit@optinfo$conv$lme4$messages))
+      }
+      
+      model_results <- model_results %>%
+        add_row(
+          model_num = i,
+          random_effects = paste(all_combinations[[i]], collapse = " + "),
+          n_random = length(all_combinations[[i]]),
+          AIC = AIC(model_fit),
+          BIC = BIC(model_fit),
+          logLik = as.numeric(logLik(model_fit)),
+          converged = conv_check,
+          formula = formula_str
+        )
+    }
+    
+    # Progress indicator
+    if (verbose && i %% 50 == 0) {
+      cat("Fitted", i, "of", length(all_combinations), "models\n")
+    }
+  }
+  
+  if (verbose) cat("\nModel fitting complete!\n\n")
+  
+  # Filter converged models and sort by criterion
+  model_results_filtered <- model_results %>%
+    filter(converged) %>%
+    arrange(!!sym(criterion))
+  
+  # Get best model info
+  best_model_info <- model_results_filtered %>%
+    slice(1)
+  
+  if (nrow(best_model_info) == 0) {
+    stop("No models converged successfully!")
+  }
+  
+  if (verbose) {
+    cat("Best model by", criterion, ":\n")
+    print(best_model_info)
+    cat("\n")
+  }
+  
+  # Refit the best model
+  best_formula <- as.formula(best_model_info$formula)
+  best_model <- lmer(best_formula, data = data, REML = REML)
+  
+  if (verbose) {
+    cat("Best model formula:\n")
+    print(formula(best_model))
+    cat("\n")
+  }
+  
+  # Return results
+  return(list(
+    best_model = best_model,
+    model_results = model_results_filtered,
+    best_model_info = best_model_info,
+    all_results = model_results  # includes non-converged models
+  ))
+}
+
+analyze_and_plot_contrasts <- function(model, 
+                                       plot_title,
+                                       agent_colors,
+                                       y_label = "Fitted Values",
+                                       x_var = "agent",
+                                       band_var = "band",
+                                       alpha = 0.05) {
+  #' Analyze contrasts and create plots based on interaction significance
+  #' 
+  #' @param model lmer model object
+  #' @param plot_title Character string for main plot title
+  #' @param agent_colors Named vector mapping agent levels to colors (e.g., c("cagemate" = "#792910"))
+  #' @param y_label Character string for y-axis label
+  #' @param x_var Character string for main predictor variable name (default "agent")
+  #' @param band_var Character string for band variable name (default "band")
+  #' @param alpha Significance level for interaction test (default 0.05)
+  #' 
+  #' @return List with: plot (ggplot object), contrasts (tibble), plot_type (character)
+
+  
+  # Get model summary
+  model_summary <- summary(model)
+  coef_table <- as.data.frame(model_summary$coefficients)
+  
+  # Create formula string for subtitle
+  model_formula_str <- paste(deparse(formula(model)), collapse = " ")
+  model_formula_str <- gsub("\\s+", " ", model_formula_str)
+  
+  # Check for interaction significance
+  interaction_pattern <- paste0(band_var, ".*:.*", x_var, "|", x_var, ".*:.*", band_var)
+  interaction_sig <- any(grepl(interaction_pattern, rownames(coef_table)) & 
+                         coef_table$`Pr(>|t|)` < alpha)
+  
+  # Check for main effect significance
+  agent_sig <- any(grepl(paste0("^", x_var), rownames(coef_table)) & 
+                   coef_table$`Pr(>|t|)` < alpha)
+  
+  # Get augmented data
+  model_data <- augment(model)
+  
+  if (interaction_sig) {
+    
+    cat("Band:Agent interaction is significant - running contrasts by band\n")
+    
+    # Create emmeans formula
+    emm_formula <- as.formula(paste0("~ ", x_var, " * ", band_var))
+    
+    # Run contrasts
+    contrasts_emm <- emmeans(model, emm_formula)
+    all_contrasts <- contrast(contrasts_emm, 
+                              simple = x_var, 
+                              method = 'pairwise', 
+                              adjust = 'none')
+    contrast_tests <- summary(all_contrasts) %>%
+      as_tibble()
+    
+    # Adjust p-values
+    contrast_tests$p.value.adjusted <- p.adjust(contrast_tests$p.value, method = 'BH')
+    contrast_tests <- contrast_tests %>%
+      mutate(sig = case_when(
+        p.value.adjusted < 0.001 ~ "***",
+        p.value.adjusted < 0.01  ~ "**",
+        p.value.adjusted < 0.05  ~ "*",
+        p.value.adjusted < 0.1   ~ ".",
+        TRUE                     ~ ""
+      ))
+    
+    print(contrast_tests)
+    
+    # Filter for significant contrasts
+    contrasts_sig <- contrast_tests %>%
+      filter(sig != "")
+    
+    if (nrow(contrasts_sig) > 0) {
+      sig_bands <- unique(contrasts_sig[[band_var]])
+      plot_data <- model_data %>%
+        filter(!!sym(band_var) %in% sig_bands)
+      
+      # Create plot by band
+      p <- ggplot(plot_data, aes(x = !!sym(band_var), y = .fitted, fill = !!sym(x_var))) +
+        geom_boxplot(position = position_dodge(width = 0.9), 
+                     alpha = 0.7) +
+        stat_summary(fun = median, 
+                     geom = "point", 
+                     size = 3, 
+                     position = position_dodge(width = 0.9),
+                     shape = 95,
+                     show.legend = FALSE) +
+        stat_summary(fun.data = function(x) {
+          data.frame(ymin = quantile(x, 0.25),
+                     ymax = quantile(x, 0.75))
+        },
+        geom = "errorbar",
+        width = 0.2,
+        position = position_dodge(width = 0.9),
+        show.legend = FALSE) +
+        geom_point(position = position_jitterdodge(jitter.width = 0.2, 
+                                                    dodge.width = 0.9),
+                   alpha = 0.5,
+                   size = 1.5) +
+        scale_fill_manual(values = agent_colors) +
+        theme_minimal() +
+        labs(x = "Frequency Band",
+             y = y_label,
+             fill = stringr::str_to_title(x_var),
+             title = paste0(plot_title, " (Significant Bands)"),
+             subtitle = model_formula_str) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              plot.subtitle = element_text(size = 8, face = "italic"))
+      
+      return(list(
+        plot = p,
+        contrasts = contrast_tests,
+        plot_type = "interaction"
+      ))
+      
+    } else {
+      cat("No significant contrasts found after correction\n")
+      return(list(
+        plot = NULL,
+        contrasts = contrast_tests,
+        plot_type = "no_significant_contrasts"
+      ))
+    }
+    
+  } else if (agent_sig) {
+    
+    cat("Only main effect of agent is significant - running contrasts averaged across bands\n")
+    
+    # Contrasts averaged across bands
+    emm_formula <- as.formula(paste0("~ ", x_var))
+    agent_contrasts <- emmeans(model, emm_formula)
+    agent_pairwise <- contrast(agent_contrasts, method = 'pairwise', adjust = 'none')
+    contrast_tests <- summary(agent_pairwise) %>%
+      as_tibble()
+    
+    # Adjust p-values
+    contrast_tests$p.value.adjusted <- p.adjust(contrast_tests$p.value, method = 'BH')
+    contrast_tests <- contrast_tests %>%
+      mutate(sig = case_when(
+        p.value.adjusted < 0.001 ~ "***",
+        p.value.adjusted < 0.01  ~ "**",
+        p.value.adjusted < 0.05  ~ "*",
+        p.value.adjusted < 0.1   ~ ".",
+        TRUE                     ~ ""
+      ))
+    
+    print(contrast_tests)
+    
+    # Plot averaged across bands
+    p <- ggplot(model_data, aes(x = !!sym(x_var), y = .fitted, fill = !!sym(x_var))) +
+      geom_boxplot(alpha = 0.7, width = 0.6) +
+      geom_point(position = position_jitter(width = 0.2),
+                 alpha = 0.3,
+                 size = 1.5) +
+      stat_summary(fun = median, 
+                   geom = "point", 
+                   size = 4, 
+                   shape = 95) +
+      scale_fill_manual(values = agent_colors) +
+      theme_minimal() +
+      labs(x = stringr::str_to_title(x_var),
+           y = y_label,
+           fill = stringr::str_to_title(x_var),
+           title = paste0(plot_title, " (Averaged Across Bands)"),
+           subtitle = model_formula_str) +
+      theme(legend.position = "none",
+            plot.subtitle = element_text(size = 8, face = "italic"))
+    
+    return(list(
+      plot = p,
+      contrasts = contrast_tests,
+      plot_type = "main_effect"
+    ))
+    
+  } else {
+    cat("Neither band:agent interaction nor agent main effect is significant\n")
+    
+    return(list(
+      plot = NULL,
+      contrasts = NULL,
+      plot_type = "no_significant_effects"
+    ))
+  }
+}
+
+analyze_multiple_regions <- function(data_list,
+                                    region_names,
+                                    fixed_effects,
+                                    conserved_random_effects,
+                                    test_random_effects,
+                                    title = NULL,
+                                    agent_colors,
+                                    y_label = "Fitted Values",
+                                    x_var = "agent",
+                                    band_var = "band",
+                                    criterion = "AIC",
+                                    REML = FALSE,
+                                    alpha = 0.05,
+                                    verbose = TRUE) {
+  #' Analyze multiple brain regions with model selection and contrasts
+  #' 
+  #' @param data_list List of dataframes, one per region
+  #' @param region_names Character vector of region names (same length as data_list)
+  #' @param fixed_effects String with fixed effects formula
+  #' @param conserved_random_effects Character vector of random effects to always include
+  #' @param test_random_effects Character vector of random effects to test
+  #' @param plot_titles Character vector of plot titles (NULL = auto-generate from region_names)
+  #' @param agent_colors Named vector of colors for agents
+  #' @param y_label Y-axis label for plots
+  #' @param x_var Name of main predictor variable
+  #' @param band_var Name of frequency band variable
+  #' @param criterion "AIC" or "BIC" for model selection
+  #' @param REML Logical for REML vs ML
+  #' @param alpha Significance level
+  #' @param verbose Print progress messages
+  #' 
+  #' @return List with: plots (list of ggplots), contrasts (combined tibble), models (list of best models)
+  
+  # Check inputs
+  if (length(data_list) != length(region_names)) {
+    stop("data_list and region_names must be the same length")
+  }
+  
+  # Auto-generate plot titles if not provided
+  plot_titles <- paste(region_names, title)
+  
+  
+  # Initialize storage
+  all_plots <- list()
+  all_contrasts <- list()
+  all_models <- list()
+  all_model_comparisons <- list()
+  
+  # Set emmeans limits
+  max_n <- max(sapply(data_list, nrow))
+  limit <- ceiling(max_n * 2)
+  emm_options(lmerTest.limit = limit, pbkrtest.limit = limit)
+  if (verbose) cat("Set emmeans limits to", limit, "\n\n")
+  
+  # Loop through each region
+  for (i in seq_along(data_list)) {
+    
+    region <- region_names[i]
+    data <- data_list[[i]]
+    
+    if (verbose) {
+      cat("==================================================\n")
+      cat("Processing:", region, "\n")
+      cat("==================================================\n")
+    }
+    
+    # Step 1: Model selection
+    if (verbose) cat("\n--- Running model selection ---\n")
+    
+    model_selection <- tryCatch({
+      select_best_lmer(
+        data = data,
+        fixed_effects = fixed_effects,
+        conserved_random_effects = conserved_random_effects,
+        test_random_effects = test_random_effects,
+        criterion = criterion,
+        REML = REML,
+        verbose = verbose
+      )
+    }, error = function(e) {
+      cat("ERROR in model selection for", region, ":", e$message, "\n")
+      return(NULL)
+    })
+    
+    if (is.null(model_selection)) {
+      cat("Skipping", region, "due to model selection error\n\n")
+      next
+    }
+    
+    best_model <- model_selection$best_model
+    all_models[[region]] <- best_model
+    all_model_comparisons[[region]] <- model_selection$model_results
+    
+    # Step 2: Contrast analysis and plotting
+    if (verbose) cat("\n--- Running contrast analysis ---\n")
+    
+    contrast_results <- tryCatch({
+      analyze_and_plot_contrasts(
+        model = best_model,
+        plot_title = plot_titles[i],
+        agent_colors = agent_colors,
+        y_label = y_label,
+        x_var = x_var,
+        band_var = band_var,
+        alpha = alpha
+      )
+    }, error = function(e) {
+      cat("ERROR in contrast analysis for", region, ":", e$message, "\n")
+      return(NULL)
+    })
+    
+    if (is.null(contrast_results)) {
+      cat("Skipping", region, "due to contrast analysis error\n\n")
+      next
+    }
+    
+    # Store plot
+    all_plots[[region]] <- contrast_results$plot
+    
+    # Store contrasts with metadata
+    if (!is.null(contrast_results$contrasts)) {
+      contrasts_with_metadata <- contrast_results$contrasts %>%
+        mutate(
+          region = region,
+          model_formula = paste(deparse(formula(best_model)), collapse = " "),
+          plot_type = contrast_results$plot_type,
+          .before = 1
+        )
+      all_contrasts[[region]] <- contrasts_with_metadata
+    }
+    
+    if (verbose) cat("\n")
+  }
+  
+  # Combine all contrasts into one tibble
+  combined_contrasts <- bind_rows(all_contrasts)
+  
+  # Summary message
+  if (verbose) {
+    cat("\n==================================================\n")
+    cat("SUMMARY\n")
+    cat("==================================================\n")
+    cat("Regions analyzed:", length(all_models), "/", length(region_names), "\n")
+    cat("Plots created:", sum(!sapply(all_plots, is.null)), "\n")
+    cat("Total contrasts:", nrow(combined_contrasts), "\n")
+    cat("Significant contrasts:", sum(combined_contrasts$sig != "", na.rm = TRUE), "\n")
+  }
+  
+  # Return results
+  return(list(
+    plots = all_plots,
+    contrasts = combined_contrasts,
+    models = all_models,
+    model_comparisons = all_model_comparisons
+  ))
+}
+```
+
+
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+neural_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/r_stuff/ultra_long_neural_data.csv")
+behavior_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/r_stuff/behavior_dataframe.csv")
+arena_info_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/cups_dataframe.csv")
+
+
+behavior_df <- behavior_df |>
+  rename(X = level_0,
+         empty.preference = empty.prefernce)
+
+
+
+behavior_long_time <- behavior_df |>
+  pivot_longer(cols = c('familiar', 'novel', 'cagemate', 'empty'), names_to = 'agent', values_to= 'Total Investigation')|>
+  select(-c('familiar.preference', 'novel.preference', 'cagemate.preference', 'empty.preference'))
+  
+
+behavior_long_pref <- behavior_df |>
+  pivot_longer(cols = c('familiar.preference', 'novel.preference', 'cagemate.preference', 'empty.preference'), names_to = 'agent', values_to= 'Preference') |>
+  mutate(agent = str_remove(agent, ".preference"))|>
+  select(-c('familiar', 'novel', 'cagemate', 'empty'))
+
+behavior_long <- full_join(behavior_long_time, behavior_long_pref, by = c("X", "agent", "total.cup.time"))
+
+arena_info_trimmed_df <- arena_info_df|>
+  select(-c("X", "rank", "total_investigation_time", "avg_event_length")) |>
+  rename("X" = "subject")
+
+arena_info_trimmed_df
+neural_df <- neural_df |>
+  select(-"X") |>
+  rename("X" = "subject") |>
+  rename("agent" = "event")
+
+arena_neural_merge <- full_join(neural_df, arena_info_trimmed_df,  by = c("X", "agent"))
+
+more_behavior_data <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/r_stuff/event_data.csv")
+more_behavior_data <- more_behavior_data |>
+  rename(X = subject)
+
+all_behavior <- full_join(more_behavior_data, behavior_long_pref, by = c("X", "agent"))
+
+all_behavior <- all_behavior |>
+  mutate(trial = as_factor(trial))
+arena_neural_merge <- arena_neural_merge |>
+  mutate(trial = as_factor(trial))
+all_df <- full_join(all_behavior,arena_neural_merge,  by = c("X", "agent", "trial"))
+
+all_df <- all_df %>%
+  mutate(
+    event_length_cat = cut(event_length, 
+                          breaks = c(0, 2500, 5000, 15000, 50000, Inf),
+                          labels = c("<2.5s", "<5s", "<15s", "<50s", ">50s"),
+                          include.lowest = TRUE),
+    preference_cat = cut(Preference, 
+                          breaks = c(0, .25, .5, .75, Inf),
+                          labels = c("strong dislike", "slight dislike", "slight preference", "strong preference"),
+                          include.lowest = TRUE))
+
+
+all_df <- all_df |>
+  mutate(X =as_factor(X),
+         agent = as_factor(agent),
+         location = as_factor(location),
+         color = as_factor(color),
+         hco.rel.rank = as_factor(hco.rel.rank),
+         um.rel.rank = as_factor(um.rel.rank),
+         band = as_factor(band),
+         metric = as_factor(metric),
+         gen_baseline = as_factor(gen_baseline),
+         region_or_pair = as_factor(region_or_pair))
+
+not_gen_baseline <- all_df |>
+  filter(gen_baseline == 0) |>
+  drop_na()
+power_df  <- not_gen_baseline |>
+  filter(metric == 'power') |>
+  filter(agent != 'empty') |>
+  drop_na()
+coherence_df  <- not_gen_baseline |>
+  filter(metric == 'coherence')  |>
+  filter(agent != 'empty') |>
+  drop_na()
+granger_df  <- not_gen_baseline |>
+  filter(metric == 'granger') |>
+  filter(agent != 'empty') |>
+  drop_na()
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+mPFC_power_df <- power_df |>
+  filter(region_or_pair == 'mPFC')
+
+NAc_power_df  <- power_df |>
+  filter(region_or_pair == 'NAc')
+
+MD_power_df <- power_df |>
+  filter(region_or_pair == 'MD')
+BLA_power_df  <- power_df |>
+  filter(region_or_pair == 'BLA')
+vHPC_power_df  <- power_df |>
+  filter(region_or_pair == 'vHPC')
+
+data_list <- list(
+  mPFC_power_df,
+  NAc_power_df,
+  MD_power_df,
+  BLA_power_df,
+  vHPC_power_df
+)
+
+region_names <- c("mPFC", "NAc", "MD", "BLA", "vHPC")
+
+# Define colors
+agent_colors <- c("cagemate" = "#792910",
+                  "familiar" = "#FFAF00", 
+                  "novel" = "#15616F")
+
+# Run analysis across all regions
+results <- analyze_multiple_regions(
+  data_list = data_list,
+  region_names = region_names,
+  fixed_effects = "value ~ band * agent",
+  conserved_random_effects = "X",
+  test_random_effects = c("color", "trial", "location", 
+                          "event_length_cat", "preference_cat", 
+                          "hco.rel.rank", "um.rel.rank"),
+  agent_colors = agent_colors,
+  y_label = "Fitted Power Values",
+  criterion = "AIC",
+  REML = FALSE,
+  verbose = TRUE
+)
+
+# Access results
+all_plots <- results$plots
+all_contrasts <- results$contrasts
+all_models <- results$models
+
+# View individual plots
+print(results$plots$mPFC)
+print(results$plots$BLA)
+print(results$plots$NAc)
+print(results$plots$MD)
+print(results$plots$vHPC)
+
+# View combined contrasts table
+View(results$contrasts)
+
+# Filter for significant effects
+sig_contrasts <- results$contrasts %>%
+  filter(sig != "")
+
+
+```
+
+
+```{r}
+#mPFC_NAc  mPFC_MD   bla_vhpc  mPFC_BLA 
+mpfc_nac_coherence_df <- coherence_df |>
+  filter(region_or_pair == 'mPFC_NAc')
+
+mpfc_md_coherence_df  <- coherence_df |>
+  filter(region_or_pair == 'mPFC_MD')
+
+mpfc_bla_coherence_df <- coherence_df |>
+  filter(region_or_pair == 'mPFC_BLA')
+mpfc_vhpc_coherence_df  <- coherence_df |>
+  filter(region_or_pair == 'mpfc_vhpc')
+
+# NAc_MD    NAc_vHPC   NAc_BLA  
+nac_md_coherence_df <- coherence_df |>
+  filter(region_or_pair == 'NAc_MD')
+
+nac_bla_coherence_df  <- coherence_df |>
+  filter(region_or_pair == 'NAc_BLA')
+
+nac_vhpc_coherence_df <- coherence_df |>
+  filter(region_or_pair == 'NAc_vHPC')
+#MD_BLA BLA_vHPC
+
+bla_vhpc_coherence_df  <- coherence_df |>
+  filter(region_or_pair == 'BLA_vHPC')
+
+bla_md_coherence_df  <- coherence_df |>
+  filter(region_or_pair == 'MD_BLA')
+
+#MD_vHPC
+md_vhpc_coherence_df  <- coherence_df |>
+  filter(region_or_pair == 'MD_vHPC')
+
+
+data_list <- list(
+  mpfc_nac_coherence_df,
+  mpfc_md_coherence_df,
+  mpfc_bla_coherence_df,
+  mpfc_vhpc_coherence_df,
+  nac_md_coherence_df,
+  nac_bla_coherence_df,
+  nac_vhpc_coherence_df,
+  bla_md_coherence_df,
+  bla_vhpc_coherence_df,
+  md_vhpc_coherence_df
+)
+
+region_names <- c("mPFC_Nac", "mPFC_MD", "mPFC_BLA", "mPFC_vHPC", "NAc_MD", "NAc_BLA", "NAc_vHPC",
+                  "MD_BLA", "BLA_vHPC", "MD_vHPC")
+
+# Define colors
+agent_colors <- c("cagemate" = "#792910",
+                  "familiar" = "#FFAF00", 
+                  "novel" = "#15616F")
+
+# Run analysis across all regions
+coherence_results <- analyze_multiple_regions(
+  data_list = data_list,
+  region_names = region_names,
+  fixed_effects = "value ~ band * agent",
+  title = "Coherence",
+  conserved_random_effects = "X",
+  test_random_effects = c("color", "trial", "location", 
+                          "event_length_cat", "preference_cat", 
+                          "hco.rel.rank", "um.rel.rank"),
+  agent_colors = agent_colors,
+  y_label = "Fitted Coherence Values",
+  criterion = "AIC",
+  REML = FALSE,
+  verbose = TRUE
+)
+
+# Access results
+all_plots_coherence <- results$plots
+all_contrasts_coherence <- results$contrasts
+all_models_coherence <- results$models
+
+```
+
+
+
+```{r}
+
+# View individual plots
+print(coherence_results$plots$mPFC_NAc)
+print(coherence_results$plots$mPFC_BLA)
+print(coherence_results$plots$mPFC_MD)
+print(coherence_results$plots$mPFC_vHPC)
+print(coherence_results$plots$NAc_BLA)
+print(coherence_results$plots$NAc_MD)
+print(coherence_results$plots$NAc_vHPC)
+print(coherence_results$plots$MD_BLA)
+print(coherence_results$plots$MD_vHPC)
+print(coherence_results$plots$BLA_vHPC)
+
+# View combined contrasts table
+View(coherence_results$contrasts)
+```
+
+```{r}
+
+#from mpfc
+mpfc_nac_granger_df <- granger_df |>
+  filter(region_or_pair == 'mPFC_to_NAc')
+mpfc_md_granger_df  <- granger_df |>
+  filter(region_or_pair == 'mPFC_to_MD')
+mpfc_bla_granger_df <- granger_df |>
+  filter(region_or_pair == 'mPFC_to_BLA')
+mpfc_vhpc_granger_df  <- granger_df |>
+  filter(region_or_pair == 'mPFC_to_vHPC')
+
+
+# from nac
+nac_mpfc_granger_df <- granger_df |>
+  filter(region_or_pair == 'NAc_to_mPFC')
+nac_md_granger_df <- granger_df |>
+  filter(region_or_pair == 'NAc_to_MD')
+nac_bla_granger_df  <- granger_df |>
+  filter(region_or_pair == 'NAc_to_BLA')
+nac_vhpc_granger_df <- granger_df |>
+  filter(region_or_pair == 'NAc_to_vHPC')
+
+# from bla
+bla_mpfc_granger_df  <- granger_df |>
+  filter(region_or_pair == 'BLA_to_mPFC')
+bla_nac_granger_df  <- granger_df |>
+  filter(region_or_pair == 'BLA_to_NAc')
+bla_md_granger_df  <- granger_df |>
+  filter(region_or_pair == 'BLA_to_MD')
+bla_vhpc_granger_df  <- granger_df |>
+  filter(region_or_pair == 'BLA_to_vHPC')
+
+
+# from md 
+md_mpfc_granger_df  <- granger_df |>
+  filter(region_or_pair == 'MD_to_mPFC')
+md_nac_granger_df  <- granger_df |>
+  filter(region_or_pair == 'MD_to_NAc')
+md_bla_granger_df  <- granger_df |>
+  filter(region_or_pair == 'MD_to_BLA')
+md_vhpc_granger_df  <- granger_df |>
+  filter(region_or_pair == 'MD_to_vHPC')
+
+# from vHPC
+vhpc_mpfc_granger_df  <- granger_df |>
+  filter(region_or_pair == 'vHPC_to_mPFC')
+vhpc_nac_granger_df  <- granger_df |>
+  filter(region_or_pair == 'vHPC_to_NAc')
+vhpc_bla_granger_df  <- granger_df |>
+  filter(region_or_pair == 'vHPC_to_BLA')
+vhpc_md_granger_df  <- granger_df |>
+  filter(region_or_pair == 'vHPC_to_MD')
+granger_data_list <- list(
+  # From mPFC
+  mPFC_to_NAc = mpfc_nac_granger_df,
+  mPFC_to_MD = mpfc_md_granger_df,
+  mPFC_to_BLA = mpfc_bla_granger_df,
+  mPFC_to_vHPC = mpfc_vhpc_granger_df,
+  
+  # From NAc
+  NAc_to_mPFC = nac_mpfc_granger_df,
+  NAc_to_MD = nac_md_granger_df,
+  NAc_to_BLA = nac_bla_granger_df,
+  NAc_to_vHPC = nac_vhpc_granger_df,
+  
+  # From BLA
+  BLA_to_mPFC = bla_mpfc_granger_df,
+  BLA_to_NAc = bla_nac_granger_df,
+  BLA_to_MD = bla_md_granger_df,
+  BLA_to_vHPC = bla_vhpc_granger_df,
+  
+  # From MD
+  MD_to_mPFC = md_mpfc_granger_df,
+  MD_to_NAc = md_nac_granger_df,
+  MD_to_BLA = md_bla_granger_df,
+  MD_to_vHPC = md_vhpc_granger_df,
+  
+  # From vHPC
+  vHPC_to_mPFC = vhpc_mpfc_granger_df,
+  vHPC_to_NAc = vhpc_nac_granger_df,
+  vHPC_to_BLA = vhpc_bla_granger_df,
+  vHPC_to_MD = vhpc_md_granger_df
+)
+granger_results <- analyze_multiple_regions(
+  data_list = granger_data_list,
+  region_names = names(granger_data_list),
+  fixed_effects = "value ~ band * agent",
+  conserved_random_effects = "X",
+  title = "Granger",
+  test_random_effects = c("color", "trial", "location", 
+                          "event_length_cat", "preference_cat", 
+                          "hco.rel.rank", "um.rel.rank"),
+  agent_colors = agent_colors,
+  y_label = "Fitted Granger Causality Values",
+  criterion = "AIC",
+  verbose = TRUE
+)
+
+all_plots_granger <- granger_results$plots
+all_contrasts_granger <- granger_results$contrasts
+all_models_granger <- granger_results$models
+
+print(granger_results$plots$mPFC_to_NAc)
+print(granger_results$plots$mPFC_to_MD)
+print(granger_results$plots$mPFC_to_BLA)
+print(granger_results$plots$mPFC_to_vHPC)
+
+print(granger_results$plots$NAc_to_mPFC)
+print(granger_results$plots$NAc_to_MD)
+print(granger_results$plots$NAc_to_BLA)
+print(granger_results$plots$NAc_to_vHPC)
+
+print(granger_results$plots$BLA_to_mPFC)
+print(granger_results$plots$BLA_to_NAc)
+print(granger_results$plots$BLA_to_MD)
+print(granger_results$plots$BLA_to_vHPC)
+
+print(granger_results$plots$MD_to_mPFC)
+print(granger_results$plots$MD_to_NAc)
+print(granger_results$plots$MD_to_BLA)
+print(granger_results$plots$MD_to_vHPC)
+
+print(granger_results$plots$vHPC_to_mPFC)
+print(granger_results$plots$vHPC_to_NAc)
+print(granger_results$plots$vHPC_to_BLA)
+print(granger_results$plots$vHPC_to_MD)
+
+View(granger_results$contrasts)
+```
+
+
+
+```{r}
+write_csv(granger_results$contrasts, "r_stuff/granger_analysis/granger_contrasts_results.csv")
+for (pair_name in names(granger_results$plots)) {
+  if (!is.null(granger_results$plots[[pair_name]])) {
+    ggsave(
+      filename = file.path("r_stuff/granger_analysis/granger_plots", paste0(pair_name, ".png")),
+      plot = granger_results$plots[[pair_name]],
+      width = 10, 
+      height = 6, 
+      dpi = 300
+    )
+  }
+}
+all_model_comparisons <- bind_rows(
+  lapply(names(granger_results$model_comparisons), function(region) {
+    granger_results$model_comparisons[[region]] %>%
+      mutate(region = region, .before = 1)
+  })
+)
+write_csv(all_model_comparisons, 
+          "r_stuff/granger_analysis/model_comparisons.csv")
+
+saveRDS(granger_results$models, "r_stuff/granger_analysis/best_granger_models.rds")
+
+
+```
+
+```{r}
+
+write_csv(coherence_results$contrasts, "r_stuff/coherence_analysis/coherence_contrasts_results.csv")
+for (pair_name in names(coherence_results$plots)) {
+  if (!is.null(coherence_results$plots[[pair_name]])) {
+    ggsave(
+      filename = file.path("r_stuff/coherence_analysis/coherence_plots", paste0(pair_name, ".png")),
+      plot = coherence_results$plots[[pair_name]],
+      width = 10, 
+      height = 6, 
+      dpi = 300
+    )
+  }
+}
+all_model_comparisons <- bind_rows(
+  lapply(names(coherence_results$model_comparisons), function(region) {
+    coherence_results$model_comparisons[[region]] %>%
+      mutate(region = region, .before = 1)
+  })
+)
+write_csv(all_model_comparisons, 
+          "r_stuff/coherence_analysis/model_comparisons.csv")
+
+saveRDS(coherence_results$models, "r_stuff/coherence_analysis/best_coherence_models.rds")
+```
+```{r}
+write_csv(results$contrasts, "r_stuff/power_analysis/power_contrasts_results.csv")
+for (pair_name in names(results$plots)) {
+  if (!is.null(results$plots[[pair_name]])) {
+    ggsave(
+      filename = file.path("r_stuff/power_analysis/power_plots", paste0(pair_name, ".png")),
+      plot = results$plots[[pair_name]],
+      width = 10, 
+      height = 6, 
+      dpi = 300
+    )
+  }
+}
+all_model_comparisons <- bind_rows(
+  lapply(names(results$model_comparisons), function(region) {
+    results$model_comparisons[[region]] %>%
+      mutate(region = region, .before = 1)
+  })
+)
+write_csv(all_model_comparisons, 
+          "r_stuff/power_analysis/model_comparisons.csv")
+
+saveRDS(results$models, "r_stuff/power_analysis/best_power_models.rds")
+```
+
