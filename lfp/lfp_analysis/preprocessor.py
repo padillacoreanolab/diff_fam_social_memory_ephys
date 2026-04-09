@@ -31,12 +31,8 @@ def map_to_region(subject_region_dict):
     return brain_region_dict, sorted_channels
 
 
-def median_abs_dev(traces):
-    return stats.median_abs_deviation(traces, axis=0)
-
-
 def zscore(traces):
-    mads = median_abs_dev(traces)
+    mads = stats.median_abs_deviation(traces, axis=0)
     # traces = [time, channels]
     temp_traces = traces - np.median(traces, axis=0)
     zscore_traces = MEDIAN_ZSCORE_MULTIPLIER * temp_traces / mads

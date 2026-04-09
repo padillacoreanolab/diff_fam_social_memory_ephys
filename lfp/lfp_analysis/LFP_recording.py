@@ -253,7 +253,6 @@ class LFPRecording:
         self.event_dict = event_dict
 
     def exclude_regions(self, bad_regions):
-        self.excluded_regions = bad_regions
         if bad_regions:
             for region in bad_regions:
                 reg_idx = self.brain_region_dict[region]
@@ -265,7 +264,9 @@ class LFPRecording:
                     self.coherence[:, :, :, reg_idx] = np.nan
                 if hasattr(self, "granger"):
                     self.granger[:, :, reg_idx, :] = np.nan
-                    self.granger[:, :, :reg_idx] = np.nan
+                    self.granger[:, :, :, reg_idx] = np.nan
+        # only mark as done after successful completion
+        self.excluded_regions = bad_regions
 
     def interpolate_power(self, kind="linear"):
         if not np.isnan(self.power).any():
@@ -487,7 +488,7 @@ class LFPRecording:
             "has_event": hasattr(recording, "event_dict") and recording.event_dict is not None,
             "has_rms_traces": hasattr(recording, "rms_traces"),
             "has_power": hasattr(recording, "power"),
-            "has_granger": (hasattr(recording, "granger") | hasattr(recording, "grangers")),
+            "has_granger": hasattr(recording, "granger") or hasattr(recording, "grangers"),
             "has_coherence": hasattr(recording, "coherence"),
             # "has_pdc":hasattr(recording, "pdc")
         }
@@ -564,7 +565,7 @@ class LFPRecording:
             )
 
             # Load additional attributes that aren't part of initialization
-            if ["first_timestamp"] in metadata.attrs.keys():
+            if "first_timestamp" in metadata.attrs.keys():
                 recording.first_timestamp = metadata.attrs["first_timestamp"]
             recording.name = metadata.attrs["name"]
             recording.rec_length = metadata.attrs["recording length"]

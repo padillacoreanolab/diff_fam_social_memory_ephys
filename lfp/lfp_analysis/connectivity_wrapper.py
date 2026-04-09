@@ -1,3 +1,4 @@
+import numpy as np
 from spectral_connectivity import Multitaper, Connectivity
 
 
@@ -53,15 +54,30 @@ def calculate_coherence(rms_traces, downsample_rate, halfbandwidth, timewindow, 
     
 
 def calculate_granger(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep):
-    connectivity, frequencies = calculate_multitaper(rms_traces, downsample_rate, halfbandwidth, timewindow, timestep)
     # calculates a matrix of timebins, frequencies, region, region
-    # such that [x,y,i,j] = nan
-    # and [x,y,i,j] =/= [x,y,i,j]
-    # [x,y,i,j] -> j to i granger based on the plot_directional code in the following link: bruh how did i misread this the first time 
+    # [x,y,i,j] -> granger j --> i
     # https://spectral-connectivity.readthedocs.io/en/latest/examples/Tutorial_Using_Paper_Examples.html
-    # New comment from one of developers: https://github.com/Eden-Kramer-Lab/spectral_connectivity/issues/31
-    # granger j --> i 
+    # https://github.com/Eden-Kramer-Lab/spectral_connectivity/issues/31
+
+    n_regions = rms_traces.shape[1]
+    nan_cols = np.where(np.all(np.isnan(rms_traces), axis=0))[0]
+    valid_cols = np.where(~np.all(np.isnan(rms_traces), axis=0))[0]
+
+    if len(nan_cols) > 0:
+        rms_clean = rms_traces[:, valid_cols]
+    else:
+        rms_clean = rms_traces
+
+    connectivity, frequencies = calculate_multitaper(rms_clean, downsample_rate, halfbandwidth, timewindow, timestep)
     granger = connectivity.pairwise_spectral_granger_prediction()
+    # granger shape: [frames, freq, n_valid, n_valid]
+
+    if len(nan_cols) > 0:
+        n_frames, n_freq = granger.shape[0], granger.shape[1]
+        full_granger = np.full((n_frames, n_freq, n_regions, n_regions), np.nan)
+        full_granger[np.ix_(np.arange(n_frames), np.arange(n_freq), valid_cols, valid_cols)] = granger
+        granger = full_granger
+
     print("Granger causality calculated")
     return granger
 

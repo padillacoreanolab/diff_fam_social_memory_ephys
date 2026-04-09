@@ -186,11 +186,11 @@ class LFPCollection:
 
     def preprocess(self, threshold=None):
         """
-        Calculates rms traces for all recordings in the collection. 
+        Calculates rms traces for all recordings in the collection.
         """
-        if threshold is None and self.threshold is not None:
-            threhsold = self.threshold
-        if threshold is None and self.threshold is None:
+        if threshold is not None:
+            self.threshold = threshold
+        if self.threshold is None:
             print('No threshold has been chosen, LFP signals will not be filtered.')
             print('Using a threshold of 0.')
             self.threshold = 0
@@ -198,9 +198,29 @@ class LFPCollection:
             recording.preprocess(self.threshold)
         
     
-    def calculate_all(self):
+    def calculate_all(self, batched_granger=False, granger_output_dir=None):
+        """Calculate power, coherence, and Granger causality for all recordings.
+
+        Args:
+            batched_granger: bool, default False. If True, Granger causality is computed
+                one recording at a time with GPU memory flushed between recordings to avoid
+                CUDA out-of-memory errors. Requires granger_output_dir to be set.
+            granger_output_dir: str, optional. Directory to save intermediate H5 files when
+                batched_granger=True. Required if batched_granger=True.
+        """
+        if batched_granger and granger_output_dir is None:
+            raise ValueError("granger_output_dir must be set when batched_granger=True.")
+
         for recording in tqdm(self.recordings):
-            recording.calculate_all()
+            recording.calculate_power()
+            recording.calculate_coherence()
+
+        if batched_granger:
+            self.calculate_granger_causality_batched(granger_output_dir)
+        else:
+            for recording in tqdm(self.recordings):
+                recording.calculate_granger_causality()
+
         self.frequencies = self.recordings[0].frequencies
 
     def calculate_power(self):
@@ -217,17 +237,99 @@ class LFPCollection:
         for recording in tqdm(self.recordings):
             recording.calculate_granger_causality()
         self.frequencies = self.recordings[0].frequencies
+
+    def calculate_granger_causality_batched(self, output_dir):
+        """Compute Granger causality one recording at a time to avoid CUDA out-of-memory errors.
+
+        After each recording is computed, the cupy GPU memory pool is explicitly flushed so
+        VRAM is fully released before the next computation. Results are also saved to H5 after
+        each recording so progress is not lost if the job crashes midway.
+
+        Recordings that already have an H5 file saved are skipped, so this method is safe
+        to re-run if interrupted.
+
+        Args:
+            output_dir: str, directory to save H5 files into (one per recording).
+        """
+        try:
+            import cupy
+            _cupy_available = True
+        except ImportError:
+            _cupy_available = False
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        for recording in tqdm(self.recordings):
+            save_path = os.path.join(output_dir, recording.name)
+            h5_path = save_path + ".h5"
+
+            json_path = save_path + ".json"
+            if os.path.exists(json_path):
+                with open(json_path) as f:
+                    meta = json.load(f)
+                if meta.get("has_granger", False):
+                    print(f"Skipping {recording.name} — granger already computed and saved.")
+                    continue
+                else:
+                    print(f"JSON exists for {recording.name} but granger not found — recomputing.")
+
+            recording.calculate_granger_causality()
+            LFPRecording.save_rec_to_h5(recording, save_path)
+
+            if _cupy_available:
+                cupy.get_default_memory_pool().free_all_blocks()
+                cupy.get_default_pinned_memory_pool().free_all_blocks()
+
+        self.frequencies = self.recordings[0].frequencies
         
         
     def exclude_regions(self, target_confirmation_dict):
         for recording in self.recordings:
             bad_regions = target_confirmation_dict[recording.subject]
-            #check to see if target confirmation exclusion has already been done 
-            if hasattr(recording, 'excluded_regions'):
+            # skip only if exclusion was already successfully completed with the same regions
+            if hasattr(recording, 'excluded_regions') and recording.excluded_regions == bad_regions:
                 pass
             else:
                 recording.exclude_regions(bad_regions)
     
+    def get_recording(self, recording_name):
+        """Get a recording object by its filename.
+
+        Args:
+            recording_name: str, the name of the merged.rec file (e.g. '22_rehouse_d2_merged.rec')
+
+        Returns:
+            LFPRecording object with that name.
+
+        Raises:
+            ValueError if no recording with that name is found.
+        """
+        matches = [r for r in self.recordings if r.name == recording_name]
+        if not matches:
+            raise ValueError(f"No recording named '{recording_name}' found in collection.")
+        return matches[0]
+
+    def remove_recording(self, recording):
+        """Remove a recording from the collection by filename or by the recording object itself.
+
+        Args:
+            recording: str or LFPRecording — either the merged.rec filename
+                (e.g. '22_rehouse_d2_merged.rec') or the LFPRecording object to remove.
+
+        Raises:
+            ValueError if no matching recording is found.
+        """
+        if isinstance(recording, str):
+            matches = [r for r in self.recordings if r.name == recording]
+            if not matches:
+                raise ValueError(f"No recording named '{recording}' found in collection.")
+            for r in matches:
+                self.recordings.remove(r)
+        else:
+            if recording not in self.recordings:
+                raise ValueError(f"Recording object '{recording.name}' not found in collection.")
+            self.recordings.remove(recording)
+
     def interpolate(self, modes = 'all', kind = 'linear'):
         for recording in self.recordings:
             if modes == 'all':

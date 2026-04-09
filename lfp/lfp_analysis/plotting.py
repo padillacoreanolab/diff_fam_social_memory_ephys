@@ -112,18 +112,18 @@ def plot_granger_spectrum(lfp_collection, event_averages, regions=None, freq_ran
             region = regions[i]
             averages = event_averages[event]
             event_average = np.nanmean(averages, axis=0)
-            # event_average = [b,b,f]; average across all trials
+            # event_average = [f,b,b]; average across all trials
             # calculate sem for the trial average
             event_sem = stats.sem(averages, axis=0, nan_policy="omit")
             # pick only the region of interest
-            y_sem = event_sem[freq_range[0]:freq_range[1], pair_indices[i][0], pair_indices[i][1]]
+            y_sem = event_sem[freq_range[0]:freq_range[1], pair_indices[i][0], pair_indices[i][1]] # i, j -> from j to i
             y = event_average[freq_range[0]:freq_range[1], pair_indices[i][0], pair_indices[i][1]]
             x = np.arange(freq_range[0],freq_range[1])
             (line,) = plt.plot(x, y, label=event)
             plt.fill_between(x, y - y_sem, y + y_sem, color=line.get_color(), alpha=0.2)
         ymin, ymax = plt.ylim()
         plt.ylim(ymin, ymax)
-        plt.title(f"Granger causality: {region[1]} to {region[0]}")
+        plt.title(f"Granger causality: {region[1]} to {region[0]}") # j to i 
         plt.legend()
         plt.show()
 
@@ -269,8 +269,8 @@ def plot_granger_heatmap(lfp_collection, events, freq, baseline=None, event_len=
     for i in range(len(lfp_collection.brain_region_dict.keys())):
         brain_regions[i] = lfp_collection.brain_region_dict.inverse[i]
     for idx, (event, ax) in enumerate(zip(events, axes)):
-        event_granger = event_granger[event]
-        avg_granger = np.nanmean(event_granger, axis=0)
+        event_data = event_granger[event]
+        avg_granger = np.nanmean(event_data, axis=0)
         freq_granger = avg_granger[freq[0] : freq[1], :, :]
         avg_freq = np.nanmean(freq_granger, axis=0)
         sns.heatmap(avg_freq, xticklabels=brain_regions, yticklabels=brain_regions, annot=True, cmap="viridis", ax=ax)
@@ -534,7 +534,7 @@ def plot_spectrogram(lfp_collection, events, mode, event_len, baseline=None, pre
 
 def event_power_bar(lfp_collection, events, baseline=None):
     powers = ee.average_events(lfp_collection, events=events, mode="power", baseline=baseline, plot=False)
-    [unflipped, flipped] = band_calcs(powers)
+    flipped = ee.band_calcs(powers, outer_dict='band')
     brain_regions = np.empty(len(lfp_collection.brain_region_dict.keys()), dtype="<U10")
     for i in range(len(lfp_collection.brain_region_dict.keys())):
         brain_regions[i] = lfp_collection.brain_region_dict.inverse[i]
@@ -543,8 +543,9 @@ def event_power_bar(lfp_collection, events, baseline=None):
     for key in flipped.keys():
         for i, subset in enumerate(brain_regions):
             for event in events:
-                avg_values[key][subset][event] = np.nanmean(flipped[key][event][:, i])
-                sem_values[key][subset][event] = stats.sem(flipped[key][event][:, i], nan_policy="omit")
+                rec_vals = np.array(flipped[key][event])[:, i]
+                avg_values[key][subset][event] = np.nanmean(rec_vals)
+                sem_values[key][subset][event] = stats.sem(rec_vals, nan_policy="omit")
 
     # Adjust bar width and spacing based on number of events
     total_width = 0.8  # Total width available for each group of bars
@@ -612,7 +613,7 @@ def event_granger_bar(lfp_collection, events, baseline=None):
 
 def plot_bars(lfp_collection, brain_regions, values, events, title):
     region_dict = lfp_collection.brain_region_dict
-    [unflipped, flipped] = band_calcs(values)
+    flipped = ee.band_calcs(values, outer_dict='band')
     avg_values = {key: {subset: {event: [] for event in events} for subset in brain_regions} for key in flipped.keys()}
     sem_values = {key: {subset: {event: [] for event in events} for subset in brain_regions} for key in flipped.keys()}
 
@@ -621,10 +622,9 @@ def plot_bars(lfp_collection, brain_regions, values, events, title):
             pair_index_1 = region_dict[brain_regions[i][0]]
             pair_index_2 = region_dict[brain_regions[i][1]]
             for event in events:
-                avg_values[key][subset][event] = np.nanmean(flipped[key][event][:, pair_index_1, pair_index_2])
-                sem_values[key][subset][event] = stats.sem(
-                    flipped[key][event][:, pair_index_1, pair_index_2], nan_policy="omit"
-                )
+                rec_vals = np.array(flipped[key][event])[:, pair_index_1, pair_index_2]
+                avg_values[key][subset][event] = np.nanmean(rec_vals)
+                sem_values[key][subset][event] = stats.sem(rec_vals, nan_policy="omit")
 
     # Width of each bar
     col = cm.rainbow(np.linspace(0, 1, len(events)))
@@ -671,48 +671,3 @@ def plot_bars(lfp_collection, brain_regions, values, events, title):
         plt.subplots_adjust(hspace=0.5)
         plt.show()
 
-def band_calcs(values):
-    agent_band_dict = {}
-    for agent, calculations in values.items():
-        calculations = np.array(calculations)
-        # calculations = [trials, frequencies, brain regions]
-        delta = np.nanmean(calculations[:, 0:4, ...], axis=1)
-        theta = np.nanmean(calculations[:, 4:13, ...], axis=1)
-
-        beta = np.nanmean(calculations[:, 13:31, ...], axis=1)
-
-        low_gamma = np.nanmean(calculations[:, 31:71, ...], axis=1)
-
-        high_gamma = np.nanmean(calculations[:, 71:100, ...], axis=1)
-
-        agent_band_dict[agent] = {
-            "Delta": delta,
-            "Theta": theta,
-            "Beta": beta,
-            "Low gamma": low_gamma,
-            "High gamma": high_gamma,
-        }
-
-    band_agent_dict = defaultdict(dict)
-    for agent, bands in agent_band_dict.items():
-        for band, values in bands.items():
-            band_agent_dict[band][agent] = values
-
-    return [agent_band_dict, band_agent_dict]
-
-def diff_band_calcs(values, freq_range_dict):
-    agent_band_dict = {}
-    for agent, calculations in values.items():
-        agent_band_dict[agent] = {}
-        for name, freq_range in freq_range_dict.items():
-            calculations = np.array(calculations)
-            # calculations = [trials, frequencies, brain regions]
-            temp = np.nanmean(calculations[:, freq_range[0]:freq_range[1], ...], axis=1)
-            agent_band_dict[agent][name] = temp
-
-    band_agent_dict = defaultdict(dict)
-    for agent, bands in agent_band_dict.items():
-        for band, values in bands.items():
-            band_agent_dict[band][agent] = values
-
-    return [agent_band_dict, band_agent_dict]
