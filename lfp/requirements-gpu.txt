@@ -1,1 +1,17 @@
-cupy-cuda12x
+# cupy is pinned to 13.x because cupy 14+ requires numpy>=2.0, which is incompatible
+# with spikeinterface==0.100.6 (see requirements.txt). cupy 13.6.0 is the last version
+# that supports numpy 1.x.
+cupy-cuda12x==13.6.0
+
+# --- Local Windows machine only ---
+# On an HPC (e.g. Yale Misha, UF HiPerGator), CUDA libraries are loaded via the module
+# system (e.g. `module load cuda/12.4.1`) and these packages are NOT needed.
+# On a local Windows machine with an NVIDIA GPU but no CUDA toolkit installed,
+# these pip packages provide the required CUDA 12 runtime libraries.
+# Install with: pip install -r requirements-gpu.txt
+nvidia-cuda-runtime-cu12
+nvidia-cublas-cu12
+nvidia-cufft-cu12
+nvidia-curand-cu12
+nvidia-cusolver-cu12
+nvidia-cusparse-cu12

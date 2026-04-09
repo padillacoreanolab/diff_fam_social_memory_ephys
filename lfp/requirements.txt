@@ -1,5 +1,8 @@
 h5py==3.11.0
 matplotlib==3.8.4
+# numpy is pinned to 1.x because spikeinterface==0.100.6 C extensions are compiled against numpy 1.x
+# and will hard-crash the kernel if numpy 2.x is installed. Do not upgrade numpy without also
+# upgrading spikeinterface to a version that supports numpy 2.x (0.101+).
 numpy==1.26.4
 openpyxl==3.1.2
 pandas==2.2.2
@@ -11,4 +14,3 @@ ipykernel==6.29.5
 bidict==0.23.1
 requests==2.31.0
 tqdm==4.67.0
-ipykernel==6.29.5

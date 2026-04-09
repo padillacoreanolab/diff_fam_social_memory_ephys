@@ -2,23 +2,57 @@ cd # Local Field Potential (LFP) Analysis
 
 ## Installation
 
+Use the conda environment from the repo root, then install LFP-specific packages:
+
 ```
-python -m venv venv
-source venv/bin/activate
+conda env create -f ephys_env.yml
+conda activate ephys_env
 pip install -r requirements.txt
 ```
+
+### numpy version constraint
+
+`spikeinterface==0.100.6` must run with **numpy 1.x**. Its C extensions are compiled against numpy 1.x and will hard-crash the Jupyter kernel with numpy 2.x. Do not upgrade numpy without also upgrading spikeinterface to a version that supports numpy 2.x (0.101+).
 
 ## Bidict
 
 Bidict is a bi-directional dictionary that allows you to look up the key given the value and vice versa.
 https://bidict.readthedocs.io/en/main/intro.html
 
-## Running with GPU acceleration (Megatron)
+## Running with GPU acceleration
 
-1. install the gpu requirements: `pip install -r requirements-gpu.txt`
-2. Set the enviornment variable: `SPECTRAL_CONNECTIVITY_ENABLE_GPU=true`: go to control panel > search for "Environment variables", then add a new user variable:
+GPU acceleration is used by `spectral_connectivity` for Granger causality and speeds up all spectral computations significantly. `cupy-cuda12x==13.6.0` is pinned to stay compatible with numpy 1.x (see numpy constraint above).
+
+### Step 1 — install GPU requirements
+
+```
+pip install -r requirements-gpu.txt
+```
+
+### Step 2 — set the environment variable
+
+Set `SPECTRAL_CONNECTIVITY_ENABLE_GPU=true` before running notebooks. This is already set at the top of the LFP notebooks via `%env SPECTRAL_CONNECTIVITY_ENABLE_GPU=true`.
+
+To set it permanently on **Windows**: Control Panel > search "Environment variables" > add a new user variable.
 
 !(image)[.\lfp\readme_images\SPECTRAL_CONNECTIVITY_ENV_VAR.png]
+
+### Platform-specific notes
+
+**Local Windows machine (e.g. your laptop with an NVIDIA GPU):**
+- The CUDA toolkit is typically not installed — the `requirements-gpu.txt` includes the necessary CUDA 12 runtime pip packages (`nvidia-cublas-cu12`, etc.) that provide these libraries without needing a full CUDA install.
+- Tested on: NVIDIA GeForce RTX 5070, driver 591.44.
+
+**Yale Misha HPC:**
+- CUDA libraries are provided by the module system. Load CUDA before activating the environment:
+  ```
+  module load cuda/12.4.1
+  ```
+- The `nvidia-*-cu12` pip packages in `requirements-gpu.txt` are not needed and can be skipped.
+
+**UF HiPerGator:**
+- Same as Misha — use `module load cuda` and the `nvidia-*-cu12` pip packages are not needed.
+- See the HiPerGator GPU setup steps further below in this README.
 # Developer installation
 
 ## How to run tests like a real coder
