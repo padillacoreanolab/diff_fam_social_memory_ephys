@@ -1,0 +1,1419 @@
+---
+title: "glm_script_cups_preference"
+output: html_document
+date: "2026-04-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(Matrix)
+library(pbkrtest)
+library(broom.mixed)
+library(patchwork)
+emm_options(lmerTest.limit = 10000)
+emm_options(pbkrtest.limit = 10000)
+```
+
+```{r functions}
+
+# ── TOP-LEVEL HELPERS ─────────────────────────────────────────────────────────
+
+# Run KR anova; fall back to Satterthwaite if negative variance warnings fire.
+# pbkrtest emits "Negative variance estimate obtained!" when the model's
+# variance-covariance matrix has near-zero/negative eigenvalues — KR ddf are
+# untrustworthy in that case, so Satterthwaite is the safer option.
+safe_kr_anova <- function(model, verbose = TRUE) {
+  neg_var_hit <- FALSE
+  result <- withCallingHandlers(
+    tryCatch(
+      anova(model, ddf = "Kenward-Roger"),
+      error = function(e) {
+        if (verbose) cat("KR failed, falling back to Satterthwaite:", e$message, "\n")
+        NULL
+      }
+    ),
+    warning = function(w) {
+      if (grepl("Negative variance estimate", conditionMessage(w))) {
+        neg_var_hit <<- TRUE
+        invokeRestart("muffleWarning")
+      }
+    }
+  )
+  if (is.null(result) || neg_var_hit) {
+    if (verbose) cat("KR negative variance detected — falling back to Satterthwaite\n")
+    result <- anova(model, ddf = "Satterthwaite")
+  }
+  result
+}
+
+# Find interaction term in anova table regardless of variable ordering
+find_interaction_term <- function(vars, anova_rownames) {
+  candidates <- anova_rownames
+  for (v in vars) {
+    candidates <- candidates[grepl(paste0("(^|:)", v, "($|:)"), candidates)]
+  }
+  candidates <- candidates[lengths(strsplit(candidates, ":")) == length(vars)]
+  if (length(candidates) == 1) candidates else NA_character_
+}
+
+# ── SELECT BEST LMER ─────────────────────────────────────────────────────────
+select_best_lmer <- function(data,
+                             fixed_effects,
+                             conserved_random_effects = NULL,
+                             test_random_effects = NULL,
+                             criterion = "AIC",
+                             REML = FALSE,
+                             verbose = TRUE) {
+
+  if (!is.null(conserved_random_effects) && length(conserved_random_effects) > 0) {
+    conserved_re_str <- paste0("(1|", conserved_random_effects, ")", collapse = " + ")
+    base_formula <- paste(fixed_effects, "+", conserved_re_str)
+  } else {
+    base_formula <- fixed_effects
+    conserved_re_str <- ""
+  }
+
+  ctrl <- lmerControl(autoscale = TRUE)
+
+  if (is.null(test_random_effects) || length(test_random_effects) == 0) {
+
+    if (verbose) {
+      cat("No test random effects provided — fitting base formula only\n")
+      cat("Base formula:", base_formula, "\n\n")
+    }
+
+    model_formula <- as.formula(base_formula)
+
+    model_fit <- tryCatch({
+      lmer(model_formula, data = data, REML = FALSE, control = ctrl)
+    }, error = function(e) {
+      if (verbose) cat("Model failed:", e$message, "\n")
+      return(NULL)
+    }, warning = function(w) {
+      if (verbose) cat("Model warning:", w$message, "\n")
+      lmer(model_formula, data = data, REML = FALSE, control = ctrl)
+    })
+
+    if (is.null(model_fit)) stop("Base model failed to converge!")
+
+    conv_check <- if (is.null(model_fit@optinfo$conv$lme4$messages)) {
+      TRUE
+    } else {
+      !any(grepl("failed to converge", model_fit@optinfo$conv$lme4$messages))
+    }
+
+    best_model_info <- tibble(
+      model_num      = 1L,
+      random_effects = "",
+      n_random       = 0L,
+      AIC            = AIC(model_fit),
+      BIC            = BIC(model_fit),
+      logLik         = as.numeric(logLik(model_fit)),
+      converged      = conv_check,
+      formula        = base_formula
+    )
+
+    if (verbose) {
+      cat("Model fitting complete!\n\nBest model by", criterion, ":\n")
+      print(best_model_info)
+      cat("\n")
+    }
+
+    best_model_ml <- lmer(model_formula, data = data, REML = FALSE, control = ctrl)
+    best_model    <- lmer(model_formula, data = data, REML = TRUE, control = ctrl)
+
+    if (verbose) {
+      cat("Best model formula:\n")
+      print(formula(best_model))
+      cat("\nComputing KR F-tests...\n")
+    }
+
+    interaction_test <- safe_kr_anova(best_model, verbose = verbose)
+
+    if (verbose) {
+      cat("Omnibus F-tests:\n")
+      print(interaction_test)
+      cat("\n")
+    }
+
+    return(list(
+      best_model       = best_model,
+      best_model_ml    = best_model_ml,
+      interaction_test = interaction_test,
+      model_results    = best_model_info,
+      best_model_info  = best_model_info,
+      all_results      = best_model_info
+    ))
+  }
+
+  all_combinations <- lapply(0:length(test_random_effects), function(n) {
+    if (n == 0) list(character(0))
+    else combn(test_random_effects, n, simplify = FALSE)
+  }) %>% unlist(recursive = FALSE)
+
+  if (verbose) {
+    cat("Testing", length(all_combinations), "random effects combinations\n")
+    cat("Base formula:", base_formula, "\n\n")
+  }
+
+  model_results <- tibble(
+    model_num      = integer(),
+    random_effects = character(),
+    n_random       = integer(),
+    AIC            = numeric(),
+    BIC            = numeric(),
+    logLik         = numeric(),
+    converged      = logical(),
+    formula        = character()
+  )
+
+  for (i in seq_along(all_combinations)) {
+
+    test_re_terms <- if (length(all_combinations[[i]]) == 0) {
+      ""
+    } else {
+      paste0("(1|", all_combinations[[i]], ")", collapse = " + ")
+    }
+
+    formula_str <- if (test_re_terms == "") {
+      base_formula
+    } else {
+      paste(base_formula, "+", test_re_terms)
+    }
+
+    model_formula <- as.formula(formula_str)
+
+    model_fit <- tryCatch({
+      lmer(model_formula, data = data, REML = REML, control = ctrl)
+    }, error = function(e) {
+      if (verbose) cat("Model", i, "failed:", e$message, "\n")
+      return(NULL)
+    }, warning = function(w) {
+      if (verbose) cat("Model", i, "warning:", w$message, "\n")
+      lmer(model_formula, data = data, REML = REML, control = ctrl)
+    })
+
+    if (!is.null(model_fit)) {
+      conv_check <- if (is.null(model_fit@optinfo$conv$lme4$messages)) {
+        TRUE
+      } else {
+        !any(grepl("failed to converge", model_fit@optinfo$conv$lme4$messages))
+      }
+
+      model_results <- model_results %>%
+        add_row(
+          model_num      = i,
+          random_effects = paste(all_combinations[[i]], collapse = " + "),
+          n_random       = length(all_combinations[[i]]),
+          AIC            = AIC(model_fit),
+          BIC            = BIC(model_fit),
+          logLik         = as.numeric(logLik(model_fit)),
+          converged      = conv_check,
+          formula        = formula_str
+        )
+    }
+
+    if (verbose && i %% 50 == 0) {
+      cat("Fitted", i, "of", length(all_combinations), "models\n")
+    }
+  }
+
+  if (verbose) cat("\nModel fitting complete!\n\n")
+
+  model_results_filtered <- model_results %>%
+    filter(converged) %>%
+    arrange(!!sym(criterion))
+
+  best_model_info <- model_results_filtered %>% slice(1)
+
+  if (nrow(best_model_info) == 0) stop("No models converged successfully!")
+
+  if (verbose) {
+    cat("Best model by", criterion, ":\n")
+    print(best_model_info)
+    cat("\n")
+  }
+
+  best_formula   <- as.formula(best_model_info$formula)
+  best_model_ml  <- lmer(best_formula, data = data, REML = FALSE, control = ctrl)
+  best_model     <- lmer(best_formula, data = data, REML = TRUE, control = ctrl)
+
+  if (verbose) {
+    cat("Best model formula:\n")
+    print(formula(best_model))
+    cat("\nComputing KR F-tests...\n")
+  }
+
+  interaction_test <- safe_kr_anova(best_model, verbose = verbose)
+
+  if (verbose) {
+    cat("Omnibus F-tests:\n")
+    print(interaction_test)
+    cat("\n")
+  }
+
+  return(list(
+    best_model       = best_model,
+    best_model_ml    = best_model_ml,
+    interaction_test = interaction_test,
+    model_results    = model_results_filtered,
+    best_model_info  = best_model_info,
+    all_results      = model_results
+  ))
+}
+
+# ── ANALYZE AND PLOT CONTRASTS ────────────────────────────────────────────────
+analyze_and_plot_contrasts <- function(model,
+                                       interaction_test,
+                                       plot_title,
+                                       agent_colors,
+                                       y_label = "Fitted Values",
+                                       x_var = "agent",
+                                       x_var2 = NULL,
+                                       band_var = "band",
+                                       alpha = 0.05) {
+  #' Analyze contrasts and create plots based on interaction significance.
+  #' x_var2 can be a factor or a continuous variable (e.g., Preference).
+  #' When x_var2 is continuous, contrasts are run on x_var at the mean of x_var2.
+
+  model_formula_str <- paste(deparse(formula(model)), collapse = " ")
+  model_formula_str <- gsub("\\s+", " ", model_formula_str)
+
+  add_sig_stars <- function(df) {
+    df$p.value.adjusted <- p.adjust(df$p.value, method = "BH")
+    df %>% mutate(sig = case_when(
+      p.value.adjusted < 0.001 ~ "***",
+      p.value.adjusted < 0.01  ~ "**",
+      p.value.adjusted < 0.05  ~ "*",
+      p.value.adjusted < 0.1   ~ ".",
+      TRUE                     ~ ""
+    ))
+  }
+
+  model_data <- augment(model)
+
+  # Handle numeric x_var (coerce to factor for plotting, store levels for at=)
+  x_var_at <- NULL
+  if (is.numeric(model_data[[x_var]])) {
+    x_var_at        <- list(sort(unique(model_data[[x_var]])))
+    names(x_var_at) <- x_var
+    model_data      <- model_data %>% mutate(!!sym(x_var) := factor(!!sym(x_var)))
+  }
+
+  # Detect continuous x_var2 and build at= entry for its mean
+  x_var2_is_numeric <- !is.null(x_var2) && is.numeric(model_data[[x_var2]])
+  x_var2_at <- NULL
+  if (x_var2_is_numeric) {
+    x_var2_at        <- list(mean(model_data[[x_var2]], na.rm = TRUE))
+    names(x_var2_at) <- x_var2
+  }
+  emm_at <- c(x_var_at, x_var2_at)
+
+  # ── CASE: x_var2 provided — screen for two-way and three-way interactions ────
+  if (!is.null(x_var2)) {
+
+    three_way_term <- find_interaction_term(c(band_var, x_var, x_var2), rownames(interaction_test))
+    two_way_term   <- find_interaction_term(c(x_var, x_var2),           rownames(interaction_test))
+
+    three_way_sig <- !is.na(three_way_term) && interaction_test[three_way_term, "Pr(>F)"] < alpha
+    two_way_sig   <- !is.na(two_way_term)   && interaction_test[two_way_term,   "Pr(>F)"] < alpha
+
+    if (three_way_sig) {
+
+      cat("Three-way", paste0(band_var, ":", x_var, ":", x_var2), "interaction is significant\n")
+
+      # For continuous x_var2: contrast x_var per band at mean(x_var2)
+      # For factor x_var2: contrast both x_var and x_var2 per band
+      emm_formula <- as.formula(paste0("~ ", x_var, " * ", band_var))
+      contrasts_emm <- emmeans(model, emm_formula, at = emm_at)
+
+      if (x_var2_is_numeric) {
+        raw_contrasts  <- contrast(contrasts_emm, simple = x_var,
+                                   method = "pairwise", adjust = "none")
+        contrast_tests <- summary(raw_contrasts) %>%
+          as_tibble() %>%
+          add_sig_stars()
+      } else {
+        full_emm_formula <- as.formula(paste0("~ ", x_var, " * ", x_var2, " * ", band_var))
+        contrasts_emm    <- emmeans(model, full_emm_formula, at = emm_at)
+        raw_contrasts    <- contrast(contrasts_emm,
+                                     simple = list(x_var, x_var2),
+                                     method = "pairwise", adjust = "none")
+        contrast_tests   <- do.call(rbind, summary(raw_contrasts)) %>%
+          as_tibble() %>%
+          add_sig_stars()
+      }
+
+      print(contrast_tests)
+      contrasts_sig <- contrast_tests %>% filter(sig != "")
+
+      if (nrow(contrasts_sig) > 0) {
+        sig_bands <- unique(contrasts_sig[[band_var]])
+        plot_data <- model_data %>% filter(!!sym(band_var) %in% sig_bands)
+
+        p <- ggplot(plot_data, aes(x = !!sym(band_var), y = .fitted, fill = !!sym(x_var))) +
+          geom_boxplot(position = position_dodge(width = 0.9), alpha = 0.7) +
+          stat_summary(fun = median, geom = "point", size = 3,
+                       position = position_dodge(width = 0.9),
+                       shape = 95, show.legend = FALSE) +
+          stat_summary(fun.data = function(x) {
+            data.frame(ymin = quantile(x, 0.25), ymax = quantile(x, 0.75))
+          }, geom = "errorbar", width = 0.2,
+          position = position_dodge(width = 0.9), show.legend = FALSE) +
+          geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.9),
+                     alpha = 0.5, size = 1.5) +
+          {if (!x_var2_is_numeric) facet_wrap(as.formula(paste0("~ ", x_var2)))} +
+          scale_fill_manual(values = agent_colors) +
+          theme_minimal() +
+          labs(x = "Frequency Band", y = y_label,
+               fill = stringr::str_to_title(x_var),
+               title = paste0(plot_title, " (Significant Bands)"),
+               subtitle = model_formula_str) +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                plot.subtitle = element_text(size = 8, face = "italic"))
+
+        return(list(plot = p, contrasts = contrast_tests, plot_type = "three_way_interaction"))
+
+      } else {
+        cat("No significant contrasts found after correction\n")
+        return(list(plot = NULL, contrasts = contrast_tests, plot_type = "no_significant_contrasts"))
+      }
+
+    } else if (two_way_sig) {
+
+      cat("Two-way", paste0(x_var, ":", x_var2),
+          "interaction is significant (averaged across", band_var, ")\n")
+
+      emm_formula   <- as.formula(paste0("~ ", x_var))
+      contrasts_emm <- emmeans(model, emm_formula, at = emm_at)
+      raw_contrasts <- contrast(contrasts_emm, method = "pairwise", adjust = "none")
+      contrast_tests <- summary(raw_contrasts) %>%
+        as_tibble() %>%
+        add_sig_stars()
+
+      print(contrast_tests)
+      contrasts_sig <- contrast_tests %>% filter(sig != "")
+
+      if (nrow(contrasts_sig) > 0) {
+        p <- ggplot(model_data, aes(x = !!sym(x_var), y = .fitted, fill = !!sym(x_var))) +
+          geom_boxplot(position = position_dodge(width = 0.9), alpha = 0.7) +
+          stat_summary(fun = median, geom = "point", size = 3,
+                       position = position_dodge(width = 0.9),
+                       shape = 95, show.legend = FALSE) +
+          stat_summary(fun.data = function(x) {
+            data.frame(ymin = quantile(x, 0.25), ymax = quantile(x, 0.75))
+          }, geom = "errorbar", width = 0.2,
+          position = position_dodge(width = 0.9), show.legend = FALSE) +
+          geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.9),
+                     alpha = 0.5, size = 1.5) +
+          scale_fill_manual(values = agent_colors) +
+          theme_minimal() +
+          labs(x = stringr::str_to_title(x_var), y = y_label,
+               fill = stringr::str_to_title(x_var),
+               title = paste0(plot_title, " (Averaged Across ", stringr::str_to_title(band_var), ")"),
+               subtitle = model_formula_str) +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                plot.subtitle = element_text(size = 8, face = "italic"))
+
+        return(list(plot = p, contrasts = contrast_tests, plot_type = "two_way_interaction"))
+
+      } else {
+        cat("No significant contrasts found after correction\n")
+        return(list(plot = NULL, contrasts = contrast_tests, plot_type = "no_significant_contrasts"))
+      }
+
+    } else {
+      cat("Neither three-way nor", paste0(x_var, ":", x_var2),
+          "two-way interaction is significant — falling back to single-predictor screening on", x_var, "\n")
+      x_var2 <- NULL
+    }
+  }
+
+  # ── CASE: single x_var ───────────────────────────────────────────────────────
+  interaction_term <- find_interaction_term(c(band_var, x_var), rownames(interaction_test))
+  if (is.na(interaction_term)) interaction_term <- paste0(band_var, ":", x_var)
+
+  interaction_sig <- !is.na(interaction_term) &&
+                     interaction_test[interaction_term, "Pr(>F)"] < alpha
+  agent_sig       <- interaction_test[x_var, "Pr(>F)"] < alpha
+
+  if (interaction_sig) {
+
+    cat("Band:agent interaction is significant - running contrasts by band\n")
+
+    emm_formula   <- as.formula(paste0("~ ", x_var, " * ", band_var))
+    contrasts_emm <- emmeans(model, emm_formula, at = x_var_at)
+    all_contrasts <- contrast(contrasts_emm, simple = x_var,
+                              method = "pairwise", adjust = "none")
+    contrast_tests <- summary(all_contrasts) %>%
+      as_tibble() %>%
+      mutate(p.value.adjusted = p.adjust(p.value, method = "BH"),
+             sig = case_when(
+               p.value.adjusted < 0.001 ~ "***",
+               p.value.adjusted < 0.01  ~ "**",
+               p.value.adjusted < 0.05  ~ "*",
+               p.value.adjusted < 0.1   ~ ".",
+               TRUE                     ~ ""
+             ))
+
+    print(contrast_tests)
+    contrasts_sig <- contrast_tests %>% filter(sig != "")
+
+    if (nrow(contrasts_sig) > 0) {
+      sig_bands <- unique(contrasts_sig[[band_var]])
+      plot_data <- model_data %>% filter(!!sym(band_var) %in% sig_bands)
+
+      p <- ggplot(plot_data, aes(x = !!sym(band_var), y = .fitted, fill = !!sym(x_var))) +
+        geom_boxplot(position = position_dodge(width = 0.9), alpha = 0.7) +
+        stat_summary(fun = median, geom = "point", size = 3,
+                     position = position_dodge(width = 0.9),
+                     shape = 95, show.legend = FALSE) +
+        stat_summary(fun.data = function(x) {
+          data.frame(ymin = quantile(x, 0.25), ymax = quantile(x, 0.75))
+        }, geom = "errorbar", width = 0.2,
+        position = position_dodge(width = 0.9), show.legend = FALSE) +
+        geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.9),
+                   alpha = 0.5, size = 1.5) +
+        scale_fill_manual(values = agent_colors) +
+        theme_minimal() +
+        labs(x = "Frequency Band", y = y_label,
+             fill = stringr::str_to_title(x_var),
+             title = paste0(plot_title, " (Significant Bands)"),
+             subtitle = model_formula_str) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              plot.subtitle = element_text(size = 8, face = "italic"))
+
+      return(list(plot = p, contrasts = contrast_tests, plot_type = "interaction"))
+
+    } else {
+      cat("No significant contrasts found after correction\n")
+      return(list(plot = NULL, contrasts = contrast_tests, plot_type = "no_significant_contrasts"))
+    }
+
+  } else if (agent_sig) {
+
+    cat("Only main effect of agent is significant - running contrasts averaged across bands\n")
+
+    emm_formula    <- as.formula(paste0("~ ", x_var))
+    agent_contrasts <- emmeans(model, emm_formula)
+    agent_pairwise  <- contrast(agent_contrasts, method = "pairwise", adjust = "none")
+    contrast_tests  <- summary(agent_pairwise) %>%
+      as_tibble() %>%
+      mutate(p.value.adjusted = p.adjust(p.value, method = "BH"),
+             sig = case_when(
+               p.value.adjusted < 0.001 ~ "***",
+               p.value.adjusted < 0.01  ~ "**",
+               p.value.adjusted < 0.05  ~ "*",
+               p.value.adjusted < 0.1   ~ ".",
+               TRUE                     ~ ""
+             ))
+
+    print(contrast_tests)
+
+    p <- ggplot(model_data, aes(x = !!sym(x_var), y = .fitted, fill = !!sym(x_var))) +
+      geom_boxplot(alpha = 0.7, width = 0.6) +
+      geom_point(position = position_jitter(width = 0.2), alpha = 0.3, size = 1.5) +
+      stat_summary(fun = median, geom = "point", size = 4, shape = 95) +
+      scale_fill_manual(values = agent_colors) +
+      theme_minimal() +
+      labs(x = stringr::str_to_title(x_var), y = y_label,
+           fill = stringr::str_to_title(x_var),
+           title = paste0(plot_title, " (Averaged Across Bands)"),
+           subtitle = model_formula_str) +
+      theme(legend.position = "none",
+            plot.subtitle = element_text(size = 8, face = "italic"))
+
+    return(list(plot = p, contrasts = contrast_tests, plot_type = "main_effect"))
+
+  } else {
+    cat("Neither band:agent interaction nor agent main effect is significant\n")
+    return(list(plot = NULL, contrasts = NULL, plot_type = "no_significant_effects"))
+  }
+}
+
+# ── ANALYZE MULTIPLE REGIONS ──────────────────────────────────────────────────
+analyze_multiple_regions <- function(data_list,
+                                     region_names,
+                                     fixed_effects,
+                                     conserved_random_effects,
+                                     test_random_effects,
+                                     title = NULL,
+                                     agent_colors,
+                                     y_label = "Fitted Values",
+                                     x_var = "agent",
+                                     x_var2 = NULL,
+                                     band_var = "band",
+                                     criterion = "AIC",
+                                     REML = FALSE,
+                                     alpha = 0.05,
+                                     verbose = TRUE) {
+
+  if (length(data_list) != length(region_names)) {
+    stop("data_list and region_names must be the same length")
+  }
+
+  plot_titles <- paste(region_names, title)
+
+  all_plots             <- list()
+  all_contrasts         <- list()
+  all_models            <- list()
+  all_model_comparisons <- list()
+  all_interaction_tests <- list()
+
+  max_n <- max(sapply(data_list, nrow))
+  limit <- ceiling(max_n * 2)
+  emm_options(lmerTest.limit = limit, pbkrtest.limit = limit)
+  if (verbose) cat("Set emmeans limits to", limit, "\n\n")
+
+  for (i in seq_along(data_list)) {
+
+    region <- region_names[i]
+    data   <- data_list[[i]]
+
+    if (verbose) {
+      cat("==================================================\n")
+      cat("Processing:", region, "\n")
+      cat("==================================================\n")
+    }
+
+    if (verbose) cat("\n--- Running model selection ---\n")
+
+    model_selection <- tryCatch({
+      select_best_lmer(
+        data                     = data,
+        fixed_effects            = fixed_effects,
+        conserved_random_effects = conserved_random_effects,
+        test_random_effects      = test_random_effects,
+        criterion                = criterion,
+        REML                     = REML,
+        verbose                  = verbose
+      )
+    }, error = function(e) {
+      cat("ERROR in model selection for", region, ":", e$message, "\n")
+      return(NULL)
+    })
+
+    if (is.null(model_selection)) {
+      cat("Skipping", region, "due to model selection error\n\n")
+      next
+    }
+
+    best_model <- model_selection$best_model
+    all_models[[region]]            <- best_model
+    all_model_comparisons[[region]] <- model_selection$model_results
+    all_interaction_tests[[region]] <- model_selection$interaction_test
+
+    if (verbose) cat("\n--- Running contrast analysis ---\n")
+
+    contrast_results <- tryCatch({
+      analyze_and_plot_contrasts(
+        model            = best_model,
+        interaction_test = model_selection$interaction_test,
+        plot_title       = plot_titles[i],
+        agent_colors     = agent_colors,
+        y_label          = y_label,
+        x_var            = x_var,
+        x_var2           = x_var2,
+        band_var         = band_var,
+        alpha            = alpha
+      )
+    }, error = function(e) {
+      cat("ERROR in contrast analysis for", region, ":", e$message, "\n")
+      return(NULL)
+    })
+
+    if (is.null(contrast_results)) {
+      cat("Skipping", region, "due to contrast analysis error\n\n")
+      next
+    }
+
+    all_plots[[region]] <- contrast_results$plot
+
+    if (!is.null(contrast_results$contrasts)) {
+      all_contrasts[[region]] <- contrast_results$contrasts %>%
+        mutate(
+          region        = region,
+          model_formula = paste(deparse(formula(best_model)), collapse = " "),
+          plot_type     = contrast_results$plot_type,
+          .before       = 1
+        )
+    }
+
+    if (verbose) cat("\n")
+  }
+
+  combined_contrasts <- bind_rows(all_contrasts)
+
+  if (verbose) {
+    cat("\n==================================================\n")
+    cat("SUMMARY\n")
+    cat("==================================================\n")
+    cat("Regions analyzed:", length(all_models), "/", length(region_names), "\n")
+    cat("Plots created:", sum(!sapply(all_plots, is.null)), "\n")
+    cat("Total contrasts:", nrow(combined_contrasts), "\n")
+    cat("Significant contrasts:", sum(combined_contrasts$sig != "", na.rm = TRUE), "\n")
+  }
+
+  return(list(
+    plots             = all_plots,
+    contrasts         = combined_contrasts,
+    interaction_tests = all_interaction_tests,
+    models            = all_models,
+    model_comparisons = all_model_comparisons
+  ))
+}
+```
+
+```{r load_data}
+neural_df    <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/r_stuff/ultra_long_neural_data_cups.csv")
+behavior_df  <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/r_stuff/behavior_dataframe.csv")
+arena_info_df <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/r_stuff/cups_dataframe.csv")
+
+behavior_df <- behavior_df |>
+  rename(X = level_0,
+         empty.preference = empty.prefernce)
+
+behavior_long_time <- behavior_df |>
+  pivot_longer(cols = c('familiar', 'novel', 'cagemate', 'empty'),
+               names_to = 'agent', values_to = 'Total Investigation') |>
+  select(-c('familiar.preference', 'novel.preference', 'cagemate.preference', 'empty.preference'))
+
+behavior_long_pref <- behavior_df |>
+  pivot_longer(cols = c('familiar.preference', 'novel.preference', 'cagemate.preference', 'empty.preference'),
+               names_to = 'agent', values_to = 'Preference') |>
+  mutate(agent = str_remove(agent, ".preference")) |>
+  select(-c('familiar', 'novel', 'cagemate', 'empty'))
+
+behavior_long <- full_join(behavior_long_time, behavior_long_pref, by = c("X", "agent", "total.cup.time"))
+
+arena_info_trimmed_df <- arena_info_df |>
+  select(-c("X", "rank", "total_investigation_time", "avg_event_length")) |>
+  rename("X" = "subject")
+
+neural_df <- neural_df |>
+  select(-"X") |>
+  rename("X" = "subject") |>
+  rename("agent" = "event")
+
+arena_neural_merge <- full_join(neural_df, arena_info_trimmed_df, by = c("X", "agent"))
+
+more_behavior_data <- read.csv("C:/Users/megha/Documents/GitHub/diff_fam_social_memory_ephys/pilot2/cups_phase4/r_stuff/event_data.csv")
+more_behavior_data <- more_behavior_data |>
+  rename(X = subject)
+
+all_behavior <- full_join(more_behavior_data, behavior_long_pref, by = c("X", "agent")) |>
+  left_join(
+    behavior_long_time |> select(X, agent, total_investigation = `Total Investigation`),
+    by = c("X", "agent")
+  )
+all_behavior <- all_behavior |>
+  mutate(trial = as_factor(trial))
+
+arena_neural_merge <- arena_neural_merge |>
+  mutate(trial = as_factor(trial))
+
+all_df <- full_join(all_behavior, arena_neural_merge, by = c("X", "agent", "trial"))
+
+all_df <- all_df %>%
+  mutate(
+    event_length_cat = cut(event_length,
+                           breaks = c(0, 2500, 5000, 15000, 50000, Inf),
+                           labels = c("<2.5s", "<5s", "<15s", "<50s", ">50s"),
+                           include.lowest = TRUE),
+    preference_cat = cut(Preference,
+                         breaks = c(0, .25, .5, .75, Inf),
+                         labels = c("strong dislike", "slight dislike",
+                                    "slight preference", "strong preference"),
+                         include.lowest = TRUE))
+
+all_df <- all_df |>
+  mutate(X                = as_factor(X),
+         agent            = as_factor(agent),
+         location         = as_factor(location),
+         color            = as_factor(color),
+         hco.rel.rank     = as_factor(hco.rel.rank),
+         um.rel.rank      = as_factor(um.rel.rank),
+         band             = as_factor(band),
+         metric           = as_factor(metric),
+         gen_baseline     = as_factor(gen_baseline),
+         region_or_pair   = as_factor(region_or_pair))
+
+# Compute rel_log_pref: within-subject centered log(total investigation time).
+# Centering is done at the X × agent level (one unique value per cell), not
+# at the event level, so the mean is not weighted by event count.
+rel_log_pref_lut <- behavior_long_time |>
+  rename(total_investigation = `Total Investigation`) |>
+  select(X, agent, total_investigation) |>
+  group_by(X) |>
+  mutate(rel_log_pref = log(total_investigation) - mean(log(total_investigation), na.rm = TRUE)) |>
+  ungroup() |>
+  select(X, agent, rel_log_pref) |>
+  mutate(X = as_factor(X))
+
+all_df <- left_join(all_df, rel_log_pref_lut, by = c("X", "agent"))
+
+not_gen_baseline <- all_df |>
+  filter(gen_baseline == 0) |>
+  drop_na() |>
+  droplevels()
+
+power_df <- not_gen_baseline |>
+  filter(metric == 'power') |>
+  filter(agent != 'empty') |>
+  drop_na() |>
+  droplevels()
+
+coherence_df <- not_gen_baseline |>
+  filter(metric == 'coherence') |>
+  filter(agent != 'empty') |>
+  drop_na() |>
+  droplevels()
+
+granger_df <- not_gen_baseline |>
+  filter(metric == 'granger') |>
+  filter(agent != 'empty') |>
+  drop_na() |>
+  droplevels()
+```
+
+```{r aggregate}
+# Collapse to subject × agent × band × region — the level at which rel_log_pref
+# actually varies. This removes within-subject event-level pseudoreplication
+# for the rel_log_pref predictor and gives honest ddf / CIs.
+
+agg_power_df <- power_df %>%
+  group_by(X, agent, band, region_or_pair, rel_log_pref) %>%
+  summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  mutate(X = as_factor(X), agent = as_factor(agent), band = as_factor(band),
+         region_or_pair = as_factor(region_or_pair))
+
+agg_coherence_df <- coherence_df %>%
+  group_by(X, agent, band, region_or_pair, rel_log_pref) %>%
+  summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  mutate(X = as_factor(X), agent = as_factor(agent), band = as_factor(band),
+         region_or_pair = as_factor(region_or_pair))
+
+agg_granger_df <- granger_df %>%
+  group_by(X, agent, band, region_or_pair, rel_log_pref) %>%
+  summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  mutate(X = as_factor(X), agent = as_factor(agent), band = as_factor(band),
+         region_or_pair = as_factor(region_or_pair))
+
+cat("Aggregated power rows:    ", nrow(agg_power_df),
+    " (", n_distinct(agg_power_df$X), "subjects ×",
+    n_distinct(agg_power_df$agent), "agents ×",
+    n_distinct(agg_power_df$band), "bands ×",
+    n_distinct(agg_power_df$region_or_pair), "regions)\n")
+cat("Aggregated coherence rows:", nrow(agg_coherence_df), "\n")
+cat("Aggregated granger rows:  ", nrow(agg_granger_df), "\n")
+```
+
+```{r power_analysis}
+data_list <- list(
+  agg_power_df |> filter(region_or_pair == 'mPFC'),
+  agg_power_df |> filter(region_or_pair == 'NAc'),
+  agg_power_df |> filter(region_or_pair == 'MD'),
+  agg_power_df |> filter(region_or_pair == 'BLA'),
+  agg_power_df |> filter(region_or_pair == 'vHPC')
+)
+region_names <- c("mPFC", "NAc", "MD", "BLA", "vHPC")
+
+agent_colors <- c("cagemate" = "#792910",
+                  "familiar" = "#FFAF00",
+                  "novel"    = "#15616F")
+
+results <- analyze_multiple_regions(
+  data_list                = data_list,
+  region_names             = region_names,
+  fixed_effects            = "value ~ band * agent * rel_log_pref",
+  conserved_random_effects = "X",
+  test_random_effects      = c(),
+  agent_colors             = agent_colors,
+  y_label                  = "Fitted Power Values",
+  x_var                    = "agent",
+  x_var2                   = "rel_log_pref",
+  criterion                = "AIC",
+  REML                     = FALSE,
+  verbose                  = TRUE
+)
+
+print(results$plots$mPFC)
+print(results$plots$NAc)
+print(results$plots$MD)
+print(results$plots$BLA)
+print(results$plots$vHPC)
+
+View(results$contrasts)
+```
+
+```{r coherence_analysis}
+coherence_region_names <- c("mPFC_NAc", "mPFC_MD", "mPFC_BLA", "mPFC_vHPC",
+                             "NAc_MD", "NAc_BLA", "NAc_vHPC",
+                             "MD_BLA", "BLA_vHPC", "MD_vHPC")
+
+coherence_data_list <- list(
+  agg_coherence_df |> filter(region_or_pair == 'mPFC_NAc'),
+  agg_coherence_df |> filter(region_or_pair == 'mPFC_MD'),
+  agg_coherence_df |> filter(region_or_pair == 'mPFC_BLA'),
+  agg_coherence_df |> filter(region_or_pair == 'mPFC_vHPC'),
+  agg_coherence_df |> filter(region_or_pair == 'NAc_MD'),
+  agg_coherence_df |> filter(region_or_pair == 'NAc_BLA'),
+  agg_coherence_df |> filter(region_or_pair == 'NAc_vHPC'),
+  agg_coherence_df |> filter(region_or_pair == 'MD_BLA'),
+  agg_coherence_df |> filter(region_or_pair == 'BLA_vHPC'),
+  agg_coherence_df |> filter(region_or_pair == 'MD_vHPC')
+)
+
+coherence_results <- analyze_multiple_regions(
+  data_list                = coherence_data_list,
+  region_names             = coherence_region_names,
+  fixed_effects            = "value ~ band * agent * rel_log_pref",
+  title                    = "Coherence",
+  conserved_random_effects = "X",
+  test_random_effects      = c(),
+  agent_colors             = agent_colors,
+  y_label                  = "Fitted Coherence Values",
+  x_var                    = "agent",
+  x_var2                   = "rel_log_pref",
+  criterion                = "AIC",
+  REML                     = FALSE,
+  verbose                  = TRUE
+)
+
+for (r in coherence_region_names) print(coherence_results$plots[[r]])
+
+View(coherence_results$contrasts)
+```
+
+```{r granger_analysis}
+granger_data_list <- list(
+  mPFC_to_NAc  = agg_granger_df |> filter(region_or_pair == 'mPFC_to_NAc'),
+  mPFC_to_MD   = agg_granger_df |> filter(region_or_pair == 'mPFC_to_MD'),
+  mPFC_to_BLA  = agg_granger_df |> filter(region_or_pair == 'mPFC_to_BLA'),
+  mPFC_to_vHPC = agg_granger_df |> filter(region_or_pair == 'mPFC_to_vHPC'),
+  NAc_to_mPFC  = agg_granger_df |> filter(region_or_pair == 'NAc_to_mPFC'),
+  NAc_to_MD    = agg_granger_df |> filter(region_or_pair == 'NAc_to_MD'),
+  NAc_to_BLA   = agg_granger_df |> filter(region_or_pair == 'NAc_to_BLA'),
+  NAc_to_vHPC  = agg_granger_df |> filter(region_or_pair == 'NAc_to_vHPC'),
+  BLA_to_mPFC  = agg_granger_df |> filter(region_or_pair == 'BLA_to_mPFC'),
+  BLA_to_NAc   = agg_granger_df |> filter(region_or_pair == 'BLA_to_NAc'),
+  BLA_to_MD    = agg_granger_df |> filter(region_or_pair == 'BLA_to_MD'),
+  BLA_to_vHPC  = agg_granger_df |> filter(region_or_pair == 'BLA_to_vHPC'),
+  MD_to_mPFC   = agg_granger_df |> filter(region_or_pair == 'MD_to_mPFC'),
+  MD_to_NAc    = agg_granger_df |> filter(region_or_pair == 'MD_to_NAc'),
+  MD_to_BLA    = agg_granger_df |> filter(region_or_pair == 'MD_to_BLA'),
+  MD_to_vHPC   = agg_granger_df |> filter(region_or_pair == 'MD_to_vHPC'),
+  vHPC_to_mPFC = agg_granger_df |> filter(region_or_pair == 'vHPC_to_mPFC'),
+  vHPC_to_NAc  = agg_granger_df |> filter(region_or_pair == 'vHPC_to_NAc'),
+  vHPC_to_BLA  = agg_granger_df |> filter(region_or_pair == 'vHPC_to_BLA'),
+  vHPC_to_MD   = agg_granger_df |> filter(region_or_pair == 'vHPC_to_MD')
+)
+
+granger_results <- analyze_multiple_regions(
+  data_list                = granger_data_list,
+  region_names             = names(granger_data_list),
+  fixed_effects            = "value ~ band * agent * rel_log_pref",
+  title                    = "Granger",
+  conserved_random_effects = "X",
+  test_random_effects      = c(),
+  agent_colors             = agent_colors,
+  y_label                  = "Fitted Granger Causality Values",
+  x_var                    = "agent",
+  x_var2                   = "rel_log_pref",
+  criterion                = "AIC",
+  REML                     = FALSE,
+  verbose                  = TRUE
+)
+
+for (r in names(granger_data_list)) print(granger_results$plots[[r]])
+
+View(granger_results$contrasts)
+```
+
+```{r global_bh}
+apply_global_bh <- function(results) {
+  results$contrasts <- results$contrasts %>%
+    mutate(
+      p.value.adjusted = p.adjust(p.value, method = "BH"),
+      sig = case_when(
+        p.value.adjusted < 0.001 ~ "***",
+        p.value.adjusted < 0.01  ~ "**",
+        p.value.adjusted < 0.05  ~ "*",
+        p.value.adjusted < 0.1   ~ ".",
+        TRUE                     ~ ""
+      )
+    )
+  return(results)
+}
+
+results          <- apply_global_bh(results)
+coherence_results <- apply_global_bh(coherence_results)
+granger_results   <- apply_global_bh(granger_results)
+```
+
+```{r heatmap_helpers}
+# ── GET SLOPES FOR ONE REGION ─────────────────────────────────────────────────
+# Uses emtrends to extract Preference slope per agent per band.
+# plot_type: "three_way" | "two_way" | "none"
+get_slopes_for_region <- function(model, region, plot_type,
+                                  bands = c("Delta", "Theta", "Beta",
+                                            "Low gamma", "High gamma")) {
+  if (plot_type == "three_way") {
+    emtrends(model, specs = ~ agent | band,
+             var = "rel_log_pref", lmer.df = "satterthwaite") %>%
+      summary(infer = TRUE) %>%
+      as_tibble() %>%
+      mutate(region   = region,
+             band_col = as.character(band))
+
+  } else if (plot_type == "two_way") {
+    # Preference:agent sig but no band interaction — collapse across bands
+    emtrends(model, specs = ~ agent,
+             var = "rel_log_pref", lmer.df = "satterthwaite") %>%
+      summary(infer = TRUE) %>%
+      as_tibble() %>%
+      tidyr::crossing(band_col = bands) %>%
+      mutate(region = region)
+
+  } else {
+    # No significant Preference interaction — grey placeholder
+    tidyr::crossing(agent    = c("cagemate", "familiar", "novel"),
+                    band_col = bands) %>%
+      mutate(rel_log_pref.trend = NA_real_,
+             SE               = NA_real_,
+             df               = NA_real_,
+             t.ratio          = NA_real_,
+             p.value          = NA_real_,
+             lower.CL         = NA_real_,
+             upper.CL         = NA_real_,
+             region           = region)
+  }
+}
+
+# ── PREFERENCE HEATMAP FUNCTION ───────────────────────────────────────────────
+# all_slopes: the full slope_results tibble (used to set shared color limits)
+plot_preference_heatmap <- function(slopes_df, all_slopes, agent_color, title,
+                                    region_order = NULL, band_order = NULL) {
+
+  global_lim <- max(abs(all_slopes$rel_log_pref.trend), na.rm = TRUE)
+
+  if (!is.null(region_order)) {
+    slopes_df <- slopes_df %>%
+      mutate(region = factor(region, levels = region_order))
+  }
+
+  ggplot(slopes_df,
+         aes(x = band_col, y = region, fill = rel_log_pref.trend)) +
+
+    geom_tile(color = "white", linewidth = 0.8,
+              aes(alpha = if_else(is.na(rel_log_pref.trend), 0.15, 1.0))) +
+
+    # Grey overlay for NA cells (no significant Preference interaction)
+    geom_tile(data = slopes_df %>% filter(is.na(rel_log_pref.trend)),
+              fill = "#CCCCCC", color = "white", linewidth = 0.8) +
+
+    # Significance stars
+    geom_text(aes(label = sig), size = 5, fontface = "bold",
+              color = "black", na.rm = TRUE) +
+
+    # Diverging scale: blue = LFP decreases with Preference,
+    #                  agent color = LFP increases with Preference
+    scale_fill_gradient2(
+      low      = "#2166AC",
+      mid      = "white",
+      high     = agent_color,
+      midpoint = 0,
+      limits   = c(-global_lim, global_lim),
+      name     = "rel_log_pref\nslope\n(emtrend)",
+      na.value = "#CCCCCC"
+    ) +
+
+    scale_alpha_identity() +
+
+    scale_x_discrete(limits = if (!is.null(band_order)) band_order
+                              else c("Delta", "Theta", "Beta",
+                                     "Low gamma", "High gamma")) +
+
+    labs(title = title,
+         x     = "Frequency band",
+         y     = "Brain region / pair") +
+
+    theme_minimal(base_size = 12) +
+    theme(
+      axis.text.x  = element_text(angle = 45, hjust = 1, face = "bold"),
+      axis.text.y  = element_text(face = "bold"),
+      plot.title   = element_text(face = "bold", color = agent_color, size = 14),
+      panel.grid   = element_blank(),
+      legend.title = element_text(size = 9)
+    )
+}
+```
+
+```{r preference_slope_comparison}
+# ── PLOT EMMEANS FITTED VALUES ACROSS PREFERENCE FOR ONE REGION + BAND ────────
+# Analogous to plot_exposure_slopes_comparison in the habit_dishabit script.
+# Shows how LFP tracks the subject's preference score for cagemate vs novel,
+# with a CI ribbon — this is the individual coefficient visualized in the heatmap.
+
+plot_preference_slopes_comparison <- function(models,
+                                               region,
+                                               band_name,
+                                               agent_colors = c(cagemate = "#792910",
+                                                                novel    = "#15616F"),
+                                               metric_label = "LFP Value",
+                                               pref_seq = seq(-3, 3, by = 0.25)) {
+
+  model <- models[[region]]
+  if (is.null(model)) {
+    warning("No model found for region: ", region)
+    return(NULL)
+  }
+
+  # ── 1. emmeans at each Preference step, holding band fixed ──────────────────
+  emm_df <- emmeans(
+    model,
+    ~ agent | rel_log_pref,
+    at      = list(rel_log_pref = pref_seq, band = band_name),
+    lmer.df = "satterthwaite"
+  ) %>%
+    summary(infer = TRUE) %>%
+    as_tibble() %>%
+    filter(agent %in% c("cagemate", "novel"))
+
+  if (nrow(emm_df) == 0) {
+    warning("emmeans returned no rows for region = '", region,
+            "', band = '", band_name, "'")
+    return(NULL)
+  }
+
+  # ── 2. emtrends for slope annotation in subtitle ─────────────────────────────
+  trends_df <- emtrends(
+    model,
+    specs   = ~ agent | band,
+    var     = "rel_log_pref",
+    at      = list(band = band_name),
+    lmer.df = "satterthwaite"
+  ) %>%
+    summary(infer = TRUE) %>%
+    as_tibble() %>%
+    filter(as.character(band) == band_name,
+           agent %in% c("cagemate", "novel")) %>%
+    mutate(
+      sig = case_when(
+        p.value < 0.001 ~ "***",
+        p.value < 0.01  ~ "**",
+        p.value < 0.05  ~ "*",
+        p.value < 0.1   ~ ".",
+        TRUE            ~ "n.s."
+      ),
+      label = paste0(agent, ": β = ", round(rel_log_pref.trend, 4), " ", sig)
+    )
+
+  subtitle_text <- paste(trends_df$label, collapse = "   |   ")
+
+  # ── 3. Plot ──────────────────────────────────────────────────────────────────
+  p <- ggplot(emm_df,
+              aes(x     = rel_log_pref,
+                  y     = emmean,
+                  color = agent,
+                  fill  = agent,
+                  group = agent)) +
+
+    geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL),
+                alpha = 0.2, color = NA) +
+
+    geom_line(linewidth = 1.2) +
+
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0.02, linewidth = 0.5) +
+
+    geom_point(size = 3) +
+
+    scale_color_manual(values = agent_colors) +
+    scale_fill_manual(values  = agent_colors) +
+    scale_x_continuous(breaks = seq(-3, 3, by = 1),
+                       labels = c("-3\n(avoid)", "-2", "-1", "0\n(avg)", "1", "2", "3\n(prefer)")) +
+
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.4) +
+
+    labs(
+      title    = paste0(region, " — ", band_name),
+      subtitle = subtitle_text,
+      x        = "Relative log investigation (centered within subject)",
+      y        = metric_label,
+      color    = "Agent",
+      fill     = "Agent"
+    ) +
+
+    theme_classic(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      plot.title      = element_text(face = "bold"),
+      plot.subtitle   = element_text(size = 9, color = "grey40", family = "mono")
+    )
+
+  return(p)
+}
+
+# ── EXAMPLE USAGE ─────────────────────────────────────────────────────────────
+# Change region/band_name/metric_label to inspect any cell in the heatmap
+p <- plot_preference_slopes_comparison(
+  models       = results$models,
+  region       = "mPFC",
+  band_name    = "Delta",
+  metric_label = "Fitted LFP Power"
+)
+print(p)
+```
+
+```{r power_heatmap}
+# ── 1. Determine plot type per region ────────────────────────────────────────
+power_interaction_lookup <- imap_dfr(results$interaction_tests, function(it, region) {
+  three_way_term <- find_interaction_term(c("band", "agent", "rel_log_pref"), rownames(it))
+  two_way_term   <- find_interaction_term(c("agent", "rel_log_pref"),          rownames(it))
+  tibble(
+    region        = region,
+    three_way_sig = !is.na(three_way_term) && it[three_way_term, "Pr(>F)"] < 0.05,
+    two_way_sig   = !is.na(two_way_term)   && it[two_way_term,   "Pr(>F)"] < 0.05
+  )
+})
+print(power_interaction_lookup)
+
+# ── 2. Extract emtrends per region ───────────────────────────────────────────
+power_slope_results <- imap_dfr(results$models, function(model, region) {
+  lookup    <- power_interaction_lookup %>% filter(region == !!region)
+  plot_type <- case_when(
+    lookup$three_way_sig ~ "three_way",
+    lookup$two_way_sig   ~ "two_way",
+    TRUE                 ~ "none"
+  )
+  get_slopes_for_region(model, region, plot_type)
+})
+
+# ── 3. BH correction ─────────────────────────────────────────────────────────
+power_slope_results <- power_slope_results %>%
+  mutate(
+    p.adjusted = p.adjust(p.value, method = "BH"),
+    sig = case_when(
+      is.na(p.value)     ~ "",
+      p.adjusted < 0.001 ~ "***",
+      p.adjusted < 0.01  ~ "**",
+      p.adjusted < 0.05  ~ "*",
+      p.adjusted < 0.1   ~ ".",
+      TRUE               ~ ""
+    ),
+    band_col = factor(band_col,
+                      levels = c("Delta", "Theta", "Beta", "Low gamma", "High gamma")),
+    region   = factor(region, levels = c("mPFC", "NAc", "MD", "BLA", "vHPC"))
+  )
+
+# ── 4. Separate and plot ──────────────────────────────────────────────────────
+slopes_cagemate_power <- power_slope_results %>% filter(agent == "cagemate")
+slopes_novel_power    <- power_slope_results %>% filter(agent == "novel")
+
+p_cagemate_power <- plot_preference_heatmap(
+  slopes_df   = slopes_cagemate_power,
+  all_slopes  = power_slope_results,
+  agent_color = "#792910",
+  title       = "Cagemate — LFP rel_log_pref slope (Power)",
+  region_order = c("mPFC", "NAc", "MD", "BLA", "vHPC")
+)
+
+p_novel_power <- plot_preference_heatmap(
+  slopes_df   = slopes_novel_power,
+  all_slopes  = power_slope_results,
+  agent_color = "#15616F",
+  title       = "Novel — LFP rel_log_pref slope (Power)",
+  region_order = c("mPFC", "NAc", "MD", "BLA", "vHPC")
+)
+
+p_cagemate_power + p_novel_power +
+  plot_annotation(
+    title    = "LFP Power vs rel_log_pref: cagemate vs novel",
+    subtitle = "Blue = LFP decreases with rel_log_pref | Colored = increases | Grey = no sig rel_log_pref effect",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(size = 10, color = "grey40")
+    )
+  )
+
+ggsave("r_stuff/preference_heatmaps_power.png",
+       width = 14, height = 5, dpi = 300, bg = "white")
+```
+
+```{r coherence_heatmap}
+coherence_interaction_lookup <- imap_dfr(coherence_results$interaction_tests, function(it, region) {
+  three_way_term <- find_interaction_term(c("band", "agent", "rel_log_pref"), rownames(it))
+  two_way_term   <- find_interaction_term(c("agent", "rel_log_pref"),          rownames(it))
+  tibble(
+    region        = region,
+    three_way_sig = !is.na(three_way_term) && it[three_way_term, "Pr(>F)"] < 0.05,
+    two_way_sig   = !is.na(two_way_term)   && it[two_way_term,   "Pr(>F)"] < 0.05
+  )
+})
+print(coherence_interaction_lookup)
+
+coherence_slope_results <- imap_dfr(coherence_results$models, function(model, region) {
+  lookup    <- coherence_interaction_lookup %>% filter(region == !!region)
+  plot_type <- case_when(
+    lookup$three_way_sig ~ "three_way",
+    lookup$two_way_sig   ~ "two_way",
+    TRUE                 ~ "none"
+  )
+  get_slopes_for_region(model, region, plot_type)
+})
+
+coherence_slope_results <- coherence_slope_results %>%
+  mutate(
+    p.adjusted = p.adjust(p.value, method = "BH"),
+    sig = case_when(
+      is.na(p.value)     ~ "",
+      p.adjusted < 0.001 ~ "***",
+      p.adjusted < 0.01  ~ "**",
+      p.adjusted < 0.05  ~ "*",
+      p.adjusted < 0.1   ~ ".",
+      TRUE               ~ ""
+    ),
+    band_col = factor(band_col,
+                      levels = c("Delta", "Theta", "Beta", "Low gamma", "High gamma")),
+    region   = factor(region, levels = coherence_region_names)
+  )
+
+# Keep only bands where at least one region × agent has a real slope estimate
+sig_coh_bands <- coherence_slope_results %>%
+  filter(agent %in% c("cagemate", "novel"), !is.na(rel_log_pref.trend)) %>%
+  pull(band_col) %>%
+  as.character() %>%
+  unique()
+
+# Preserve canonical ordering, just drop all-grey columns
+all_bands <- c("Delta", "Theta", "Beta", "Low gamma", "High gamma")
+sig_coh_band_order <- all_bands[all_bands %in% sig_coh_bands]
+
+slopes_cagemate_coh <- coherence_slope_results %>%
+  filter(agent == "cagemate", band_col %in% sig_coh_bands)
+slopes_novel_coh    <- coherence_slope_results %>%
+  filter(agent == "novel",    band_col %in% sig_coh_bands)
+
+p_cagemate_coh <- plot_preference_heatmap(
+  slopes_df    = slopes_cagemate_coh,
+  all_slopes   = coherence_slope_results,
+  agent_color  = "#792910",
+  title        = "Cagemate — LFP rel_log_pref slope (Coherence)",
+  region_order = coherence_region_names,
+  band_order   = sig_coh_band_order
+)
+
+p_novel_coh <- plot_preference_heatmap(
+  slopes_df    = slopes_novel_coh,
+  all_slopes   = coherence_slope_results,
+  agent_color  = "#15616F",
+  title        = "Novel — LFP rel_log_pref slope (Coherence)",
+  region_order = coherence_region_names,
+  band_order   = sig_coh_band_order
+)
+
+p_cagemate_coh + p_novel_coh +
+  plot_annotation(
+    title    = "LFP Coherence vs rel_log_pref: cagemate vs novel",
+    subtitle = "Blue = LFP decreases with rel_log_pref | Colored = increases | Grey = no sig rel_log_pref effect",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(size = 10, color = "grey40")
+    )
+  )
+
+ggsave("r_stuff/preference_heatmaps_coherence.png",
+       width = 14, height = 8, dpi = 300, bg = "white")
+```
+
+```{r granger_heatmap}
+granger_region_names <- names(granger_data_list)
+
+granger_interaction_lookup <- imap_dfr(granger_results$interaction_tests, function(it, region) {
+  three_way_term <- find_interaction_term(c("band", "agent", "rel_log_pref"), rownames(it))
+  two_way_term   <- find_interaction_term(c("agent", "rel_log_pref"),          rownames(it))
+  tibble(
+    region        = region,
+    three_way_sig = !is.na(three_way_term) && it[three_way_term, "Pr(>F)"] < 0.05,
+    two_way_sig   = !is.na(two_way_term)   && it[two_way_term,   "Pr(>F)"] < 0.05
+  )
+})
+print(granger_interaction_lookup)
+
+granger_slope_results <- imap_dfr(granger_results$models, function(model, region) {
+  lookup    <- granger_interaction_lookup %>% filter(region == !!region)
+  plot_type <- case_when(
+    lookup$three_way_sig ~ "three_way",
+    lookup$two_way_sig   ~ "two_way",
+    TRUE                 ~ "none"
+  )
+  get_slopes_for_region(model, region, plot_type)
+})
+
+granger_slope_results <- granger_slope_results %>%
+  mutate(
+    p.adjusted = p.adjust(p.value, method = "BH"),
+    sig = case_when(
+      is.na(p.value)     ~ "",
+      p.adjusted < 0.001 ~ "***",
+      p.adjusted < 0.01  ~ "**",
+      p.adjusted < 0.05  ~ "*",
+      p.adjusted < 0.1   ~ ".",
+      TRUE               ~ ""
+    ),
+    band_col = factor(band_col,
+                      levels = c("Delta", "Theta", "Beta", "Low gamma", "High gamma")),
+    region   = factor(region, levels = granger_region_names)
+  )
+
+# Keep only directional pairs where at least one agent has a real slope estimate
+sig_gran_regions <- granger_slope_results %>%
+  filter(agent %in% c("cagemate", "novel"), !is.na(rel_log_pref.trend)) %>%
+  pull(region) %>%
+  as.character() %>%
+  unique()
+
+# Preserve original ordering, just drop all-grey rows
+sig_gran_order <- granger_region_names[granger_region_names %in% sig_gran_regions]
+
+slopes_cagemate_gran <- granger_slope_results %>%
+  filter(agent == "cagemate", region %in% sig_gran_regions)
+slopes_novel_gran    <- granger_slope_results %>%
+  filter(agent == "novel",    region %in% sig_gran_regions)
+
+p_cagemate_gran <- plot_preference_heatmap(
+  slopes_df    = slopes_cagemate_gran,
+  all_slopes   = granger_slope_results,
+  agent_color  = "#792910",
+  title        = "Cagemate — LFP rel_log_pref slope (Granger)",
+  region_order = sig_gran_order
+)
+
+p_novel_gran <- plot_preference_heatmap(
+  slopes_df    = slopes_novel_gran,
+  all_slopes   = granger_slope_results,
+  agent_color  = "#15616F",
+  title        = "Novel — LFP rel_log_pref slope (Granger)",
+  region_order = sig_gran_order
+)
+
+p_cagemate_gran + p_novel_gran +
+  plot_annotation(
+    title    = "LFP Granger Causality vs rel_log_pref: cagemate vs novel",
+    subtitle = "Blue = LFP decreases with rel_log_pref | Colored = increases | Grey = no sig rel_log_pref effect",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(size = 10, color = "grey40")
+    )
+  )
+
+ggsave("r_stuff/preference_heatmaps_granger.png",
+       width = 14, height = max(3, length(sig_gran_order) * 0.5 + 2),
+       dpi = 300, bg = "white")
+```

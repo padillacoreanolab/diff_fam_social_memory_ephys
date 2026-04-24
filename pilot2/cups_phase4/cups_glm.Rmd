@@ -13,9 +13,9 @@ library(lme4)
 library(lmerTest)
 library(emmeans)
 library(Matrix)
-library(dabestr)
-library(MuMIn)
-library(effsize)
+# library(dabestr)
+# library(MuMIn)
+# library(effsize)
 ```
 
 ## R Markdown
