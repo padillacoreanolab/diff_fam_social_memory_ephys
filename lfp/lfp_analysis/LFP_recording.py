@@ -450,6 +450,8 @@ class LFPRecording:
             # Save event dictionary
             if recording.threshold is not None:
                 metadata.attrs["zscore theshold"] = recording.threshold
+            if hasattr(recording, "excluded_regions"):
+                metadata.attrs["excluded_regions"] = recording.excluded_regions
 
     @staticmethod
     def save_metadata_to_json(recording, json_path):
@@ -498,7 +500,7 @@ class LFPRecording:
 
         # Save to JSON file
         with open(json_path, "w") as f:
-            json.dump(metadata, f, indent=4)
+            json.dump(metadata, f, indent=4, default=str)
 
     @staticmethod
     def load_rec_from_h5(h5_path):
@@ -567,6 +569,8 @@ class LFPRecording:
             # Load additional attributes that aren't part of initialization
             if "first_timestamp" in metadata.attrs.keys():
                 recording.first_timestamp = metadata.attrs["first_timestamp"]
+            if "excluded_regions" in metadata.attrs.keys():
+                recording.excluded_regions = list(metadata.attrs["excluded_regions"])
             recording.name = metadata.attrs["name"]
             recording.rec_length = metadata.attrs["recording length"]
             recording.brain_region_dict = brain_region_dict
