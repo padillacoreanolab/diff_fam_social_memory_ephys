@@ -8,6 +8,7 @@ from itertools import combinations
 import spike.spike_analysis.spike_collection as col
 import spike.spike_analysis.spike_recording
 from sklearn.preprocessing import StandardScaler
+from statsmodels.stats.multitest import multipletests
 
 
 def get_indices(repeated_items_list):
@@ -70,15 +71,18 @@ def event_slice(transformed_subsets, key, no_PCs):
     return trajectories
 
 
-def geodesic_distances(event_trajectories, recording_name=None):
+def euclidean_distances(event_trajectories, recording_name=None, evr=None):
     """
     Calculates the euclidean distances between all trajectories in the event_trajectory dictionary,
 
-    Arguments(1 required, 2 total):
+    Arguments(1 required, 3 total):
         event_trajectories: dictionary
             keys: str, event names
             values: numpy arrays of shape [session x timebins x PCs] or [timebins x PCs]
         recording_name: str, optional index labeled for the resulting dataframe
+        evr: np.array, optional explained variance ratios for each PC used as weights.
+            If provided, distances are weighted: d = sqrt(Σ evr_i * (x_i - y_i)²).
+            Should be sliced to match the number of PCs in event_trajectories.
 
     Returns (1):
         df: DataFrame, columns are event pairs and data is a list of disntaces, or a single distance between trajectories
@@ -91,7 +95,7 @@ def geodesic_distances(event_trajectories, recording_name=None):
     for pair in event_pairs:
         event1 = event_trajectories[pair[0]]
         event2 = event_trajectories[pair[1]]
-        dist = distance_bw_trajectories(event1, event2)
+        dist = distance_bw_trajectories(event1, event2, evr=evr)
         distances.append(dist)
 
     # Create column names from pairs
@@ -106,31 +110,34 @@ def geodesic_distances(event_trajectories, recording_name=None):
     return df
 
 
-def distance_bw_trajectories(trajectory1, trajectory2):
+def distance_bw_trajectories(trajectory1, trajectory2, evr=None):
     """
     Calculates the geodesic distance between two event trajectories by summing the distance between
     congruent timebins across trajectories.
 
-    Arugments (2 required):
+    Arugments (2 required, 3 total):
         trajectory1 & trajectory2: numpy ararys of shape [session x timebin x PCs] pr [timebin x PCs]
+        evr: np.array, optional explained variance ratios used as PC weights.
+            If provided, each timebin distance is weighted: d = sqrt(Σ evr_i * (x_i - y_i)²).
+            Should be sliced to match the number of PCs in trajectory1/trajectory2.
 
     Returns (1):
-        geodesic_distances: either a single value for 1 session's trajectories, or a list of distances across
+        euclidean_distances: either a single value for 1 session's trajectories, or a list of distances across
         all sessions trajectories
     """
     if len(trajectory1.shape) == 3:
-        geodesic_distances = []
+        euclidean_distances = []
         for session in range(trajectory1.shape[0]):
             dist_bw_tb = 0
             for i in range(trajectory1.shape[1]):
-                dist_bw_tb = dist_bw_tb + euclidean(trajectory1[session, i, :], trajectory2[session, i, :])
-            geodesic_distances.append(dist_bw_tb)
+                dist_bw_tb = dist_bw_tb + euclidean(trajectory1[session, i, :], trajectory2[session, i, :], w=evr)
+            euclidean_distances.append(dist_bw_tb)
     if len(trajectory1.shape) == 2:
         dist_bw_tb = 0
         for i in range(trajectory1.shape[0]):
-            dist_bw_tb = dist_bw_tb + euclidean(trajectory1[i, :], trajectory2[i, :])
-        geodesic_distances = dist_bw_tb
-    return geodesic_distances
+            dist_bw_tb = dist_bw_tb + euclidean(trajectory1[i, :], trajectory2[i, :], w=evr)
+        euclidean_distances = dist_bw_tb
+    return euclidean_distances
 
 
 def PCs_needed(explained_variance_ratios, percent_explained=0.9):
@@ -1028,6 +1035,76 @@ def avg_trajectory_EDA_plot_3D(
     plt.show()
 
 
+def participation_ratio(
+    spike_collection,
+    event_length,
+    pre_window,
+    post_window=0,
+    events=None,
+    min_neurons=0,
+    condition_dict=None,
+    LOO=True,
+):
+    """Compute the participation ratio (PR) of the PCA eigenspectrum.
+
+    PR = (Σλᵢ)² / Σ(λᵢ²), where λᵢ are the PCA explained variance ratios.
+    A higher PR indicates variance is spread across more dimensions.
+
+    Args:
+        spike_collection: SpikeCollection or list of SpikeRecording
+        event_length: float, seconds
+        pre_window: float, seconds before event onset
+        post_window: float, default=0, seconds after event offset
+        events: list of str or None
+        min_neurons: int, default=0
+        condition_dict: dict or None, passed through to avg_trajectory_matrix
+        LOO: bool, default=True
+            If True, performs leave-one-recording-out PCA: for each recording,
+            fits a fresh PCA on the remaining n-1 recordings and computes PR.
+            Returns a DataFrame with n rows indexed by the left-out recording name.
+            If False, fits a single PCA on all recordings and returns a one-row
+            DataFrame with the PR for the full dataset.
+
+    Returns:
+        pd.DataFrame with column 'participation_ratio'.
+            LOO=False: one row (no meaningful index).
+            LOO=True:  n rows indexed by left-out recording name.
+    """
+
+    def _pr(evr):
+        return (evr.sum() ** 2) / (evr ** 2).sum()
+
+    if not LOO:
+        pc_result = avg_trajectory_matrix(
+            spike_collection, event_length, pre_window, post_window, events, min_neurons, condition_dict
+        )
+        if pc_result is None or pc_result.explained_variance is None:
+            return None
+        return pd.DataFrame({"participation_ratio": [_pr(pc_result.explained_variance)]})
+
+    # LOO=True: leave one recording out per iteration
+    if hasattr(spike_collection, "recordings"):
+        recordings = spike_collection.recordings
+    elif isinstance(spike_collection, list):
+        recordings = spike_collection
+    else:
+        recordings = [spike_collection]
+
+    recordings = [r for r in recordings if r.analyzed_neurons >= min_neurons]
+
+    rows = []
+    for i, rec in enumerate(recordings):
+        loo_recs = [r for j, r in enumerate(recordings) if j != i]
+        pc_result = avg_trajectory_matrix(
+            loo_recs, event_length, pre_window, post_window, events, min_neurons, condition_dict
+        )
+        if pc_result is None or pc_result.explained_variance is None:
+            continue
+        rows.append({"recording": rec.name, "participation_ratio": _pr(pc_result.explained_variance)})
+
+    return pd.DataFrame(rows).set_index("recording")
+
+
 def LOO_PCA(
     spike_collection,
     event_length,
@@ -1059,44 +1136,197 @@ def LOO_PCA(
         pc_result_list.append(pc_result)
     # no_PCs = PCs_needed(explained_variance_ratios, percent_var)
     # event_trajectories = event_slice(transformed_subsets, key, no_PCs, mode="multisession")
-    # pairwise_distances = geodesic_distances(event_trajectories, mode="multisession")
+    # pairwise_distances = euclidean_distances(event_trajectories, mode="multisession")
     return pc_result_list
 
 
-def avg_geo_dist(spike_collection, event_length, pre_window, percent_var, post_window=0, events=None, min_neurons=0):
+def average_trajectory_distances(
+    spike_collection,
+    event_length,
+    pre_window,
+    percent_var=None,
+    post_window=0,
+    events=None,
+    min_neurons=0,
+    weighted=True,
+    method="recording",
+):
+    """Compute pairwise euclidean distances between event trajectories in PCA space.
+
+    Both methods fit one global PCA on all n recordings (same fixed embedding), so
+    distances are always comparable across recordings.
+
+    Args:
+        spike_collection: SpikeCollection or list of SpikeRecording
+        event_length: float, seconds
+        pre_window: float, seconds before event onset
+        percent_var: float or None — variance threshold for PC selection (e.g. 0.9).
+            If None, all PCs are used.
+        post_window: float, default=0
+        events: list of str or None
+        min_neurons: int, default=0
+        weighted: bool, default=True — weight distances by explained variance ratios
+        method: str, default='recording'
+            'recording' — fit global PCA on all n recordings; project each recording
+                          individually via its own neuron columns (condition_pca).
+                          n=recordings, each sample = one recording's projection.
+            'LOO'       — fit global PCA on all n recordings (same fixed W); for each
+                          held-out recording i, project the combined n-1 other recordings
+                          via their neuron columns. Because neuron columns are
+                          non-overlapping, P_LOO_i = P_full - P_i (sum of all projections
+                          minus recording i's contribution). n=recordings, each sample =
+                          combined projection of n-1 recordings. PCA embedding is
+                          identical across all folds.
+
+    Returns:
+        pd.DataFrame — rows indexed by recording name, columns are event pairs
+    """
     all_distances_df = pd.DataFrame()
 
-    for recording in spike_collection.recordings:
-        pc_result = avg_trajectory_matrix(
-            recording,
-            event_length,
-            pre_window=pre_window,
-            post_window=post_window,
-            events=events,
-            min_neurons=min_neurons,
-        )
+    if hasattr(spike_collection, "recordings"):
+        recordings = spike_collection.recordings
+    elif isinstance(spike_collection, list):
+        recordings = spike_collection
+    else:
+        recordings = [spike_collection]
 
-        if pc_result:
-            t_mat = pc_result.transformed_data
-            key = pc_result.labels
-            ex_var = pc_result.explained_variance
-            no_pcs = PCs_needed(ex_var, percent_var)
-            event_trajectories = event_slice(
-                t_mat,
-                key,
-                no_pcs,
-            )
+    resolved_events = events if events is not None else list(recordings[0].event_dict.keys())
 
-            # Get distances DataFrame for this recording
-            recording_df = geodesic_distances(event_trajectories, recording_name=recording.name)
+    # Both methods use the same global PCA fit
+    condition_dict = {rec.name: [rec.name] for rec in recordings}
+    pc_result = avg_trajectory_matrix(
+        spike_collection, event_length, pre_window, post_window, resolved_events, min_neurons,
+        condition_dict=condition_dict,
+    )
+    if pc_result is None or pc_result.transformed_data is None:
+        return all_distances_df
 
-            # Concatenate with main DataFrame
+    key = pc_result.labels
+    ex_var = pc_result.explained_variance
+    no_pcs = len(ex_var) if percent_var is None else PCs_needed(ex_var, percent_var)
+    evr = ex_var[:no_pcs] if weighted else None
+
+    if method == "recording":
+        for rec_name in pc_result.recordings:
+            t_mat = pc_result.transformed_data[rec_name]
+            event_trajectories = event_slice(t_mat, key, no_pcs)
+            recording_df = euclidean_distances(event_trajectories, recording_name=rec_name, evr=evr)
             all_distances_df = pd.concat([all_distances_df, recording_df])
+
+    elif method == "LOO":
+        # P_full = sum of all individual condition_pca projections
+        all_proj = list(pc_result.transformed_data.values())
+        P_full = np.sum(all_proj, axis=0)  # [T x n_PCs]
+        for rec_name, P_i in pc_result.transformed_data.items():
+            P_loo = P_full - P_i  # combined projection of all recordings except rec_name
+            event_trajectories = event_slice(P_loo, key, no_pcs)
+            recording_df = euclidean_distances(event_trajectories, recording_name=rec_name, evr=evr)
+            all_distances_df = pd.concat([all_distances_df, recording_df])
+
+    else:
+        raise ValueError(f"method must be 'recording' or 'LOO', got '{method}'")
 
     return all_distances_df
 
 
-def _rsa_core(matrix1, matrix2, metric="euclidean"):
+def trajectory_length(pca_matrix, key, evr=None):
+    """
+    Calculates the path length of each event trajectory in PC space by summing
+    successive timebin distances.
+
+    Args (2 required, 3 total):
+        pca_matrix: np.array, shape [timebins x PCs]
+        key: array-like of str, event label per timebin
+        evr: np.array, optional explained variance ratios used as PC weights.
+            If provided, each step distance is weighted: d = sqrt(Σ evr_i * (x_i - y_i)²).
+            Should match the number of PCs in pca_matrix.
+
+    Returns:
+        list of [trajectory_lengths, event_order]
+            trajectory_lengths: list of float, one total path length per event
+            event_order: list of str, event label for each trajectory
+    """
+    trajectory_lengths = []
+    event_order = []
+    unique_values, counts = np.unique(key, return_counts=True)
+    event_len = counts[0]
+    for j in range(0, len(key), event_len):
+        traj_len = 0
+        for i in range(event_len - 1):
+            traj_len = traj_len + euclidean(pca_matrix[j + i, :], pca_matrix[j + i + 1, :], w=evr)
+        trajectory_lengths.append(traj_len)
+        event_order.append(key[j])
+    return [trajectory_lengths, event_order]
+
+
+def avg_traj_len(spike_collection, event_length, pre_window, post_window=0, events=None, min_neurons=0, percent_var=None, weighted=True, global_pca=True):
+    """
+    Computes the trajectory length in PCA space for each recording and event.
+
+    Args (2 required, 9 total):
+        spike_collection: SpikeCollection or list of SpikeRecording
+        event_length: float, seconds
+        pre_window: float, seconds before event onset
+        post_window: float, default=0, seconds after event offset
+        events: list of str, default=None, event types to include
+        min_neurons: int, default=0, minimum neurons for a recording to be included
+        percent_var: float, default=None, variance threshold for selecting number of PCs.
+            If None, all PCs are used.
+        weighted: bool, default=True, if True weights each PC dimension by its explained
+            variance ratio: d = sqrt(Σ evr_i * (x_i - y_i)²)
+        global_pca: bool, default=True, if True fits a shared PCA subspace across all
+            recordings and projects each recording individually into that space (condition_pca).
+            If False, fits and projects PCA independently per recording.
+
+    Returns:
+        df: DataFrame, rows are recordings, columns are event types, values are trajectory lengths
+    """
+    all_lengths = []
+
+    if global_pca:
+        recordings = spike_collection.recordings if hasattr(spike_collection, "recordings") else spike_collection
+        condition_dict = {rec.name: [rec.name] for rec in recordings}
+        pc_result = avg_trajectory_matrix(
+            spike_collection, event_length, pre_window, post_window, events, min_neurons, condition_dict=condition_dict
+        )
+        if pc_result:
+            key = pc_result.labels
+            ex_var = pc_result.explained_variance
+            no_pcs = len(ex_var) if percent_var is None else PCs_needed(ex_var, percent_var)
+            evr = ex_var[:no_pcs] if weighted else None
+            for rec_name in pc_result.recordings:
+                t_mat = pc_result.transformed_data[rec_name]
+                lengths, event_order = trajectory_length(t_mat[:, :no_pcs], key, evr=evr)
+                row = {"recording": rec_name}
+                for event, length in zip(event_order, lengths):
+                    row[event] = length
+                all_lengths.append(row)
+    else:
+        for recording in spike_collection.recordings:
+            pc_result = avg_trajectory_matrix(
+                recording,
+                event_length,
+                pre_window=pre_window,
+                post_window=post_window,
+                events=events,
+                min_neurons=min_neurons,
+            )
+            if pc_result:
+                t_mat = pc_result.transformed_data
+                key = pc_result.labels
+                ex_var = pc_result.explained_variance
+                no_pcs = t_mat.shape[-1] if percent_var is None else PCs_needed(ex_var, percent_var)
+                evr = ex_var[:no_pcs] if weighted else None
+                lengths, event_order = trajectory_length(t_mat[:, :no_pcs], key, evr=evr)
+                row = {"recording": recording.name}
+                for event, length in zip(event_order, lengths):
+                    row[event] = length
+                all_lengths.append(row)
+
+    return pd.DataFrame(all_lengths).set_index("recording")
+
+
+def _rsa_core(matrix1, matrix2, metric="correlation"):
     """Core RSA computation between two (T x N) population matrices.
 
     Computes a pairwise distance vector (RDM) for each matrix across timepoints,
@@ -1108,12 +1338,49 @@ def _rsa_core(matrix1, matrix2, metric="euclidean"):
 
     Returns:
         rsa_score: float, Spearman r
-        pval: float, two-tailed p-value
+        pval: float, analytic two-tailed p-value (assumes RDM element independence —
+              use permutation testing instead for valid inference)
     """
     rdm1 = pdist(matrix1, metric=metric)
     rdm2 = pdist(matrix2, metric=metric)
     rsa_score, pval = spearmanr(rdm1, rdm2)
     return rsa_score, pval
+
+
+def _permutation_pval(matrix1, matrix2, observed_rho, n_perm, metric):
+    """Permutation p-value for a single matrix pair.
+
+    Shuffles timepoint rows of matrix1 n_perm times, recomputes the RDM,
+    and recomputes Spearman r with matrix2's RDM to build a null distribution.
+    p = proportion of null rhos >= observed_rho (one-tailed).
+    """
+    rdm2 = pdist(matrix2, metric=metric)
+    null_rhos = np.empty(n_perm)
+    for i in range(n_perm):
+        perm_rdm1 = pdist(matrix1[np.random.permutation(matrix1.shape[0])], metric=metric)
+        null_rhos[i], _ = spearmanr(perm_rdm1, rdm2)
+    return np.mean(null_rhos >= observed_rho)
+
+
+def _within_event_permutation_pval(trial_pairs, observed_mean_rho, n_perm, metric):
+    """Permutation p-value for within-subject/within-event mode.
+
+    For each permutation: shuffles timepoint rows of trial1 in every pair,
+    recomputes rho per pair, averages across pairs -> one null mean rho.
+    p = proportion of null mean rhos >= observed_mean_rho (one-tailed).
+
+    rdm2 is precomputed per pair to avoid redundant computation.
+    """
+    precomputed = [(t1, pdist(t2, metric=metric)) for t1, t2 in trial_pairs]
+    null_mean_rhos = np.empty(n_perm)
+    for i in range(n_perm):
+        pair_rhos = []
+        for t1, rdm2 in precomputed:
+            perm_rdm1 = pdist(t1[np.random.permutation(t1.shape[0])], metric=metric)
+            rho, _ = spearmanr(perm_rdm1, rdm2)
+            pair_rhos.append(rho)
+        null_mean_rhos[i] = np.mean(pair_rhos)
+    return np.mean(null_mean_rhos >= observed_mean_rho)
 
 
 def rsa(
@@ -1125,6 +1392,9 @@ def rsa(
     across_subjects=False,
     across_events=False,
     metric="euclidean",
+    min_neurons=3,
+    n_perm=0,
+    correction=None,
     plot=True,
 ):
     """Representational Similarity Analysis on population firing rate matrices.
@@ -1138,86 +1408,112 @@ def rsa(
         across_subjects: bool — compare same event type between every pair of subjects
         across_events: bool — compare different event types within each subject
         metric: str, distance metric for pdist (default "euclidean")
+        min_neurons: int, default 3 — minimum neurons required per recording
+        n_perm: int, default 0 — number of permutations for p-value estimation.
+            If 0, no p-values are computed. Permutation shuffles timepoint rows of
+            one matrix to break temporal structure, building a null distribution of
+            Spearman r under no relationship.
+        correction: str or None — multiple comparison correction applied across all
+            p-values in the result. Options: "fdr_bh" (Benjamini-Hochberg FDR),
+            "holm" (Holm-Bonferroni FWER). Only applied when n_perm > 0.
 
     Returns:
-        list of dicts, one per comparison — convertible to a DataFrame
+        pd.DataFrame, one row per comparison
     """
     if across_subjects and across_events:
         raise ValueError("Set either across_subjects or across_events, not both.")
+    if correction is not None and correction not in ("fdr_bh", "holm"):
+        raise ValueError("correction must be None, 'fdr_bh', or 'holm'")
 
     results = []
 
     # within subject, within event: RSA between every pair of trials, averaged per recording+event
     if not across_subjects and not across_events:
         for recording in spike_collection.recordings:
+            if recording.analyzed_neurons < min_neurons:
+                print(f"Skipping {recording.name}: {recording.analyzed_neurons} neurons < min_neurons={min_neurons}")
+                continue
             for event in events:
                 trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
                 if len(trials) < 2:
                     continue
-                trial_rsa_scores = []
-                for trial1, trial2 in combinations(trials, 2):
-                    score, _ = _rsa_core(trial1, trial2, metric)
-                    trial_rsa_scores.append(score)
-                results.append({
+                trial_pairs = list(combinations(trials, 2))
+                trial_rsa_scores = [_rsa_core(t1, t2, metric)[0] for t1, t2 in trial_pairs]
+                mean_rsa = np.mean(trial_rsa_scores)
+                row = {
                     "comparison": "within_subject_within_event",
                     "recording": recording.name,
                     "subject": getattr(recording, "subject", None),
                     "event": event,
-                    "rsa": np.mean(trial_rsa_scores),
-                    "n_pairs": len(trial_rsa_scores),
-                })
+                    "rsa": mean_rsa,
+                    "n_pairs": len(trial_pairs),
+                }
+                if n_perm > 0:
+                    row["pval"] = _within_event_permutation_pval(trial_pairs, mean_rsa, n_perm, metric)
+                results.append(row)
 
     if across_subjects:
         for event in events:
-            # build {subject: avg_matrix (T x N)} for this event
             subject_matrices = {}
             for recording in spike_collection.recordings:
+                if recording.analyzed_neurons < min_neurons:
+                    print(f"Skipping {recording.name}: {recording.analyzed_neurons} neurons < min_neurons={min_neurons}")
+                    continue
                 trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
                 if len(trials) == 0:
                     continue
-                avg_matrix = np.mean(trials, axis=0)  # (T, N)
-                subject_matrices[recording.subject] = avg_matrix
+                subject_matrices[recording.subject] = np.mean(trials, axis=0)
 
             for (subj1, mat1), (subj2, mat2) in combinations(subject_matrices.items(), 2):
-                rsa_score, pval = _rsa_core(mat1, mat2, metric)
-                results.append({
+                rsa_score, _ = _rsa_core(mat1, mat2, metric)
+                row = {
                     "comparison": "across_subjects",
                     "event": event,
                     "subject_1": subj1,
                     "subject_2": subj2,
                     "rsa": rsa_score,
-                    "pval": pval,
-                })
+                }
+                if n_perm > 0:
+                    row["pval"] = _permutation_pval(mat1, mat2, rsa_score, n_perm, metric)
+                results.append(row)
 
     if across_events:
         for recording in spike_collection.recordings:
-            # build {event: avg_matrix (T x N)} for this recording
+            if recording.analyzed_neurons < min_neurons:
+                print(f"Skipping {recording.name}: {recording.analyzed_neurons} neurons < min_neurons={min_neurons}")
+                continue
             event_matrices = {}
             for event in events:
                 trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
                 if len(trials) == 0:
                     continue
-                event_matrices[event] = np.mean(trials, axis=0)  # (T, N)
+                event_matrices[event] = np.mean(trials, axis=0)
 
             for (event1, mat1), (event2, mat2) in combinations(event_matrices.items(), 2):
-                rsa_score, pval = _rsa_core(mat1, mat2, metric)
-                results.append({
+                rsa_score, _ = _rsa_core(mat1, mat2, metric)
+                row = {
                     "comparison": "across_events",
                     "recording": recording.name,
                     "subject": getattr(recording, "subject", None),
                     "event_1": event1,
                     "event_2": event2,
                     "rsa": rsa_score,
-                    "pval": pval,
-                })
+                }
+                if n_perm > 0:
+                    row["pval"] = _permutation_pval(mat1, mat2, rsa_score, n_perm, metric)
+                results.append(row)
 
-    if plot and results:
+    df = pd.DataFrame(results)
+
+    if n_perm > 0 and correction is not None and "pval" in df.columns:
+        reject, pvals_corrected, _, _ = multipletests(df["pval"], method=correction)
+        df["pval_corrected"] = pvals_corrected
+        df["significant"] = reject
+
+    if plot and not df.empty:
         if not across_subjects and not across_events:
-            # group per-subject average RSA by event, then mean/SEM across subjects
-            event_rsa = {}
-            for r in results:
-                event_rsa.setdefault(r["event"], []).append(r["rsa"])
-            labels = list(event_rsa.keys())
+            event_rsa = df.groupby("event")["rsa"].apply(list)
+            labels = list(event_rsa.index)
             means = [np.mean(event_rsa[e]) for e in labels]
             errors = [sem(event_rsa[e]) for e in labels]
             x = np.arange(len(labels))
@@ -1230,11 +1526,8 @@ def rsa(
             plt.show()
 
         elif across_subjects:
-            # group RSA values by event across all subject pairs
-            event_rsa = {}
-            for r in results:
-                event_rsa.setdefault(r["event"], []).append(r["rsa"])
-            labels = list(event_rsa.keys())
+            event_rsa = df.groupby("event")["rsa"].apply(list)
+            labels = list(event_rsa.index)
             means = [np.mean(event_rsa[e]) for e in labels]
             errors = [sem(event_rsa[e]) for e in labels]
             x = np.arange(len(labels))
@@ -1247,12 +1540,9 @@ def rsa(
             plt.show()
 
         elif across_events:
-            # group RSA values by event pair across all subjects
-            pair_rsa = {}
-            for r in results:
-                pair_label = f"{r['event_1']} vs {r['event_2']}"
-                pair_rsa.setdefault(pair_label, []).append(r["rsa"])
-            labels = list(pair_rsa.keys())
+            df["pair_label"] = df["event_1"] + " vs " + df["event_2"]
+            pair_rsa = df.groupby("pair_label")["rsa"].apply(list)
+            labels = list(pair_rsa.index)
             means = [np.mean(pair_rsa[p]) for p in labels]
             errors = [sem(pair_rsa[p]) for p in labels]
             x = np.arange(len(labels))
@@ -1264,7 +1554,7 @@ def rsa(
             plt.tight_layout()
             plt.show()
 
-    return results
+    return df
 
 
 def dpca_matrix(
