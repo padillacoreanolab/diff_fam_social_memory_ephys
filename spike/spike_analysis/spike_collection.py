@@ -208,7 +208,7 @@ class SpikeCollection:
         print(f"Recording Details:\n" f"{''.join(details)}")
         return None
 
-    def save_collection(self, output_path):
+    def save_collection(self, output_path, notes=""):
         # Allow passing either a directory or a full .json path
         output_path = Path(output_path)
         if output_path.suffix == ".json":
@@ -224,6 +224,7 @@ class SpikeCollection:
                 "average units per recording": (
                     sum(recording.good_neurons for recording in self.recordings) / len(self.recordings)
                 ),
+                "notes": notes,
             }
         }
 
