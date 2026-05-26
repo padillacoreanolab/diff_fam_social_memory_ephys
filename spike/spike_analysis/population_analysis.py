@@ -3,7 +3,9 @@ from sklearn.decomposition import PCA
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import euclidean, pdist
-from scipy.stats import spearmanr, sem
+from scipy.spatial import procrustes as scipy_procrustes
+from scipy.linalg import orthogonal_procrustes
+from scipy.stats import spearmanr
 from itertools import combinations
 import spike.spike_analysis.spike_collection as col
 import spike.spike_analysis.spike_recording
@@ -378,16 +380,17 @@ class PCAResult:
             scaler = StandardScaler()
             # time x neurons = samples x features
             self.zscore_matrix = scaler.fit_transform(matrix_df)
-            pca.fit(matrix_df)
+            self.scaler = scaler
+            pca.fit(self.zscore_matrix)
             self.coefficients = pca.components_
             self.explained_variance = pca.explained_variance_ratio_
             self.get_cumulative_variance()
             self.make_overview_dataframe(matrix_df, event_count)
+            self.full_projection = pca.transform(self.zscore_matrix)
             if condition_dict is not None:
                 self.condition_pca(condition_dict)
             else:
-
-                self.transformed_data = pca.transform(self.zscore_matrix)
+                self.transformed_data = self.full_projection
 
     def make_overview_dataframe(self, matrix_df, event_count):
         column_counts = pd.DataFrame(matrix_df.columns.value_counts()).reset_index()
@@ -411,21 +414,19 @@ class PCAResult:
             self.cumulative_variance = None
 
     def condition_pca(self, condition_dict):
-        coefficients = self.coefficients
-        recording_list = self.matrix_df.columns.to_list()
-        zscore_matrix = pd.DataFrame(data=self.zscore_matrix, columns=recording_list)
-        coefficients_df = pd.DataFrame(data=coefficients, index=recording_list)
+        # W = coefficients [n_PCs, n_units]
+        # correct per-condition projection: subset_data @ W[:, unit_idx].T
+        # = [timebins, n_i] @ [n_i, n_PCs] = [timebins, n_PCs]
+        W = self.coefficients
+        recording_list = np.array(self.matrix_df.columns.to_list())
+        zscore_df = pd.DataFrame(data=self.zscore_matrix, columns=recording_list)
         transformed_data = {}
-        # transformed data dict: conditions for keys, values is a transformed data array
         for condition, rois in condition_dict.items():
-            rois = [recording for recording in rois if recording in self.recordings]
-            # trim weight matrix for only those neurons in recordings of that condition
-            subset_coeff = coefficients_df[coefficients_df.index.isin(rois)]
-            subset_data = zscore_matrix[rois]
-            condition_data = np.dot(subset_data, subset_coeff)
-            # transform each condition with condition specific weight matrix
-            # T (timebins x pcs) = D (timebins x neurons). W (pcs x neurons)
-            transformed_data[condition] = condition_data
+            rois = [r for r in rois if r in self.recordings]
+            unit_idx = np.where(np.isin(recording_list, rois))[0]
+            subset_data = zscore_df.iloc[:, unit_idx].values   # [timebins, n_i]
+            subset_coeff = W[:, unit_idx].T                    # [n_i, n_PCs]
+            transformed_data[condition] = np.dot(subset_data, subset_coeff)
         self.transformed_data = transformed_data
         self.condition_dict = condition_dict
 
@@ -1362,26 +1363,6 @@ def _permutation_pval(matrix1, matrix2, observed_rho, n_perm, metric):
     return np.mean(null_rhos >= observed_rho)
 
 
-def _within_event_permutation_pval(trial_pairs, observed_mean_rho, n_perm, metric):
-    """Permutation p-value for within-subject/within-event mode.
-
-    For each permutation: shuffles timepoint rows of trial1 in every pair,
-    recomputes rho per pair, averages across pairs -> one null mean rho.
-    p = proportion of null mean rhos >= observed_mean_rho (one-tailed).
-
-    rdm2 is precomputed per pair to avoid redundant computation.
-    """
-    precomputed = [(t1, pdist(t2, metric=metric)) for t1, t2 in trial_pairs]
-    null_mean_rhos = np.empty(n_perm)
-    for i in range(n_perm):
-        pair_rhos = []
-        for t1, rdm2 in precomputed:
-            perm_rdm1 = pdist(t1[np.random.permutation(t1.shape[0])], metric=metric)
-            rho, _ = spearmanr(perm_rdm1, rdm2)
-            pair_rhos.append(rho)
-        null_mean_rhos[i] = np.mean(pair_rhos)
-    return np.mean(null_mean_rhos >= observed_mean_rho)
-
 
 def rsa(
     spike_collection,
@@ -1389,170 +1370,99 @@ def rsa(
     event_length,
     pre_window=0,
     post_window=0,
-    across_subjects=False,
-    across_events=False,
+    dim="neuron",
     metric="euclidean",
     min_neurons=3,
-    n_perm=0,
-    correction=None,
     plot=True,
 ):
     """Representational Similarity Analysis on population firing rate matrices.
 
+    For each subject builds a matrix of shape (n_events, X) and computes its RDM
+    (pairwise distances between event rows). Returns one row per subject with a
+    named column per event pair and the full RDM vector. Requires at least 3 events.
+
     Args:
         spike_collection: SpikeCollection, fully analyzed
-        events: list of str, event types to include
+        events: list of str, at least 3 event types
         event_length: float, seconds
         pre_window: float, seconds before event onset
         post_window: float, seconds after event offset
-        across_subjects: bool — compare same event type between every pair of subjects
-        across_events: bool — compare different event types within each subject
+        dim: str, default 'neuron' — determines the feature dimension X:
+            'neuron'  — X = n_neurons; each row is mean firing rate per neuron,
+                        averaged across trials then across timebins
+            'timebin' — X = n_timebins; each row is mean activity per timebin,
+                        averaged across trials then across neurons
+            'both'    — X = n_neurons * n_timebins; each row is the trial-averaged
+                        (T, N) matrix flattened neuron-first:
+                        [n1t1, n1t2, ..., n1tT, n2t1, n2t2, ..., n2tT, ...]
         metric: str, distance metric for pdist (default "euclidean")
         min_neurons: int, default 3 — minimum neurons required per recording
-        n_perm: int, default 0 — number of permutations for p-value estimation.
-            If 0, no p-values are computed. Permutation shuffles timepoint rows of
-            one matrix to break temporal structure, building a null distribution of
-            Spearman r under no relationship.
-        correction: str or None — multiple comparison correction applied across all
-            p-values in the result. Options: "fdr_bh" (Benjamini-Hochberg FDR),
-            "holm" (Holm-Bonferroni FWER). Only applied when n_perm > 0.
+        plot: bool, default True — violin + jitter per event pair
 
     Returns:
-        pd.DataFrame, one row per comparison
+        pd.DataFrame — one row per subject, columns:
+            subject, dist_{e1}_{e2} for every event pair, full_rdm_vector
     """
-    if across_subjects and across_events:
-        raise ValueError("Set either across_subjects or across_events, not both.")
-    if correction is not None and correction not in ("fdr_bh", "holm"):
-        raise ValueError("correction must be None, 'fdr_bh', or 'holm'")
+    if len(events) < 3:
+        raise ValueError("rsa requires at least 3 events")
+    if dim not in ("neuron", "timebin", "both"):
+        raise ValueError("dim must be 'neuron', 'timebin', or 'both'")
+
+    event_pairs = list(combinations(events, 2))
+    pair_cols = [f"dist_{e1}_{e2}" for e1, e2 in event_pairs]
 
     results = []
-
-    # within subject, within event: RSA between every pair of trials, averaged per recording+event
-    if not across_subjects and not across_events:
-        for recording in spike_collection.recordings:
-            if recording.analyzed_neurons < min_neurons:
-                print(f"Skipping {recording.name}: {recording.analyzed_neurons} neurons < min_neurons={min_neurons}")
-                continue
-            for event in events:
-                trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
-                if len(trials) < 2:
-                    continue
-                trial_pairs = list(combinations(trials, 2))
-                trial_rsa_scores = [_rsa_core(t1, t2, metric)[0] for t1, t2 in trial_pairs]
-                mean_rsa = np.mean(trial_rsa_scores)
-                row = {
-                    "comparison": "within_subject_within_event",
-                    "recording": recording.name,
-                    "subject": getattr(recording, "subject", None),
-                    "event": event,
-                    "rsa": mean_rsa,
-                    "n_pairs": len(trial_pairs),
-                }
-                if n_perm > 0:
-                    row["pval"] = _within_event_permutation_pval(trial_pairs, mean_rsa, n_perm, metric)
-                results.append(row)
-
-    if across_subjects:
+    for recording in spike_collection.recordings:
+        if recording.analyzed_neurons < min_neurons:
+            print(f"Skipping {recording.name}: {recording.analyzed_neurons} neurons < min_neurons={min_neurons}")
+            continue
+        event_rows = []
+        skip = False
         for event in events:
-            subject_matrices = {}
-            for recording in spike_collection.recordings:
-                if recording.analyzed_neurons < min_neurons:
-                    print(f"Skipping {recording.name}: {recording.analyzed_neurons} neurons < min_neurons={min_neurons}")
-                    continue
-                trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
-                if len(trials) == 0:
-                    continue
-                subject_matrices[recording.subject] = np.mean(trials, axis=0)
-
-            for (subj1, mat1), (subj2, mat2) in combinations(subject_matrices.items(), 2):
-                rsa_score, _ = _rsa_core(mat1, mat2, metric)
-                row = {
-                    "comparison": "across_subjects",
-                    "event": event,
-                    "subject_1": subj1,
-                    "subject_2": subj2,
-                    "rsa": rsa_score,
-                }
-                if n_perm > 0:
-                    row["pval"] = _permutation_pval(mat1, mat2, rsa_score, n_perm, metric)
-                results.append(row)
-
-    if across_events:
-        for recording in spike_collection.recordings:
-            if recording.analyzed_neurons < min_neurons:
-                print(f"Skipping {recording.name}: {recording.analyzed_neurons} neurons < min_neurons={min_neurons}")
-                continue
-            event_matrices = {}
-            for event in events:
-                trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
-                if len(trials) == 0:
-                    continue
-                event_matrices[event] = np.mean(trials, axis=0)
-
-            for (event1, mat1), (event2, mat2) in combinations(event_matrices.items(), 2):
-                rsa_score, _ = _rsa_core(mat1, mat2, metric)
-                row = {
-                    "comparison": "across_events",
-                    "recording": recording.name,
-                    "subject": getattr(recording, "subject", None),
-                    "event_1": event1,
-                    "event_2": event2,
-                    "rsa": rsa_score,
-                }
-                if n_perm > 0:
-                    row["pval"] = _permutation_pval(mat1, mat2, rsa_score, n_perm, metric)
-                results.append(row)
+            trials = recording.event_firing_rates(event, event_length, pre_window, post_window)
+            if len(trials) == 0:
+                skip = True
+                break
+            avg_trials = np.mean(trials, axis=0)  # (T, N) — mean over trials
+            if dim == "neuron":
+                row = np.mean(avg_trials, axis=0)   # (N,) — mean over timebins
+            elif dim == "timebin":
+                row = np.mean(avg_trials, axis=1)   # (T,) — mean over neurons
+            else:  # both
+                row = avg_trials.T.flatten()        # (N*T,) — neuron-first flatten
+            event_rows.append(row)
+        if skip:
+            continue
+        mat = np.stack(event_rows, axis=0)   # (n_events, X)
+        rdm = pdist(mat, metric=metric)      # (n_pairs,)
+        subject = getattr(recording, "subject", recording.name)
+        row_data = {"subject": subject}
+        for col, dist in zip(pair_cols, rdm):
+            row_data[col] = dist
+        row_data["full_rdm_vector"] = rdm
+        results.append(row_data)
 
     df = pd.DataFrame(results)
 
-    if n_perm > 0 and correction is not None and "pval" in df.columns:
-        reject, pvals_corrected, _, _ = multipletests(df["pval"], method=correction)
-        df["pval_corrected"] = pvals_corrected
-        df["significant"] = reject
-
     if plot and not df.empty:
-        if not across_subjects and not across_events:
-            event_rsa = df.groupby("event")["rsa"].apply(list)
-            labels = list(event_rsa.index)
-            means = [np.mean(event_rsa[e]) for e in labels]
-            errors = [sem(event_rsa[e]) for e in labels]
-            x = np.arange(len(labels))
-            plt.figure(figsize=(max(4, len(labels) * 1.5), 4))
-            plt.bar(x, means, yerr=errors, capsize=5, width=0.5)
-            plt.xticks(x, labels)
-            plt.ylabel("RSA (Spearman r)")
-            plt.title("Within-subject trial-to-trial RSA per event")
-            plt.tight_layout()
-            plt.show()
-
-        elif across_subjects:
-            event_rsa = df.groupby("event")["rsa"].apply(list)
-            labels = list(event_rsa.index)
-            means = [np.mean(event_rsa[e]) for e in labels]
-            errors = [sem(event_rsa[e]) for e in labels]
-            x = np.arange(len(labels))
-            plt.figure(figsize=(max(4, len(labels) * 1.5), 4))
-            plt.bar(x, means, yerr=errors, capsize=5, width=0.5)
-            plt.xticks(x, labels)
-            plt.ylabel("RSA (Spearman r)")
-            plt.title("RSA across subjects — average subject pair per event")
-            plt.tight_layout()
-            plt.show()
-
-        elif across_events:
-            df["pair_label"] = df["event_1"] + " vs " + df["event_2"]
-            pair_rsa = df.groupby("pair_label")["rsa"].apply(list)
-            labels = list(pair_rsa.index)
-            means = [np.mean(pair_rsa[p]) for p in labels]
-            errors = [sem(pair_rsa[p]) for p in labels]
-            x = np.arange(len(labels))
-            plt.figure(figsize=(max(4, len(labels) * 1.5), 4))
-            plt.bar(x, means, yerr=errors, capsize=5, width=0.5)
-            plt.xticks(x, labels, rotation=15, ha="right")
-            plt.ylabel("RSA (Spearman r)")
-            plt.title("RSA across events — average across subjects per event pair")
-            plt.tight_layout()
-            plt.show()
+        rdm_vectors = df["full_rdm_vector"].tolist()
+        rsa_scores = [
+            spearmanr(rdm1, rdm2)[0]
+            for rdm1, rdm2 in combinations(rdm_vectors, 2)
+        ]
+        rsa_scores = np.array(rsa_scores)
+        fig, ax = plt.subplots(figsize=(3, 4))
+        parts = ax.violinplot(rsa_scores, positions=[0], showmedians=True, showextrema=False)
+        for pc in parts["bodies"]:
+            pc.set_alpha(0.4)
+        jitter = np.random.uniform(-0.05, 0.05, size=len(rsa_scores))
+        ax.scatter(jitter, rsa_scores, color="black", s=20, zorder=3)
+        ax.set_xticks([0])
+        ax.set_xticklabels([f"dim='{dim}'"])
+        ax.set_ylabel("RSA (Spearman r)")
+        ax.set_title("Event-geometry RSA across subject pairs")
+        plt.tight_layout()
+        plt.show()
 
     return df
 
@@ -1769,6 +1679,274 @@ class dPCAResult:
         )
 
 
+def pseudopopulation_pca(
+    spike_collection,
+    event_length,
+    pre_window,
+    post_window=0,
+    events=None,
+    mode="average",
+    min_neurons=0,
+    d=2,
+    alpha=0.8,
+    linewidth=1.5,
+):
+    """Fit a pseudopopulation PCA and plot individual subject trajectories in the shared space.
+
+    The pseudopopulation matrix concatenates neurons across all subjects. PCA is fit once
+    on this joint matrix. Each subject's data is then projected using only their own neuron
+    columns from the global weight matrix (same approach as condition_pca).
+
+    Subjects are plotted in distinct colors (tab10). Events are shown as gradient shades of
+    the subject's base color — lightest shade for the first event, full saturation for the last.
+    In trial mode, individual trials are overlaid at decreasing alpha within each event shade.
+
+    Args:
+        spike_collection: SpikeCollection or list of SpikeRecording
+        event_length: float, seconds
+        pre_window: float, seconds before event onset
+        post_window: float, seconds after event offset
+        events: list of str or None — event types; if None uses all events in first recording
+        mode: "average" — fit on trial-averaged FRs, project average trajectories per subject;
+              "trial"   — fit on concatenated single trials (balanced to min trial count),
+                          project and plot every trial per subject
+        min_neurons: int, minimum analyzed_neurons for a recording to be included
+        d: int, 2 or 3 — number of PCs to plot
+        alpha: float, trajectory opacity (max opacity; trial mode fades lighter trials lower)
+        linewidth: float, trajectory line width
+
+    Returns:
+        PCAResult with per-subject projected trajectories in transformed_data dict
+    """
+    if isinstance(spike_collection, col.SpikeCollection):
+        recordings = spike_collection.recordings
+    elif isinstance(spike_collection, list):
+        recordings = spike_collection
+    else:
+        recordings = [spike_collection]
+
+    resolved_events = events if events is not None else list(recordings[0].event_dict.keys())
+
+    valid_recordings = [
+        r for r in recordings
+        if check_recording(r, min_neurons, resolved_events, to_print=True)
+    ]
+    if not valid_recordings:
+        print("No valid recordings found.")
+        return None
+
+    condition_dict = {rec.name: [rec.name] for rec in valid_recordings}
+
+    if mode == "average":
+        pc_result = avg_trajectory_matrix(
+            spike_collection, event_length, pre_window, post_window,
+            resolved_events, min_neurons, condition_dict=condition_dict,
+        )
+    elif mode == "trial":
+        min_events_map = event_numbers(spike_collection, resolved_events, min_neurons)
+        pc_result = pca_matrix(
+            spike_collection, event_length, pre_window, post_window,
+            resolved_events, mode="trial", min_neurons=min_neurons,
+            min_events=min_events_map, condition_dict=condition_dict,
+        )
+    else:
+        raise ValueError(f"mode must be 'average' or 'trial', got '{mode}'")
+
+    if pc_result is None or pc_result.transformed_data is None:
+        print("PCA failed — check that you have more timebins than neurons.")
+        return pc_result
+
+    _pseudopop_plot(pc_result, mode=mode, d=d, alpha=alpha, linewidth=linewidth)
+    return pc_result
+
+
+def _compute_global_avg(pc_result, unique_events, timebins_per_event, mode):
+    """Extract per-event global average trajectories from the full pseudopopulation projection.
+
+    Uses pc_result.full_projection (pca.transform on all neurons together), which is
+    identical to what avg_trajectories_pca plots. For trial mode, averages across trials
+    within the full projection.
+
+    Returns:
+        dict mapping event name → np.ndarray of shape [timebins_per_event, n_PCs]
+    """
+    full = pc_result.full_projection
+    labels_arr = np.array(pc_result.labels)
+    global_avg = {}
+    for evt_idx, evt in enumerate(unique_events):
+        if mode == "average":
+            seg_start = evt_idx * timebins_per_event
+            global_avg[evt] = full[seg_start : seg_start + timebins_per_event]
+        else:  # trial
+            prior = int(sum((labels_arr == e).sum() for e in unique_events[:evt_idx]))
+            n_trials = (labels_arr == evt).sum() // timebins_per_event
+            trial_segs = [
+                full[prior + t * timebins_per_event : prior + (t + 1) * timebins_per_event]
+                for t in range(n_trials)
+            ]
+            global_avg[evt] = np.mean(trial_segs, axis=0)
+    return global_avg
+
+
+def _pseudopop_plot(pc_result, mode, d, alpha, linewidth):
+    """One subplot per subject. Global average across subjects drawn in grey on every panel.
+    Events → distinct tab10 colors shared across all panels.
+    Trial mode → individual trials overlaid at low alpha, per-subject average at full alpha.
+    """
+    conv_factor = 1000 / pc_result.timebin
+    timebins_per_event = int(
+        (pc_result.event_length + pc_result.pre_window + pc_result.post_window) * conv_factor
+    )
+    event_end_bin = int((pc_result.event_length + pc_result.pre_window) * conv_factor)
+    pre_bins = int(pc_result.pre_window * conv_factor)
+    post_bins = int(pc_result.post_window * conv_factor)
+
+    unique_events = list(dict.fromkeys(pc_result.labels))
+    subjects = list(pc_result.transformed_data.keys())
+    n_subjects = len(subjects)
+    n_events = len(unique_events)
+
+    tab10_colors = plt.cm.tab10(np.linspace(0, 0.9, max(n_events, 1)))
+    evt_color = {evt: tab10_colors[i] for i, evt in enumerate(unique_events)}
+
+    # Global average gets a distinct dark neutral per event: black → dark grey
+    dark_neutrals = np.linspace(0.0, 0.55, max(n_events, 1))
+    evt_avg_color = {evt: str(dark_neutrals[i]) for i, evt in enumerate(unique_events)}
+
+    global_avg = _compute_global_avg(pc_result, unique_events, timebins_per_event, mode)
+
+    ncols = min(3, n_subjects)
+    nrows = (n_subjects + ncols - 1) // ncols
+
+    if d == 3:
+        fig = plt.figure(figsize=(5 * ncols, 4 * nrows))
+        all_axes = [
+            fig.add_subplot(nrows, ncols, i + 1, projection="3d")
+            for i in range(n_subjects)
+        ]
+    else:
+        fig, axes_grid = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False)
+        all_axes = [axes_grid[r][c] for r in range(nrows) for c in range(ncols)]
+        for ax in all_axes[n_subjects:]:
+            ax.set_visible(False)
+
+    labels_arr = np.array(pc_result.labels)
+
+    for subj_idx, subj_name in enumerate(subjects):
+        ax = all_axes[subj_idx]
+        traj = pc_result.transformed_data[subj_name]
+
+        # Global average per event: distinct dark neutrals (black → dark grey), dashed
+        for evt in unique_events:
+            avg_seg = global_avg[evt]
+            avg_color = evt_avg_color[evt]
+            if d == 2:
+                ax.plot(avg_seg[:, 0], avg_seg[:, 1],
+                        color=avg_color, alpha=0.85, linewidth=linewidth * 1.5, linestyle="--", zorder=1)
+            else:
+                ax.plot(avg_seg[:, 0], avg_seg[:, 1], avg_seg[:, 2],
+                        color=avg_color, alpha=0.85, linewidth=linewidth * 1.5, linestyle="--", zorder=1)
+
+        # Subject trajectories per event
+        for evt_idx, evt in enumerate(unique_events):
+            color = evt_color[evt]
+
+            if mode == "average":
+                seg_start = evt_idx * timebins_per_event
+                segment = traj[seg_start : seg_start + timebins_per_event]
+                _plot_segment(ax, segment, color, alpha, linewidth, d,
+                              pre_bins, event_end_bin, post_bins, markers=True)
+
+            else:  # trial
+                prior = int(sum((labels_arr == e).sum() for e in unique_events[:evt_idx]))
+                n_trials = (labels_arr == evt).sum() // timebins_per_event
+                trial_segs = []
+                for trial_i in range(n_trials):
+                    t_start = prior + trial_i * timebins_per_event
+                    segment = traj[t_start : t_start + timebins_per_event]
+                    trial_segs.append(segment)
+                    _plot_segment(ax, segment, color, 0.2, linewidth * 0.5, d,
+                                  pre_bins, event_end_bin, post_bins, markers=False)
+                # Per-subject average for this event on top
+                if trial_segs:
+                    avg_seg = np.mean(trial_segs, axis=0)
+                    _plot_segment(ax, avg_seg, color, alpha, linewidth, d,
+                                  pre_bins, event_end_bin, post_bins, markers=True)
+
+        ax.set_title(subj_name, fontsize=9)
+        ax.set_xlabel("PC1", fontsize=8)
+        ax.set_ylabel("PC2", fontsize=8)
+        if d == 3:
+            ax.set_zlabel("PC3", fontsize=8)
+
+    # Shared legend on the figure
+    legend_handles = [
+        plt.Line2D([0], [0], color=evt_color[evt], linewidth=2, label=evt)
+        for evt in unique_events
+    ]
+    for evt in unique_events:
+        legend_handles.append(
+            plt.Line2D([0], [0], color=evt_avg_color[evt], linewidth=2, linestyle="--",
+                       alpha=0.85, label=f"{evt} (global avg)")
+        )
+
+    marker_text = ""
+    if pre_bins > 0:
+        marker_text += "Pre = □, "
+    marker_text += "Onset = △, End = ○"
+    if post_bins > 0:
+        marker_text += ", Post = ◇"
+
+    fig.legend(handles=legend_handles, loc="upper right", fontsize=8, framealpha=0.9)
+    fig.suptitle(f"Pseudopopulation PCA ({mode}) — {marker_text}", fontsize=10, y=1.01)
+    plt.tight_layout()
+    plt.show()
+
+
+def _plot_segment(ax, segment, color, alpha, linewidth, d, pre_bins, event_end_bin, post_bins, markers):
+    """Draw a single trajectory segment and optional event markers onto ax."""
+    if len(segment) == 0:
+        return
+    marker_kw = dict(s=60, zorder=5, edgecolors=color, facecolors="none", linewidths=1.2)
+    if d == 2:
+        ax.plot(segment[:, 0], segment[:, 1], color=color, alpha=alpha, linewidth=linewidth)
+        if markers:
+            onset = pre_bins if pre_bins > 0 else 0
+            if pre_bins > 0:
+                ax.scatter(segment[0, 0], segment[0, 1], marker="s", **marker_kw)
+            ax.scatter(segment[onset, 0], segment[onset, 1], marker="^", **marker_kw)
+            ax.scatter(
+                segment[event_end_bin - 1, 0], segment[event_end_bin - 1, 1],
+                marker="o", **marker_kw,
+            )
+            if post_bins > 0:
+                ax.scatter(segment[-1, 0], segment[-1, 1], marker="D", **marker_kw)
+    else:
+        ax.plot(
+            segment[:, 0], segment[:, 1], segment[:, 2],
+            color=color, alpha=alpha, linewidth=linewidth,
+        )
+        if markers:
+            onset = pre_bins if pre_bins > 0 else 0
+            if pre_bins > 0:
+                ax.scatter(
+                    segment[0, 0], segment[0, 1], segment[0, 2], marker="s", **marker_kw
+                )
+            ax.scatter(
+                segment[onset, 0], segment[onset, 1], segment[onset, 2], marker="^", **marker_kw
+            )
+            ax.scatter(
+                segment[event_end_bin - 1, 0],
+                segment[event_end_bin - 1, 1],
+                segment[event_end_bin - 1, 2],
+                marker="o", **marker_kw,
+            )
+            if post_bins > 0:
+                ax.scatter(
+                    segment[-1, 0], segment[-1, 1], segment[-1, 2], marker="D", **marker_kw
+                )
+
+
 def run_dpca(
     spike_collection,
     event_length,
@@ -1832,3 +2010,100 @@ def run_dpca(
         result.plot_components()
 
     return result
+
+
+def procrustes_alignment(collection, events, event_length, pre_window, post_window, min_neurons, scaled=False, n_pcs=None, n_perm=0):
+    """Compute Procrustes disparity between all pairs of subjects for each event type.
+
+    PCA is fit independently per subject. For each subject pair and event, one trajectory
+    is aligned to the other using Procrustes analysis and the residual disparity is returned.
+    Because each subject's PCA axes are arbitrary, Procrustes captures differences in
+    manifold geometry rather than coordinate-frame alignment.
+
+    Args:
+        collection: SpikeCollection or list of SpikeRecording
+        events: list of str, event types to include
+        event_length: float, seconds
+        pre_window: float, seconds before event onset
+        post_window: float, seconds after event offset
+        min_neurons: int, minimum analyzed_neurons for a recording to be included
+        scaled: bool, default=False
+            If False, uses orthogonal Procrustes (rotation only, no scaling):
+                R, _ = orthogonal_procrustes(mtx1, mtx2)
+                disparity = ||mtx1 - mtx2 @ R||
+            If True, uses full Procrustes (rotation + isotropic scaling + translation):
+                mtx1, mtx2, disparity = procrustes(mtx1, mtx2)
+        n_pcs: int or None, default=None
+            Number of PCs to use for each trajectory. If None, uses the minimum number
+            of PCs available across the subject pair.
+        n_perm: int, default=0
+            Number of permutations for null distribution. If > 0, shuffles timebin rows
+            of mtx1 before alignment on each permutation. p-value = proportion of null
+            disparities <= observed (low p = observed disparity is unusually low =
+            trajectories are more aligned than chance).
+
+    Returns:
+        pd.DataFrame — index is (subject1, subject2) tuples, columns are event disparity
+            values, and if n_perm > 0, additional pval_{event} columns.
+    """
+    if hasattr(collection, "recordings"):
+        recordings = collection.recordings
+    elif isinstance(collection, list):
+        recordings = collection
+    else:
+        recordings = [collection]
+
+    valid_recordings = [
+        r for r in recordings if check_recording(r, min_neurons, events, to_print=True)
+    ]
+    if len(valid_recordings) < 2:
+        print("Need at least 2 valid recordings for Procrustes alignment.")
+        return pd.DataFrame()
+
+    pc_results = {}
+    for recording in valid_recordings:
+        pc_result = avg_trajectory_matrix(
+            recording, event_length, pre_window, post_window, events, min_neurons
+        )
+        if pc_result is not None and pc_result.transformed_data is not None:
+            pc_results[recording.name] = pc_result
+
+    if len(pc_results) < 2:
+        print("Fewer than 2 recordings had valid PCA results.")
+        return pd.DataFrame()
+
+    def _disparity(m1, m2):
+        if scaled:
+            _, _, d = scipy_procrustes(m1, m2)
+        else:
+            R, _ = orthogonal_procrustes(m1, m2)
+            d = np.linalg.norm(m1 - m2 @ R)
+        return d
+
+    rows = []
+    for subj1, subj2 in combinations(list(pc_results.keys()), 2):
+        traj1 = pc_results[subj1].transformed_data
+        traj2 = pc_results[subj2].transformed_data
+        key = pc_results[subj1].labels
+        k = n_pcs if n_pcs is not None else min(traj1.shape[1], traj2.shape[1])
+
+        event_trajs1 = event_slice(traj1, key, k)
+        event_trajs2 = event_slice(traj2, key, k)
+
+        row = {"subject_pair": (subj1, subj2)}
+        for event in events:
+            mtx1 = event_trajs1[event]
+            mtx2 = event_trajs2[event]
+            observed = _disparity(mtx1, mtx2)
+            row[event] = observed
+
+            if n_perm > 0:
+                null = np.array([
+                    _disparity(mtx1[np.random.permutation(len(mtx1))], mtx2)
+                    for _ in range(n_perm)
+                ])
+                row[f"pval_{event}"] = np.mean(null <= observed)
+
+        rows.append(row)
+
+    return pd.DataFrame(rows).set_index("subject_pair")

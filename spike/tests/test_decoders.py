@@ -137,9 +137,9 @@ class TestTrialPCA(unittest.TestCase):
         self.timebin = 50
         self.no_PCs = 3
         self.collection = make_test_collection(timebin=self.timebin)
-        self.decoder_data = decoders.trial_PCA(
+        self.decoder_data, _ = decoders.trial_PCA(
             self.collection, self.event_length, self.pre_window,
-            self.post_window, self.no_PCs, self.events,
+            self.post_window, events=self.events, no_PCs=self.no_PCs,
         )
 
     def test_decoder_data_has_correct_event_keys(self):
@@ -153,9 +153,9 @@ class TestTrialPCA(unittest.TestCase):
                 self.assertEqual(trial.shape, (T, self.no_PCs))
 
     def test_recording_labels_returned_when_requested(self):
-        decoder_data, recording_labels = decoders.trial_PCA(
+        decoder_data, recording_labels, _ = decoders.trial_PCA(
             self.collection, self.event_length, self.pre_window,
-            self.post_window, self.no_PCs, self.events,
+            self.post_window, events=self.events, no_PCs=self.no_PCs,
             return_recording_labels=True,
         )
         self.assertEqual(set(recording_labels.keys()), set(self.events))
@@ -592,36 +592,44 @@ class TestCrossGenDecoder(unittest.TestCase):
         self.T, self.n_PCs = 6, 3
         self.num_fold = 3
         self.events = ["A", "B", "C"]
-        self.decoder_data = {
+        flat_data = {
             "A": [np.ones((self.T, self.n_PCs)) for _ in range(9)],
             "B": [np.full((self.T, self.n_PCs), 2.0) for _ in range(12)],
             "C": [np.full((self.T, self.n_PCs), 3.0) for _ in range(15)],
         }
+        # _cross_gen_decoder expects {train_key: decoder_data} for each pair
+        self.decoder_data_by_pair = {
+            "A_B": flat_data, "A_C": flat_data, "B_C": flat_data,
+        }
 
     def test_returns_three_training_pair_keys(self):
-        raw = decoders._cross_gen_decoder(self.decoder_data, self.events, self.num_fold, "RF")
+        raw = decoders._cross_gen_decoder(self.decoder_data_by_pair, self.events, self.num_fold, "RF")
         self.assertEqual(set(raw.keys()), {"A_B", "A_C", "B_C"})
 
-    def test_each_training_pair_has_two_test_keys(self):
-        raw = decoders._cross_gen_decoder(self.decoder_data, self.events, self.num_fold, "RF")
+    def test_each_training_pair_has_two_generalization_test_keys(self):
+        """Each train key should have exactly 2 generalization test keys (containing the held-out event)."""
+        raw = decoders._cross_gen_decoder(self.decoder_data_by_pair, self.events, self.num_fold, "RF")
         for train_key, test_pairs in raw.items():
-            self.assertEqual(len(test_pairs), 2, f"{train_key} should have 2 test keys")
+            train_events = set(train_key.split("_"))
+            held_out = (set(self.events) - train_events).pop()
+            gen_keys = [k for k in test_pairs if held_out in k.split("_")]
+            self.assertEqual(len(gen_keys), 2, f"{train_key} should have 2 gen test keys, got {list(test_pairs.keys())}")
 
     def test_timebin_list_length_equals_T(self):
-        raw = decoders._cross_gen_decoder(self.decoder_data, self.events, self.num_fold, "RF")
+        raw = decoders._cross_gen_decoder(self.decoder_data_by_pair, self.events, self.num_fold, "RF")
         for train_key, test_pairs in raw.items():
             for test_key, timebin_list in test_pairs.items():
                 self.assertEqual(len(timebin_list), self.T, f"{train_key}→{test_key}")
 
     def test_roc_auc_array_length_equals_num_fold(self):
-        raw = decoders._cross_gen_decoder(self.decoder_data, self.events, self.num_fold, "RF")
+        raw = decoders._cross_gen_decoder(self.decoder_data_by_pair, self.events, self.num_fold, "RF")
         for train_key, test_pairs in raw.items():
             for test_key, timebin_list in test_pairs.items():
                 for t_dict in timebin_list:
                     self.assertEqual(len(t_dict["test_roc_auc"]), self.num_fold)
 
     def test_all_roc_auc_values_between_0_and_1(self):
-        raw = decoders._cross_gen_decoder(self.decoder_data, self.events, self.num_fold, "RF")
+        raw = decoders._cross_gen_decoder(self.decoder_data_by_pair, self.events, self.num_fold, "RF")
         for train_key, test_pairs in raw.items():
             for test_key, timebin_list in test_pairs.items():
                 for t_dict in timebin_list:
@@ -631,13 +639,13 @@ class TestCrossGenDecoder(unittest.TestCase):
                             self.assertLessEqual(val, 1.0)
 
     def test_test_keys_contain_held_out_event(self):
-        """For each training pair, both test keys must include the held-out (third) event."""
-        raw = decoders._cross_gen_decoder(self.decoder_data, self.events, self.num_fold, "RF")
+        """Generalization test keys must include the held-out (third) event."""
+        raw = decoders._cross_gen_decoder(self.decoder_data_by_pair, self.events, self.num_fold, "RF")
         for train_key in raw:
             train_events = set(train_key.split("_"))
             held_out = (set(self.events) - train_events).pop()
-            for test_key in raw[train_key]:
-                self.assertIn(held_out, test_key.split("_"), f"{test_key} missing held-out {held_out}")
+            gen_keys = [k for k in raw[train_key] if held_out in k.split("_")]
+            self.assertGreater(len(gen_keys), 0, f"No gen keys containing {held_out} in {train_key}")
 
 
 class TestCrossGenResults(unittest.TestCase):
@@ -647,20 +655,27 @@ class TestCrossGenResults(unittest.TestCase):
         self.T, self.n_PCs = 6, 3
         self.num_fold = 3
         self.events = ["A", "B", "C"]
-        decoder_data = {
+        flat_data = {
             "A": [np.ones((self.T, self.n_PCs)) for _ in range(9)],
             "B": [np.full((self.T, self.n_PCs), 2.0) for _ in range(12)],
             "C": [np.full((self.T, self.n_PCs), 3.0) for _ in range(15)],
         }
-        raw = decoders._cross_gen_decoder(decoder_data, self.events, self.num_fold, "RF")
+        decoder_data_by_pair = {
+            "A_B": flat_data, "A_C": flat_data, "B_C": flat_data,
+        }
+        raw = decoders._cross_gen_decoder(decoder_data_by_pair, self.events, self.num_fold, "RF")
         self.result = decoders.cross_gen_results(raw, self.num_fold, 1.0, 0, 0)
 
     def test_roc_auc_scores_has_three_train_keys(self):
         self.assertEqual(set(self.result.roc_auc_scores.keys()), {"A_B", "A_C", "B_C"})
 
-    def test_each_train_key_has_two_test_keys(self):
+    def test_each_train_key_has_two_generalization_test_keys(self):
+        """Each train key should have 2 generalization test keys (containing held-out event)."""
         for train_key, test_pairs in self.result.roc_auc_scores.items():
-            self.assertEqual(len(test_pairs), 2)
+            train_events = set(train_key.split("_"))
+            held_out = (set(self.events) - train_events).pop()
+            gen_keys = [k for k in test_pairs if held_out in k.split("_")]
+            self.assertEqual(len(gen_keys), 2, f"{train_key}: {list(test_pairs.keys())}")
 
     def test_nested_model_result_roc_auc_shape(self):
         """Each nested_model_result should have roc_auc shape (T, num_fold)."""
@@ -784,6 +799,396 @@ class TestScoreTest(unittest.TestCase):
         y_one_class = np.zeros(10)
         auc = decoders.__score_test__(self.clf_rf, self.X_test, y_one_class, "RF")
         self.assertTrue(np.isnan(auc))
+
+
+# ---------------------------------------------------------------------------
+# LOO cross-gen tests
+# ---------------------------------------------------------------------------
+
+class TestCrossGenDecoderLOOHoldout(unittest.TestCase):
+    """Verify the actual LOO invariant: held-out recording absent from X_train,
+    and each X_test contains data from exactly one recording.
+
+    Each recording gets a unique constant fill value (10, 20, 30) across all events,
+    so we can identify which recording any row came from by its value.
+    input='full_trial' is used so there is exactly one __fit_clf_single__ call per fold
+    per training pair (rather than T calls), making fold order predictable.
+    """
+
+    def setUp(self):
+        self.T, self.n_PCs = 2, 2
+        self.events = ["A", "B", "C"]
+        self.recs = ["rec_0", "rec_1", "rec_2"]
+        self.rec_values = [10.0, 20.0, 30.0]
+        n_per_rec = 3
+
+        flat_data = {ev: [] for ev in self.events}
+        rec_labels = {ev: [] for ev in self.events}
+        for ev in self.events:
+            for rec, val in zip(self.recs, self.rec_values):
+                for _ in range(n_per_rec):
+                    flat_data[ev].append(np.full((self.T, self.n_PCs), val))
+                    rec_labels[ev].append(rec)
+
+        self.decoder_data_by_pair = {"A_B": flat_data, "A_C": flat_data, "B_C": flat_data}
+        self.recording_labels_by_pair = {"A_B": rec_labels, "A_C": rec_labels, "B_C": rec_labels}
+
+    def _run_capturing_fit(self):
+        """Run LOO decoder and capture every X_train passed to __fit_clf_single__."""
+        captured = []
+        original = decoders.__fit_clf_single__
+
+        def capturing_fit(X_train, y_train, classifier_type, **kwargs):
+            captured.append(X_train.copy())
+            return original(X_train, y_train, classifier_type, **kwargs)
+
+        with patch("spike.spike_analysis.decoders.__fit_clf_single__", side_effect=capturing_fit):
+            decoders._cross_gen_decoder(
+                self.decoder_data_by_pair, self.events, num_fold=5,
+                classifier_type="linear", input="full_trial",
+                recording_labels_by_pair=self.recording_labels_by_pair,
+            )
+        return captured
+
+    def _run_capturing_score(self):
+        """Run LOO decoder and capture every X_test passed to __score_test__."""
+        captured = []
+        original = decoders.__score_test__
+
+        def capturing_score(clf, X_test, y_test, classifier_type):
+            captured.append(X_test.copy())
+            return original(clf, X_test, y_test, classifier_type)
+
+        with patch("spike.spike_analysis.decoders.__score_test__", side_effect=capturing_score):
+            decoders._cross_gen_decoder(
+                self.decoder_data_by_pair, self.events, num_fold=5,
+                classifier_type="linear", input="full_trial",
+                recording_labels_by_pair=self.recording_labels_by_pair,
+            )
+        return captured
+
+    def test_held_out_recording_absent_from_X_train(self):
+        """For each LOO fold, the held-out recording's value must not appear in X_train.
+        In full_trial mode: 3 pairs × 3 folds × 2 fits (clf + clf_shuf) = 18 captures.
+        Folds iterate in rec order within each pair, with 2 consecutive captures per fold.
+        """
+        captured = self._run_capturing_fit()
+
+        n_pairs = 3  # combinations of 3 events
+        n_folds = len(self.recs)
+        for pair_idx in range(n_pairs):
+            for fold_idx, (rec, val) in enumerate(zip(self.recs, self.rec_values)):
+                base = pair_idx * n_folds * 2 + fold_idx * 2
+                X_train = captured[base]
+                self.assertFalse(
+                    np.any(X_train == val),
+                    f"pair {pair_idx}, held-out {rec}: value {val} found in X_train"
+                )
+                # sanity check: other recordings ARE present
+                for other_val in self.rec_values:
+                    if other_val != val:
+                        self.assertTrue(
+                            np.any(X_train == other_val),
+                            f"pair {pair_idx}, held-out {rec}: expected value {other_val} absent from X_train"
+                        )
+
+    def test_X_test_contains_only_held_out_recording(self):
+        """Each X_test passed to __score_test__ should contain values from exactly
+        one recording (the held-out one). Verified by checking that each X_test's
+        unique values all belong to a single recording's fill value.
+        """
+        captured = self._run_capturing_score()
+        rec_value_set = set(self.rec_values)
+
+        for i, X_test in enumerate(captured):
+            unique_vals = set(np.unique(X_test))
+            vals_from_recs = unique_vals & rec_value_set
+            self.assertEqual(
+                len(vals_from_recs), 1,
+                f"X_test #{i} contains values from {len(vals_from_recs)} recordings: {vals_from_recs}"
+            )
+
+
+class TestCrossGenDecoderLOO(unittest.TestCase):
+    """Tests for _cross_gen_decoder when recording_labels_by_pair is provided (LOO path).
+
+    Setup: 3 recordings × 3 trials each × 3 events = 9 trials per event.
+    LOO folds = 3 (one per recording). num_fold=5 is passed but should be ignored.
+    """
+
+    def setUp(self):
+        self.T, self.n_PCs = 6, 3
+        self.events = ["A", "B", "C"]
+        self.recs = ["rec_0", "rec_1", "rec_2"]
+        self.N = len(self.recs)
+        n_total = self.N * 3  # 9 trials per event
+        rec_labels = {ev: [r for r in self.recs for _ in range(3)] for ev in self.events}
+        flat_data = {
+            "A": [np.ones((self.T, self.n_PCs)) for _ in range(n_total)],
+            "B": [np.full((self.T, self.n_PCs), 2.0) for _ in range(n_total)],
+            "C": [np.full((self.T, self.n_PCs), 3.0) for _ in range(n_total)],
+        }
+        self.decoder_data_by_pair = {"A_B": flat_data, "A_C": flat_data, "B_C": flat_data}
+        self.recording_labels_by_pair = {"A_B": rec_labels, "A_C": rec_labels, "B_C": rec_labels}
+
+    def _run(self, input="timebin"):
+        return decoders._cross_gen_decoder(
+            self.decoder_data_by_pair, self.events, num_fold=5,
+            classifier_type="RF", input=input,
+            recording_labels_by_pair=self.recording_labels_by_pair,
+        )
+
+    def test_roc_auc_length_equals_N_not_num_fold(self):
+        """LOO folds = N recordings (3), not num_fold (5)."""
+        raw = self._run()
+        for train_key, test_pairs in raw.items():
+            for test_key, timebin_list in test_pairs.items():
+                if test_key == "_models":
+                    continue
+                for t_dict in timebin_list:
+                    self.assertEqual(len(t_dict["test_roc_auc"]), self.N,
+                                     f"{train_key}→{test_key}: expected {self.N} LOO folds")
+
+    def test_timebin_list_length_equals_T(self):
+        raw = self._run()
+        for train_key, test_pairs in raw.items():
+            for test_key, timebin_list in test_pairs.items():
+                if test_key == "_models":
+                    continue
+                self.assertEqual(len(timebin_list), self.T, f"{train_key}→{test_key}")
+
+    def test_all_roc_auc_between_0_and_1(self):
+        raw = self._run()
+        for train_key, test_pairs in raw.items():
+            for test_key, timebin_list in test_pairs.items():
+                if test_key == "_models":
+                    continue
+                for t_dict in timebin_list:
+                    for val in t_dict["test_roc_auc"]:
+                        if not np.isnan(val):
+                            self.assertGreaterEqual(val, 0.0)
+                            self.assertLessEqual(val, 1.0)
+
+    def test_full_trial_returns_one_timebin_per_test_pair(self):
+        raw = self._run(input="full_trial")
+        for train_key, test_pairs in raw.items():
+            for test_key, timebin_list in test_pairs.items():
+                if test_key == "_models":
+                    continue
+                self.assertEqual(len(timebin_list), 1, f"{train_key}→{test_key}")
+
+    def test_full_trial_roc_auc_length_equals_N(self):
+        raw = self._run(input="full_trial")
+        for train_key, test_pairs in raw.items():
+            for test_key, timebin_list in test_pairs.items():
+                if test_key == "_models":
+                    continue
+                self.assertEqual(len(timebin_list[0]["test_roc_auc"]), self.N)
+
+    def test_three_train_keys(self):
+        raw = self._run()
+        self.assertEqual(set(k for k in raw.keys()), {"A_B", "A_C", "B_C"})
+
+
+class TestCrossGenResultsLOO(unittest.TestCase):
+    """Verifies cross_gen_results built from LOO output has shape (T, N_recordings)."""
+
+    def setUp(self):
+        self.T, self.n_PCs = 6, 3
+        self.events = ["A", "B", "C"]
+        self.N = 3
+        n_total = self.N * 3
+        rec_labels = {ev: [r for r in ["rec_0", "rec_1", "rec_2"] for _ in range(3)] for ev in self.events}
+        flat_data = {
+            ev: [np.ones((self.T, self.n_PCs)) * i for i in range(n_total)]
+            for ev in self.events
+        }
+        decoder_data_by_pair = {"A_B": flat_data, "A_C": flat_data, "B_C": flat_data}
+        recording_labels_by_pair = {"A_B": rec_labels, "A_C": rec_labels, "B_C": rec_labels}
+        raw = decoders._cross_gen_decoder(
+            decoder_data_by_pair, self.events, num_fold=5,
+            classifier_type="RF",
+            recording_labels_by_pair=recording_labels_by_pair,
+        )
+        self.result = decoders.cross_gen_results(raw, self.N, 1.0, 0, 0)
+
+    def test_num_fold_is_N(self):
+        self.assertEqual(self.result.num_fold, self.N)
+
+    def test_roc_auc_shape_is_T_by_N(self):
+        for train_key, test_pairs in self.result.roc_auc_scores.items():
+            for test_key, nmr in test_pairs.items():
+                self.assertEqual(nmr.roc_auc.shape, (self.T, self.N),
+                                 f"{train_key}→{test_key}: got {nmr.roc_auc.shape}")
+
+    def test_repr_runs_without_error(self):
+        try:
+            repr(self.result)
+        except Exception as e:
+            self.fail(f"__repr__ raised {e}")
+
+
+class TestTrialPCAHoldoutRecordingLabels(unittest.TestCase):
+    """Verifies _trial_PCA_holdout returns recording labels aligned with decoder_data."""
+
+    def setUp(self):
+        self.events = ["event_a", "event_b"]
+        self.event_length = 1.0
+        self.collection = make_test_collection(timebin=50)
+
+    def test_returns_three_tuple(self):
+        result = decoders._trial_PCA_holdout(
+            self.collection, self.event_length, 0, 0,
+            pca_events=self.events, project_events=self.events,
+            no_PCs=3, return_recording_labels=True,
+        )
+        self.assertEqual(len(result), 3)
+
+    def test_recording_labels_keys_match_project_events(self):
+        decoder_data, num_pcs, rec_labels = decoders._trial_PCA_holdout(
+            self.collection, self.event_length, 0, 0,
+            pca_events=self.events, project_events=self.events,
+            no_PCs=3, return_recording_labels=True,
+        )
+        self.assertEqual(set(rec_labels.keys()), set(self.events))
+
+    def test_recording_labels_aligned_with_decoder_data(self):
+        """Each event's label list must have the same length as its trial list."""
+        decoder_data, num_pcs, rec_labels = decoders._trial_PCA_holdout(
+            self.collection, self.event_length, 0, 0,
+            pca_events=self.events, project_events=self.events,
+            no_PCs=3, return_recording_labels=True,
+        )
+        for event in self.events:
+            self.assertEqual(len(rec_labels[event]), len(decoder_data[event]),
+                             f"Mismatch for {event}")
+
+    def test_recording_labels_are_recording_names(self):
+        """Labels should be actual recording names from the collection."""
+        decoder_data, num_pcs, rec_labels = decoders._trial_PCA_holdout(
+            self.collection, self.event_length, 0, 0,
+            pca_events=self.events, project_events=self.events,
+            no_PCs=3, return_recording_labels=True,
+        )
+        rec_names = {r.name for r in self.collection.recordings}
+        for event in self.events:
+            for label in rec_labels[event]:
+                self.assertIn(label, rec_names)
+
+    def test_without_flag_returns_two_tuple(self):
+        result = decoders._trial_PCA_holdout(
+            self.collection, self.event_length, 0, 0,
+            pca_events=self.events, project_events=self.events,
+            no_PCs=3, return_recording_labels=False,
+        )
+        self.assertEqual(len(result), 2)
+
+
+# ---------------------------------------------------------------------------
+# 2x2 LOO holdout tests
+# ---------------------------------------------------------------------------
+
+class TestCrossGenDecoder2x2LOOHoldout(unittest.TestCase):
+    """Verify the LOO invariant for _cross_gen_decoder_2x2: held-out recording
+    absent from X_train, and each X_test contains data from exactly one recording.
+
+    4 events (a, b, c, d), 3 recordings each with a unique constant fill value (10, 20, 30).
+    input='full_trial' gives one __fit_clf_single__ call per fold per direction.
+    """
+
+    def setUp(self):
+        self.T, self.n_PCs = 2, 2
+        self.a, self.b, self.c, self.d = "a", "b", "c", "d"
+        self.all_events = [self.a, self.b, self.c, self.d]
+        self.recs = ["rec_0", "rec_1", "rec_2"]
+        self.rec_values = [10.0, 20.0, 30.0]
+        n_per_rec = 3
+
+        flat_data = {ev: [] for ev in self.all_events}
+        rec_labels = {ev: [] for ev in self.all_events}
+        for ev in self.all_events:
+            for rec, val in zip(self.recs, self.rec_values):
+                for _ in range(n_per_rec):
+                    flat_data[ev].append(np.full((self.T, self.n_PCs), val))
+                    rec_labels[ev].append(rec)
+
+        self.train_test_pairs = [
+            ((self.a, self.b), (self.c, self.d)),
+            ((self.c, self.d), (self.a, self.b)),
+            ((self.a, self.c), (self.b, self.d)),
+            ((self.b, self.d), (self.a, self.c)),
+        ]
+        train_keys = [f"{e1}_{e2}" for (e1, e2), _ in self.train_test_pairs]
+        self.decoder_data_by_pair = {k: flat_data for k in train_keys}
+        self.recording_labels_by_pair = {k: rec_labels for k in train_keys}
+
+    def _run_capturing_fit(self):
+        captured = []
+        original = decoders.__fit_clf_single__
+
+        def capturing_fit(X_train, y_train, classifier_type, **kwargs):
+            captured.append(X_train.copy())
+            return original(X_train, y_train, classifier_type, **kwargs)
+
+        with patch("spike.spike_analysis.decoders.__fit_clf_single__", side_effect=capturing_fit):
+            decoders._cross_gen_decoder_2x2(
+                self.decoder_data_by_pair, self.train_test_pairs, num_fold=5,
+                classifier_type="linear", input="full_trial",
+                recording_labels_by_pair=self.recording_labels_by_pair,
+            )
+        return captured
+
+    def _run_capturing_score(self):
+        captured = []
+        original = decoders.__score_test__
+
+        def capturing_score(clf, X_test, y_test, classifier_type):
+            captured.append(X_test.copy())
+            return original(clf, X_test, y_test, classifier_type)
+
+        with patch("spike.spike_analysis.decoders.__score_test__", side_effect=capturing_score):
+            decoders._cross_gen_decoder_2x2(
+                self.decoder_data_by_pair, self.train_test_pairs, num_fold=5,
+                classifier_type="linear", input="full_trial",
+                recording_labels_by_pair=self.recording_labels_by_pair,
+            )
+        return captured
+
+    def test_held_out_recording_absent_from_X_train(self):
+        """For each LOO fold, the held-out recording's value must not appear in X_train.
+        In full_trial mode: 4 directions × 3 folds × 2 fits (clf + clf_shuf) = 24 captures.
+        """
+        captured = self._run_capturing_fit()
+
+        n_directions = len(self.train_test_pairs)
+        n_folds = len(self.recs)
+        for dir_idx in range(n_directions):
+            for fold_idx, (rec, val) in enumerate(zip(self.recs, self.rec_values)):
+                base = dir_idx * n_folds * 2 + fold_idx * 2
+                X_train = captured[base]
+                self.assertFalse(
+                    np.any(X_train == val),
+                    f"direction {dir_idx}, held-out {rec}: value {val} found in X_train"
+                )
+                for other_val in self.rec_values:
+                    if other_val != val:
+                        self.assertTrue(
+                            np.any(X_train == other_val),
+                            f"direction {dir_idx}, held-out {rec}: expected value {other_val} absent from X_train"
+                        )
+
+    def test_X_test_contains_only_held_out_recording(self):
+        """Each X_test passed to __score_test__ should contain values from exactly one recording."""
+        captured = self._run_capturing_score()
+        rec_value_set = set(self.rec_values)
+
+        for i, X_test in enumerate(captured):
+            unique_vals = set(np.unique(X_test))
+            vals_from_recs = unique_vals & rec_value_set
+            self.assertEqual(
+                len(vals_from_recs), 1,
+                f"X_test #{i} contains values from {len(vals_from_recs)} recordings: {vals_from_recs}"
+            )
 
 
 if __name__ == "__main__":
