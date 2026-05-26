@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 import spike.spike_analysis.population_analysis as pca_traj
 from sklearn.metrics import roc_auc_score
 from sklearn.ensemble import BaggingClassifier
@@ -1471,7 +1472,7 @@ def _cross_gen_decoder_2x2(decoder_data_by_pair, train_test_pairs, num_fold, cla
     """
     raw_results = {}
 
-    for (e1, e2), (te1, te2) in train_test_pairs:
+    for (e1, e2), (te1, te2) in tqdm(train_test_pairs, desc="2x2 cross-gen pairs"):
         train_key = f"{e1}_{e2}"
         decoder_data = decoder_data_by_pair[train_key]
         all_events = list(dict.fromkeys([e1, e2, te1, te2]))
@@ -1489,7 +1490,7 @@ def _cross_gen_decoder_2x2(decoder_data_by_pair, train_test_pairs, num_fold, cla
 
             if input == "full_trial":
                 fold_models = []
-                for fold_idx, rec_name in enumerate(all_recs):
+                for fold_idx, rec_name in tqdm(enumerate(all_recs), total=len(all_recs), desc=f"LOO folds ({e1}/{e2})", leave=False):
                     train_e1 = [tr for tr, r in zip(decoder_data[e1], rec_labels[e1]) if r != rec_name]
                     train_e2 = [tr for tr, r in zip(decoder_data[e2], rec_labels[e2]) if r != rec_name]
                     if not train_e1 or not train_e2:
@@ -1526,7 +1527,7 @@ def _cross_gen_decoder_2x2(decoder_data_by_pair, train_test_pairs, num_fold, cla
                 stored_models = [fold_models]
             else:
                 fold_models_by_time = [[] for _ in range(T_dim)]
-                for fold_idx, rec_name in enumerate(all_recs):
+                for fold_idx, rec_name in tqdm(enumerate(all_recs), total=len(all_recs), desc=f"LOO folds ({e1}/{e2})", leave=False):
                     train_e1 = [tr for tr, r in zip(decoder_data[e1], rec_labels[e1]) if r != rec_name]
                     train_e2 = [tr for tr, r in zip(decoder_data[e2], rec_labels[e2]) if r != rec_name]
                     if not train_e1 or not train_e2:
@@ -1581,7 +1582,7 @@ def _cross_gen_decoder_2x2(decoder_data_by_pair, train_test_pairs, num_fold, cla
             else:
                 fold_models_by_time = [[] for _ in range(T_dim)]
 
-            for k in range(num_fold):
+            for k in tqdm(range(num_fold), desc=f"folds ({e1}/{e2})", leave=False):
                 X_train_all, y_train = __build_train_fold__(k, event_folds, e1, e2)
                 X_in,    y_in    = __build_test_fold__(k, event_folds, in_dist_pairs)
                 X_cross, y_cross = __build_test_fold__(k, event_folds, cross_gen_pairs)
