@@ -1,15 +1,15 @@
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import spike.spike_analysis.population_analysis as pca_traj
 from sklearn.metrics import roc_auc_score
 from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
-from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.model_selection import StratifiedKFold, GroupKFold, cross_validate
 import matplotlib.pyplot as plt
 import math
-from scipy.stats import sem
+from scipy.stats import sem, norm
 import pandas as pd
 from collections import defaultdict
 from itertools import permutations as iter_perms, combinations
@@ -19,6 +19,7 @@ def trial_PCA(
     spike_collection, event_length, pre_window, post_window, percent_var=90, events=None,
     min_neurons=0, condition_dict=None, return_recording_labels=False, no_PCs=None
 ):
+    recordings_iter = spike_collection if isinstance(spike_collection, list) else spike_collection.recordings
     if condition_dict is None:
         pc_result = pca_traj.avg_trajectories_pca(
             spike_collection,
@@ -59,7 +60,7 @@ def trial_PCA(
     recording_labels = defaultdict(list)
     if condition_dict is not None:
         recording_to_condition = {rec: cond for cond, recs in condition_dict.items() for rec in recs}
-    for recording in spike_collection.recordings:
+    for recording in recordings_iter:
         try:
             idx = neuron_indices[recording.name]
             subset_coeff = W[:no_PCs, idx].T        # [n_i, no_PCs]
@@ -961,6 +962,7 @@ def _trial_PCA_holdout(
     """Fit PCA on pca_events only, then project all project_events into that space."""
     if condition_dict is not None:
         raise NotImplementedError("hold_out=True is not yet supported with condition_dict")
+    recordings_iter = spike_collection if isinstance(spike_collection, list) else spike_collection.recordings
     pc_result = pca_traj.avg_trajectories_pca(
         spike_collection, event_length, pre_window, post_window,
         events=pca_events, min_neurons=min_neurons, plot=False,
@@ -981,7 +983,7 @@ def _trial_PCA_holdout(
     W = pc_result.coefficients
     decoder_data = defaultdict(list)
     recording_labels = defaultdict(list)
-    for recording in spike_collection.recordings:
+    for recording in recordings_iter:
         try:
             idx = neuron_indices[recording.name]
             subset_coeff = W[:no_PCs, idx].T        # [n_i, no_PCs]
@@ -1447,29 +1449,171 @@ class cross_gen_results:
 # 2x2 Cross-generalization decoder
 # ---------------------------------------------------------------------------
 
-def _cross_gen_decoder_2x2(decoder_data_by_pair, train_test_pairs, num_fold, classifier_type, input="timebin", recording_labels_by_pair=None, n_shuffles=5, **kwargs):
+def _z_pval(observed, null_dist):
+    """One-sided upper-tail p-value from a gaussian fit to the null.
+
+    observed   : scalar or np.ndarray(T,)
+    null_dist  : np.ndarray(n_shuffles,) or np.ndarray(T, n_shuffles)
+
+    Returns scalar or np.ndarray(T,). NaN where null_std is 0 or all-NaN.
+    """
+    null_dist = np.asarray(null_dist, dtype=float)
+    mu = np.nanmean(null_dist, axis=-1)
+    sd = np.nanstd(null_dist, axis=-1, ddof=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = (observed - mu) / np.where(sd > 0, sd, np.nan)
+    return norm.sf(z)
+
+
+def _significance_stars(p):
+    """Convert a p-value to APA-style stars; empty string if non-significant."""
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return ""
+
+
+def _count_pval(observed, null_dist):
+    """One-sided upper-tail p-value: (#{null >= observed} + 1) / (n + 1).
+
+    observed   : scalar or np.ndarray(T,)
+    null_dist  : np.ndarray(n_shuffles,) or np.ndarray(T, n_shuffles)
+    """
+    null_dist = np.asarray(null_dist, dtype=float)
+    obs = np.asarray(observed)
+    if null_dist.ndim == 1:
+        n = np.sum(~np.isnan(null_dist))
+        cnt = np.nansum(null_dist >= obs)
+    else:
+        n = np.sum(~np.isnan(null_dist), axis=-1)
+        cnt = np.nansum(null_dist >= obs[..., None], axis=-1)
+    return (cnt + 1.0) / (n + 1.0)
+
+
+def _filter_complete_recordings(spike_collection, required_events, min_neurons=0, verbose=True):
+    """Return a list of Recording objects that pass min_neurons AND have all required_events.
+
+    Uses pca_traj.check_recording (silent) so excluded recordings can be summarized once
+    rather than re-printed by each downstream PCA call. The returned list is suitable
+    for passing directly to trial_PCA / _trial_PCA_holdout / pca_matrix.
+    """
+    valid, excluded = [], []
+    for rec in spike_collection.recordings:
+        if pca_traj.check_recording(rec, min_neurons, required_events, to_print=False):
+            valid.append(rec)
+        else:
+            excluded.append(rec.name)
+    if verbose:
+        print(
+            f"Complete-recordings filter (events={required_events}, min_neurons={min_neurons}): "
+            f"kept {len(valid)}/{len(spike_collection.recordings)} recordings"
+        )
+        if excluded:
+            print(f"  Excluded {len(excluded)}: {excluded}")
+        total_neurons = sum(r.analyzed_neurons for r in valid)
+        samples_per_event = {ev: sum(len(r.event_dict[ev]) for r in valid) for ev in required_events}
+        print(f"  Total recordings: {len(valid)}")
+        print(f"  Total neurons:    {total_neurons}")
+        print(f"  Total samples:    {samples_per_event}")
+    return valid
+
+
+def _build_grouped_fold_spec(decoder_data, rec_labels, e1, e2, te1, te2, held_out_recs):
+    """Build train/in-dist/cross-gen arrays for a fold that holds out a SET of recordings.
+
+    Used for both LOO-by-recording (set of size 1) and GroupKFold (set of size > 1).
+    Returns a spec dict with X_train (n_train, n_PCs, T), y_train, optional X_in/y_in,
+    optional X_cross/y_cross, and has_in / has_cross flags. Returns None if the held-out
+    set leaves the training pair degenerate.
+    """
+    held = set(held_out_recs)
+    train_e1 = [tr for tr, r in zip(decoder_data[e1], rec_labels[e1]) if r not in held]
+    train_e2 = [tr for tr, r in zip(decoder_data[e2], rec_labels[e2]) if r not in held]
+    if not train_e1 or not train_e2:
+        return None
+    X_train = np.concatenate(
+        [np.stack(train_e1, axis=2), np.stack(train_e2, axis=2)], axis=2
+    ).transpose()
+    y_train = np.array([0] * len(train_e1) + [1] * len(train_e2))
+
+    spec = {"X_train": X_train, "y_train": y_train, "has_in": False, "has_cross": False}
+
+    in_e1 = [tr for tr, r in zip(decoder_data[e1], rec_labels[e1]) if r in held]
+    in_e2 = [tr for tr, r in zip(decoder_data[e2], rec_labels[e2]) if r in held]
+    if in_e1 and in_e2:
+        spec["X_in"] = np.concatenate(
+            [np.stack(in_e1, axis=2), np.stack(in_e2, axis=2)], axis=2
+        ).transpose()
+        spec["y_in"] = np.array([0] * len(in_e1) + [1] * len(in_e2))
+        spec["has_in"] = len(np.unique(spec["y_in"])) >= 2
+
+    cr_te1 = [tr for tr, r in zip(decoder_data[te1], rec_labels[te1]) if r in held]
+    cr_te2 = [tr for tr, r in zip(decoder_data[te2], rec_labels[te2]) if r in held]
+    if cr_te1 and cr_te2:
+        spec["X_cross"] = np.concatenate(
+            [np.stack(cr_te1, axis=2), np.stack(cr_te2, axis=2)], axis=2
+        ).transpose()
+        spec["y_cross"] = np.array([0] * len(cr_te1) + [1] * len(cr_te2))
+        spec["has_cross"] = len(np.unique(spec["y_cross"])) >= 2
+
+    return spec
+
+
+def _build_kfold_fold_spec(event_folds, e1, e2, te1, te2, k):
+    """Build train/in/cross arrays for k-fold fold k."""
+    X_train, y_train = __build_train_fold__(k, event_folds, e1, e2)
+    X_in_dict, y_in_dict = __build_test_fold__(k, event_folds, [(e1, e2, 0, 1)])
+    X_cross_dict, y_cross_dict = __build_test_fold__(k, event_folds, [(te1, te2, 0, 1)])
+    in_key, cross_key = f"{e1}_{e2}", f"{te1}_{te2}"
+
+    spec = {"X_train": X_train, "y_train": y_train, "has_in": False, "has_cross": False}
+    X_in, y_in = X_in_dict[in_key], y_in_dict[in_key]
+    if X_in.shape[0] > 0 and len(np.unique(y_in)) >= 2:
+        spec["X_in"], spec["y_in"], spec["has_in"] = X_in, y_in, True
+    X_cross, y_cross = X_cross_dict[cross_key], y_cross_dict[cross_key]
+    if X_cross.shape[0] > 0 and len(np.unique(y_cross)) >= 2:
+        spec["X_cross"], spec["y_cross"], spec["has_cross"] = X_cross, y_cross, True
+    return spec
+
+
+def _cross_gen_decoder_2x2(decoder_data_by_pair, train_test_pairs, num_fold, classifier_type, input="timebin", recording_labels_by_pair=None, group_kfold=False, n_shuffles=25, **kwargs):
     """Core 2x2 cross-generalization decoder.
 
-    For each (train_pair, test_pair) direction, runs num_fold folds producing:
-      - in_dist  : train on (e1, e2), test held-out fold of (e1, e2)
-      - cross_gen: same model, test fold of (te1, te2) with te1=0, te2=1
-      - shuffle  : train on shuffled labels, test held-out fold of (e1, e2)
+    For each (train_pair, test_pair) direction, runs CV producing:
+      - in_dist           : train on (e1, e2), score held-out fold of (e1, e2)
+      - cross_gen         : same model, score held-out fold of (te1, te2)
+      - in_dist_shuffle   : null distribution from n_shuffles permutations of y_train,
+                            each entry = mean-across-folds AUC scored on in_dist
+      - cross_gen_shuffle : same null structure, scored on cross_gen
+
+    Shuffle loop is outer (one permutation per shuffle iteration, fitted on every fold
+    and aggregated to a single mean-across-folds value); this matches decodanda's
+    convention where the null statistic has the same shape as the observed statistic.
 
     Args:
-        decoder_data_by_pair : {train_key: decoder_data}
-            Each decoder_data must contain all 4 events projected into that pair's PCA space.
-        train_test_pairs : list of ((e1, e2), (te1, te2)) tuples
-        num_fold         : int
-        classifier_type  : "RF" or "linear"
-        input            : "timebin" or "full_trial"
-        recording_labels_by_pair : optional {train_key: {event: [rec_name, ...]}}
-            If provided, use leave-one-recording-out CV instead of k-fold.
+        decoder_data_by_pair     : {train_key: decoder_data}
+        train_test_pairs         : list of ((e1, e2), (te1, te2)) tuples
+        num_fold                 : int, only used if recording_labels_by_pair is None
+        classifier_type          : "RF" or "linear"
+        input                    : "timebin" or "full_trial"
+        recording_labels_by_pair : if provided, LOO-by-recording instead of k-fold
+        n_shuffles               : permutations for null distribution (default 25)
 
     Returns:
-        raw_results : {train_key: {"in_dist": [...], "cross_gen": [...], "shuffle": [...]}}
-            Each list has T entries (timebin) or 1 entry (full_trial),
-            each entry is {"test_roc_auc": np.ndarray(num_fold,)}.
+        raw_results : {train_key: {
+            "_models":           list of T lists (one classifier per fold per timebin),
+            "in_dist":           [{"test_roc_auc": np.ndarray(n_folds_alloc,)}] x T,
+            "cross_gen":         [{"test_roc_auc": np.ndarray(n_folds_alloc,)}] x T,
+            "in_dist_shuffle":   np.ndarray(T, n_shuffles)  (mean-across-folds per shuf),
+            "cross_gen_shuffle": np.ndarray(T, n_shuffles),
+        }}
     """
+    def _slice_t(X, t):
+        return X.reshape(X.shape[0], -1) if input == "full_trial" else X[:, :, t]
+
     raw_results = {}
 
     for (e1, e2), (te1, te2) in tqdm(train_test_pairs, desc="2x2 cross-gen pairs"):
@@ -1478,148 +1622,94 @@ def _cross_gen_decoder_2x2(decoder_data_by_pair, train_test_pairs, num_fold, cla
         all_events = list(dict.fromkeys([e1, e2, te1, te2]))
         T_dim = 1 if input == "full_trial" else decoder_data[e1][0].shape[0]
 
+        # ---------------- build fold_specs (None means "skip this fold") ---
         if recording_labels_by_pair is not None:
-            # --- LOO path ---
             rec_labels = recording_labels_by_pair[train_key]
             all_recs = list(dict.fromkeys(r for ev in all_events for r in rec_labels[ev]))
-            N = len(all_recs)
+            rec_arr = np.array(all_recs)
 
-            auc_in_dist   = np.full((T_dim, N), np.nan)
-            auc_cross_gen = np.full((T_dim, N), np.nan)
-            auc_shuffle   = np.full((T_dim, N), np.nan)
-
-            if input == "full_trial":
-                fold_models = []
-                for fold_idx, rec_name in tqdm(enumerate(all_recs), total=len(all_recs), desc=f"LOO folds ({e1}/{e2})", leave=False):
-                    train_e1 = [tr for tr, r in zip(decoder_data[e1], rec_labels[e1]) if r != rec_name]
-                    train_e2 = [tr for tr, r in zip(decoder_data[e2], rec_labels[e2]) if r != rec_name]
-                    if not train_e1 or not train_e2:
-                        continue
-                    X_train_all = np.concatenate(
-                        [np.stack(train_e1, axis=2), np.stack(train_e2, axis=2)], axis=2
-                    ).transpose()
-                    y_train = np.array([0] * len(train_e1) + [1] * len(train_e2))
-                    X_train_flat = X_train_all.reshape(X_train_all.shape[0], -1)
-                    clf = __fit_clf_single__(X_train_flat, y_train, classifier_type, **kwargs)
-                    fold_models.append(clf)
-
-                    in_e1  = [tr for tr, r in zip(decoder_data[e1],  rec_labels[e1])  if r == rec_name]
-                    in_e2  = [tr for tr, r in zip(decoder_data[e2],  rec_labels[e2])  if r == rec_name]
-                    cr_te1 = [tr for tr, r in zip(decoder_data[te1], rec_labels[te1]) if r == rec_name]
-                    cr_te2 = [tr for tr, r in zip(decoder_data[te2], rec_labels[te2]) if r == rec_name]
-
-                    if in_e1 and in_e2:
-                        X_in = np.concatenate([np.stack(in_e1, axis=2), np.stack(in_e2, axis=2)], axis=2).transpose()
-                        y_in = np.array([0] * len(in_e1) + [1] * len(in_e2))
-                        if len(np.unique(y_in)) >= 2:
-                            X_in_flat = X_in.reshape(X_in.shape[0], -1)
-                            auc_in_dist[0, fold_idx]  = __score_test__(clf, X_in_flat, y_in, classifier_type)
-                            auc_shuffle[0, fold_idx]  = np.mean([
-                                __score_test__(__fit_clf_single__(X_train_flat, np.random.permutation(y_train), classifier_type, **kwargs), X_in_flat, y_in, classifier_type)
-                                for _ in range(n_shuffles)
-                            ])
-                    if cr_te1 and cr_te2:
-                        X_cross = np.concatenate([np.stack(cr_te1, axis=2), np.stack(cr_te2, axis=2)], axis=2).transpose()
-                        y_cross = np.array([0] * len(cr_te1) + [1] * len(cr_te2))
-                        if len(np.unique(y_cross)) >= 2:
-                            X_cross_flat = X_cross.reshape(X_cross.shape[0], -1)
-                            auc_cross_gen[0, fold_idx] = __score_test__(clf, X_cross_flat, y_cross, classifier_type)
-                stored_models = [fold_models]
+            if group_kfold:
+                # split recordings into num_fold groups (held out together)
+                n_splits = min(num_fold, len(rec_arr))
+                shuffle_idx = np.random.permutation(len(rec_arr))
+                rec_arr_shuf = rec_arr[shuffle_idx]
+                gkf = GroupKFold(n_splits=n_splits)
+                held_out_sets = [
+                    set(rec_arr_shuf[test_idx])
+                    for _, test_idx in gkf.split(rec_arr_shuf, groups=np.arange(len(rec_arr_shuf)))
+                ]
+                fold_desc = f"GroupKFold ({e1}/{e2})"
             else:
-                fold_models_by_time = [[] for _ in range(T_dim)]
-                for fold_idx, rec_name in tqdm(enumerate(all_recs), total=len(all_recs), desc=f"LOO folds ({e1}/{e2})", leave=False):
-                    train_e1 = [tr for tr, r in zip(decoder_data[e1], rec_labels[e1]) if r != rec_name]
-                    train_e2 = [tr for tr, r in zip(decoder_data[e2], rec_labels[e2]) if r != rec_name]
-                    if not train_e1 or not train_e2:
-                        continue
-                    X_train_all = np.concatenate(
-                        [np.stack(train_e1, axis=2), np.stack(train_e2, axis=2)], axis=2
-                    ).transpose()
-                    y_train = np.array([0] * len(train_e1) + [1] * len(train_e2))
+                # LOO: hold out one recording per fold
+                held_out_sets = [{r} for r in rec_arr]
+                fold_desc = f"LOO folds ({e1}/{e2})"
 
-                    in_e1  = [tr for tr, r in zip(decoder_data[e1],  rec_labels[e1])  if r == rec_name]
-                    in_e2  = [tr for tr, r in zip(decoder_data[e2],  rec_labels[e2])  if r == rec_name]
-                    cr_te1 = [tr for tr, r in zip(decoder_data[te1], rec_labels[te1]) if r == rec_name]
-                    cr_te2 = [tr for tr, r in zip(decoder_data[te2], rec_labels[te2]) if r == rec_name]
-
-                    has_in    = bool(in_e1 and in_e2)
-                    has_cross = bool(cr_te1 and cr_te2)
-                    if has_in:
-                        X_in_all = np.concatenate([np.stack(in_e1, axis=2), np.stack(in_e2, axis=2)], axis=2).transpose()
-                        y_in = np.array([0] * len(in_e1) + [1] * len(in_e2))
-                    if has_cross:
-                        X_cross_all = np.concatenate([np.stack(cr_te1, axis=2), np.stack(cr_te2, axis=2)], axis=2).transpose()
-                        y_cross = np.array([0] * len(cr_te1) + [1] * len(cr_te2))
-
-                    for t in range(T_dim):
-                        clf = __fit_clf_single__(X_train_all[:, :, t], y_train, classifier_type, **kwargs)
-                        fold_models_by_time[t].append(clf)
-                        if has_in and len(np.unique(y_in)) >= 2:
-                            auc_in_dist[t, fold_idx]  = __score_test__(clf, X_in_all[:, :, t], y_in, classifier_type)
-                            auc_shuffle[t, fold_idx]  = np.mean([
-                                __score_test__(__fit_clf_single__(X_train_all[:, :, t], np.random.permutation(y_train), classifier_type, **kwargs), X_in_all[:, :, t], y_in, classifier_type)
-                                for _ in range(n_shuffles)
-                            ])
-                        if has_cross and len(np.unique(y_cross)) >= 2:
-                            auc_cross_gen[t, fold_idx] = __score_test__(clf, X_cross_all[:, :, t], y_cross, classifier_type)
-                stored_models = fold_models_by_time
-
+            fold_specs = [
+                _build_grouped_fold_spec(decoder_data, rec_labels, e1, e2, te1, te2, held)
+                for held in held_out_sets
+            ]
         else:
-            # --- original k-fold path ---
-            event_folds = {event: __split_into_folds__(decoder_data[event], num_fold) for event in all_events}
+            event_folds = {ev: __split_into_folds__(decoder_data[ev], num_fold) for ev in all_events}
+            fold_specs = [
+                _build_kfold_fold_spec(event_folds, e1, e2, te1, te2, k)
+                for k in range(num_fold)
+            ]
+            fold_desc = f"folds ({e1}/{e2})"
 
-            auc_in_dist   = np.full((T_dim, num_fold), np.nan)
-            auc_cross_gen = np.full((T_dim, num_fold), np.nan)
-            auc_shuffle   = np.full((T_dim, num_fold), np.nan)
+        n_folds_alloc = len(fold_specs)
+        auc_in_dist    = np.full((T_dim, n_folds_alloc), np.nan)
+        auc_cross_gen  = np.full((T_dim, n_folds_alloc), np.nan)
+        null_in_dist   = np.full((T_dim, n_shuffles), np.nan)
+        null_cross_gen = np.full((T_dim, n_shuffles), np.nan)
+        fold_models_by_time = [[] for _ in range(T_dim)]
 
-            in_dist_pairs   = [(e1,  e2,  0, 1)]
-            cross_gen_pairs = [(te1, te2, 0, 1)]
-            in_key    = f"{e1}_{e2}"
-            cross_key = f"{te1}_{te2}"
+        # ---------------- phase 1: observed AUC ----------------------------
+        for fi, fd in enumerate(tqdm(fold_specs, desc=fold_desc, leave=False)):
+            if fd is None:
+                continue
+            X_tr_full, y_train = fd["X_train"], fd["y_train"]
+            for t in range(T_dim):
+                X_tr_t = _slice_t(X_tr_full, t)
+                clf = __fit_clf_single__(X_tr_t, y_train, classifier_type, **kwargs)
+                fold_models_by_time[t].append(clf)
+                if fd["has_in"]:
+                    auc_in_dist[t, fi] = __score_test__(
+                        clf, _slice_t(fd["X_in"], t), fd["y_in"], classifier_type
+                    )
+                if fd["has_cross"]:
+                    auc_cross_gen[t, fi] = __score_test__(
+                        clf, _slice_t(fd["X_cross"], t), fd["y_cross"], classifier_type
+                    )
 
-            if input == "full_trial":
-                fold_models = []
-            else:
-                fold_models_by_time = [[] for _ in range(T_dim)]
-
-            for k in tqdm(range(num_fold), desc=f"folds ({e1}/{e2})", leave=False):
-                X_train_all, y_train = __build_train_fold__(k, event_folds, e1, e2)
-                X_in,    y_in    = __build_test_fold__(k, event_folds, in_dist_pairs)
-                X_cross, y_cross = __build_test_fold__(k, event_folds, cross_gen_pairs)
-
-                if input == "full_trial":
-                    X_train_flat  = X_train_all.reshape(X_train_all.shape[0], -1)
-                    X_in_flat     = X_in[in_key].reshape(X_in[in_key].shape[0], -1)
-                    X_cross_flat  = X_cross[cross_key].reshape(X_cross[cross_key].shape[0], -1)
-
-                    clf = __fit_clf_single__(X_train_flat, y_train, classifier_type, **kwargs)
-                    fold_models.append(clf)
-
-                    auc_in_dist[0, k]   = __score_test__(clf, X_in_flat,    y_in[in_key],       classifier_type)
-                    auc_cross_gen[0, k] = __score_test__(clf, X_cross_flat, y_cross[cross_key], classifier_type)
-                    auc_shuffle[0, k]   = np.mean([
-                        __score_test__(__fit_clf_single__(X_train_flat, np.random.permutation(y_train), classifier_type, **kwargs), X_in_flat, y_in[in_key], classifier_type)
-                        for _ in range(n_shuffles)
-                    ])
-                else:
-                    for t in range(T_dim):
-                        clf = __fit_clf_single__(X_train_all[:, :, t], y_train, classifier_type, **kwargs)
-                        fold_models_by_time[t].append(clf)
-
-                        auc_in_dist[t, k]   = __score_test__(clf, X_in[in_key][:, :, t],       y_in[in_key],       classifier_type)
-                        auc_cross_gen[t, k] = __score_test__(clf, X_cross[cross_key][:, :, t], y_cross[cross_key], classifier_type)
-                        auc_shuffle[t, k]   = np.mean([
-                            __score_test__(__fit_clf_single__(X_train_all[:, :, t], np.random.permutation(y_train), classifier_type, **kwargs), X_in[in_key][:, :, t], y_in[in_key], classifier_type)
-                            for _ in range(n_shuffles)
-                        ])
-
-            stored_models = [fold_models] if input == "full_trial" else fold_models_by_time
+        # ---------------- phase 2: null distribution -----------------------
+        for shuf_i in tqdm(range(n_shuffles), desc=f"shuffles ({e1}/{e2})", leave=False):
+            shuf_in    = np.full((T_dim, n_folds_alloc), np.nan)
+            shuf_cross = np.full((T_dim, n_folds_alloc), np.nan)
+            for fi, fd in enumerate(fold_specs):
+                if fd is None:
+                    continue
+                y_perm = np.random.permutation(fd["y_train"])
+                X_tr_full = fd["X_train"]
+                for t in range(T_dim):
+                    X_tr_t = _slice_t(X_tr_full, t)
+                    clf_p = __fit_clf_single__(X_tr_t, y_perm, classifier_type, **kwargs)
+                    if fd["has_in"]:
+                        shuf_in[t, fi] = __score_test__(
+                            clf_p, _slice_t(fd["X_in"], t), fd["y_in"], classifier_type
+                        )
+                    if fd["has_cross"]:
+                        shuf_cross[t, fi] = __score_test__(
+                            clf_p, _slice_t(fd["X_cross"], t), fd["y_cross"], classifier_type
+                        )
+            null_in_dist[:, shuf_i]   = np.nanmean(shuf_in, axis=1)
+            null_cross_gen[:, shuf_i] = np.nanmean(shuf_cross, axis=1)
 
         raw_results[train_key] = {
-            "_models":   stored_models,
-            "in_dist":   [{"test_roc_auc": auc_in_dist[t, :]}   for t in range(T_dim)],
-            "cross_gen": [{"test_roc_auc": auc_cross_gen[t, :]} for t in range(T_dim)],
-            "shuffle":   [{"test_roc_auc": auc_shuffle[t, :]}   for t in range(T_dim)],
+            "_models":            fold_models_by_time,
+            "in_dist":            [{"test_roc_auc": auc_in_dist[t, :]}   for t in range(T_dim)],
+            "cross_gen":          [{"test_roc_auc": auc_cross_gen[t, :]} for t in range(T_dim)],
+            "in_dist_shuffle":    null_in_dist,
+            "cross_gen_shuffle":  null_cross_gen,
         }
 
     return raw_results
@@ -1638,9 +1728,10 @@ def trial_decoder_cross_generalization_2x2(
     classifier_type="RF",
     hold_out=True,
     LOO=False,
+    group_kfold=False,
     input="timebin",
     no_PCs=None,
-    n_shuffles=5,
+    n_shuffles=25,
     **kwargs,
 ):
     """2x2 cross-generalization decoder.
@@ -1655,16 +1746,24 @@ def trial_decoder_cross_generalization_2x2(
             Col axis: a vs c  ↔  b vs d
         event_length     : float, seconds
         hold_out         : bool, default True
-            If True, fit a separate PCA per training pair (same as trial_decoder_cross_generalization).
+            If True, fit a separate PCA per training pair.
             If False, one shared PCA across all 4 events.
         LOO : bool, default False
-            If True, use leave-one-recording-out CV for the classifier instead of k-fold.
-            num_fold is ignored; effective fold count = number of unique recordings.
+            If True, leave-one-recording-out CV. num_fold is overridden;
+            effective fold count = number of unique recordings.
+        group_kfold : bool, default False
+            If True, split recordings into num_fold groups via sklearn.GroupKFold
+            (each fold holds out ~n_recs/num_fold whole recordings). Mutually exclusive
+            with LOO.
         input            : "timebin" or "full_trial"
+        n_shuffles       : permutations for null distribution (default 25)
 
     Returns:
         cross_gen_2x2_results
     """
+    if LOO and group_kfold:
+        raise ValueError("LOO and group_kfold are mutually exclusive.")
+
     a, b = events[0]
     c, d = events[1]
     all_events = [a, b, c, d]
@@ -1678,59 +1777,64 @@ def trial_decoder_cross_generalization_2x2(
         ((b, c), (a, d)),  # xor, direction 2
     ]
 
-    recording_labels_by_pair = None
-    if LOO:
-        if hold_out:
-            decoder_data_by_pair = {}
-            num_pcs_by_pair = {}
-            recording_labels_by_pair = {}
-            for (e1, e2), _ in train_test_pairs:
-                train_key = f"{e1}_{e2}"
-                decoder_data_by_pair[train_key], num_pcs_by_pair[train_key], recording_labels_by_pair[train_key] = _trial_PCA_holdout(
-                    spike_collection, event_length, pre_window, post_window,
-                    pca_events=[e1, e2], project_events=all_events,
-                    percent_var=percent_var, min_neurons=min_neurons,
-                    condition_dict=condition_dict, no_PCs=no_PCs,
-                    return_recording_labels=True,
-                )
-        else:
-            single_data, num_pcs, shared_labels = trial_PCA(
+    # Restrict to recordings that have all 4 events AND pass min_neurons so every
+    # train_key/test pair sees the same set of recordings (one summary line up front,
+    # no repeated per-PCA-call exclusion logs).
+    valid_recordings = _filter_complete_recordings(
+        spike_collection, all_events, min_neurons=min_neurons, verbose=True
+    )
+    if not valid_recordings:
+        raise ValueError("No recordings remain after complete-recordings filter.")
+    spike_collection = valid_recordings
+
+    need_rec_labels = LOO or group_kfold
+    recording_labels_by_pair = {} if need_rec_labels else None
+
+    if hold_out:
+        decoder_data_by_pair = {}
+        num_pcs_by_pair = {}
+        for (e1, e2), _ in train_test_pairs:
+            train_key = f"{e1}_{e2}"
+            result = _trial_PCA_holdout(
                 spike_collection, event_length, pre_window, post_window,
-                percent_var=percent_var, events=all_events, min_neurons=min_neurons,
+                pca_events=[e1, e2], project_events=all_events,
+                percent_var=percent_var, min_neurons=min_neurons,
                 condition_dict=condition_dict, no_PCs=no_PCs,
-                return_recording_labels=True,
+                return_recording_labels=need_rec_labels,
             )
-            decoder_data_by_pair = {f"{e1}_{e2}": single_data for (e1, e2), _ in train_test_pairs}
-            num_pcs_by_pair = {f"{e1}_{e2}": num_pcs for (e1, e2), _ in train_test_pairs}
+            if need_rec_labels:
+                decoder_data_by_pair[train_key], num_pcs_by_pair[train_key], recording_labels_by_pair[train_key] = result
+            else:
+                decoder_data_by_pair[train_key], num_pcs_by_pair[train_key] = result
+    else:
+        result = trial_PCA(
+            spike_collection, event_length, pre_window, post_window,
+            percent_var=percent_var, events=all_events, min_neurons=min_neurons,
+            condition_dict=condition_dict, no_PCs=no_PCs,
+            return_recording_labels=need_rec_labels,
+        )
+        if need_rec_labels:
+            single_data, num_pcs, shared_labels = result
+        else:
+            single_data, num_pcs = result
+            shared_labels = None
+        decoder_data_by_pair = {f"{e1}_{e2}": single_data for (e1, e2), _ in train_test_pairs}
+        num_pcs_by_pair = {f"{e1}_{e2}": num_pcs for (e1, e2), _ in train_test_pairs}
+        if need_rec_labels:
             recording_labels_by_pair = {f"{e1}_{e2}": shared_labels for (e1, e2), _ in train_test_pairs}
+
+    if LOO:
         first_labels = next(iter(recording_labels_by_pair.values()))
         all_recs = list(dict.fromkeys(r for ev in first_labels for r in first_labels[ev]))
         effective_num_fold = len(all_recs)
     else:
-        if hold_out:
-            decoder_data_by_pair = {}
-            num_pcs_by_pair = {}
-            for (e1, e2), _ in train_test_pairs:
-                train_key = f"{e1}_{e2}"
-                decoder_data_by_pair[train_key], num_pcs_by_pair[train_key] = _trial_PCA_holdout(
-                    spike_collection, event_length, pre_window, post_window,
-                    pca_events=[e1, e2], project_events=all_events,
-                    percent_var=percent_var, min_neurons=min_neurons,
-                    condition_dict=condition_dict, no_PCs=no_PCs,
-                )
-        else:
-            single_data, num_pcs = trial_PCA(
-                spike_collection, event_length, pre_window, post_window,
-                percent_var=percent_var, events=all_events, min_neurons=min_neurons,
-                condition_dict=condition_dict, no_PCs=no_PCs,
-            )
-            decoder_data_by_pair = {f"{e1}_{e2}": single_data for (e1, e2), _ in train_test_pairs}
-            num_pcs_by_pair = {f"{e1}_{e2}": num_pcs for (e1, e2), _ in train_test_pairs}
         effective_num_fold = num_fold
 
     raw_results = _cross_gen_decoder_2x2(
         decoder_data_by_pair, train_test_pairs, num_fold, classifier_type, input=input,
-        recording_labels_by_pair=recording_labels_by_pair, n_shuffles=n_shuffles, **kwargs,
+        recording_labels_by_pair=recording_labels_by_pair,
+        group_kfold=group_kfold,
+        n_shuffles=n_shuffles, **kwargs,
     )
     return cross_gen_2x2_results(
         raw_results, train_test_pairs, effective_num_fold, event_length, pre_window, post_window,
@@ -1744,11 +1848,21 @@ class cross_gen_2x2_results:
     Attributes
     ----------
     roc_auc_scores : dict
-        {train_key: {"in_dist": nested_model_result,
-                     "cross_gen": nested_model_result,
-                     "shuffle": nested_model_result}}
+        {train_key: {"in_dist": nested_model_result, "cross_gen": nested_model_result}}
+    shuffles : dict
+        {train_key: {"in_dist": (T, n_shuffles), "cross_gen": (T, n_shuffles)}}
+        Null distributions; each column = mean-across-folds AUC for one permutation.
+    null_mean, null_std : dict
+        {train_key: {"in_dist": (T,), "cross_gen": (T,)}}
+        Per-timebin mean / std across shuffles (ddof=1 on std).
+    z_pval, count_pval : dict
+        {train_key: {"in_dist": (T,), "cross_gen": (T,)}}
+        Per-timebin one-sided upper-tail p-values vs. null:
+          z_pval     — gaussian fit to null
+          count_pval — (#{null >= observed} + 1) / (n_shuffles + 1)
+        Observed-per-timebin = mean across folds of nmr.roc_auc[t].
     train_test_pairs : list of ((e1, e2), (te1, te2))
-    axis_map : dict {train_key: "axis1" or "axis2"}
+    axis_map : dict {train_key: "axis1" | "axis2" | "xor"}
     """
 
     def __init__(self, raw_results, train_test_pairs, num_fold, event_length, pre_window, post_window,
@@ -1766,14 +1880,63 @@ class cross_gen_2x2_results:
         }
         self.models = {}
         self.roc_auc_scores = {}
+        self.shuffles = {}
+        self.null_mean = {}
+        self.null_std = {}
+        self.z_pval = {}
+        self.count_pval = {}
         for (e1, e2), _ in train_test_pairs:
             train_key = f"{e1}_{e2}"
             pair_data = raw_results[train_key]
             self.models[train_key] = pair_data.pop("_models", None)
+
             self.roc_auc_scores[train_key] = {
-                result_type: nested_model_result(timebin_list, num_fold)
-                for result_type, timebin_list in pair_data.items()
+                "in_dist":   nested_model_result(pair_data["in_dist"],   num_fold),
+                "cross_gen": nested_model_result(pair_data["cross_gen"], num_fold),
             }
+            self.shuffles[train_key] = {
+                "in_dist":   np.asarray(pair_data["in_dist_shuffle"],   dtype=float),
+                "cross_gen": np.asarray(pair_data["cross_gen_shuffle"], dtype=float),
+            }
+
+            self.null_mean[train_key] = {}
+            self.null_std[train_key]  = {}
+            self.z_pval[train_key]    = {}
+            self.count_pval[train_key] = {}
+            for rt in ("in_dist", "cross_gen"):
+                null = self.shuffles[train_key][rt]
+                obs_per_t = np.nanmean(self.roc_auc_scores[train_key][rt].roc_auc, axis=1)
+                self.null_mean[train_key][rt] = np.nanmean(null, axis=1)
+                self.null_std[train_key][rt]  = np.nanstd(null, axis=1, ddof=1)
+                self.z_pval[train_key][rt]     = _z_pval(obs_per_t, null)
+                self.count_pval[train_key][rt] = _count_pval(obs_per_t, null)
+
+    def pval_in_window(self, start=0, stop=None):
+        """Time-window-averaged p-values for each train_key x {in_dist, cross_gen}.
+
+        Observed: mean of nmr.roc_auc over (T_window, folds) -> scalar.
+        Null:     mean of shuffles over T_window -> vector of length n_shuffles.
+
+        Returns
+        -------
+        {train_key: {"in_dist":   {"z": float, "count": float},
+                     "cross_gen": {"z": float, "count": float}}}
+        """
+        out = {}
+        for train_key in self.roc_auc_scores:
+            T = self.roc_auc_scores[train_key]["in_dist"].roc_auc.shape[0]
+            x = np.linspace(-self.pre_window, self.event_length + self.post_window, T)
+            start_idx = int(np.searchsorted(x, start))
+            stop_idx  = T if stop is None else int(np.searchsorted(x, stop))
+            out[train_key] = {}
+            for rt in ("in_dist", "cross_gen"):
+                obs = np.nanmean(self.roc_auc_scores[train_key][rt].roc_auc[start_idx:stop_idx])
+                null_window = np.nanmean(self.shuffles[train_key][rt][start_idx:stop_idx], axis=0)
+                out[train_key][rt] = {
+                    "z":     float(_z_pval(obs, null_window)),
+                    "count": float(_count_pval(obs, null_window)),
+                }
+        return out
 
     def __repr__(self):
         lines = [f"2x2 Cross-generalization decoder | {self.num_fold} folds"]
@@ -1789,7 +1952,7 @@ class cross_gen_2x2_results:
         return "\n".join(lines)
 
     def plot_across_time(self, start=None, stop=None):
-        """4 subplots (one per direction), each showing in_dist, cross_gen, and shuffle."""
+        """4 subplots (one per direction); shows in_dist, cross_gen, plus null mean +/- std bands."""
         n = len(self.train_test_pairs)
         ncols = 2
         nrows = math.ceil(n / ncols)
@@ -1798,18 +1961,26 @@ class cross_gen_2x2_results:
         if stop is None:
             stop = self.event_length + self.post_window
         plt.figure(figsize=(12, 4 * nrows))
+        null_colors = {"in_dist": "gray", "cross_gen": "darkgray"}
         for i, ((e1, e2), (te1, te2)) in enumerate(self.train_test_pairs, 1):
             train_key = f"{e1}_{e2}"
             results = self.roc_auc_scores[train_key]
             T = results["in_dist"].roc_auc.shape[0]
             x = np.linspace(-self.pre_window, self.event_length + self.post_window, T)
             plt.subplot(nrows, ncols, i)
-            for result_type, nmr in results.items():
+            for rt in ("in_dist", "cross_gen"):
+                nmr = results[rt]
                 avg = np.nanmean(nmr.roc_auc, axis=1)
                 err = sem(nmr.roc_auc, axis=1, nan_policy="omit")
-                ls = "--" if result_type == "shuffle" else "-"
-                plt.plot(x, avg, linestyle=ls, label=result_type)
+                plt.plot(x, avg, linestyle="-", label=rt)
                 plt.fill_between(x, avg - err, avg + err, alpha=0.2)
+                null_mu = self.null_mean[train_key][rt]
+                null_sd = self.null_std[train_key][rt]
+                label = f"{rt} null" if i == 1 else None
+                plt.plot(x, null_mu, linestyle="--", color=null_colors[rt],
+                         linewidth=0.8, label=label)
+                plt.fill_between(x, null_mu - null_sd, null_mu + null_sd,
+                                 color=null_colors[rt], alpha=0.12)
             plt.axhline(0.5, color="k", linestyle="--", linewidth=0.8)
             plt.axvline(0, color="k", linestyle="--", linewidth=0.8)
             plt.ylim(0.3, 1.0)
@@ -1822,27 +1993,36 @@ class cross_gen_2x2_results:
         plt.show()
 
     def plot_average(self, start=0, stop=None):
-        """Bar plot of epoch-averaged AUC, one subplot per direction."""
-        n = len(self.train_test_pairs)
-        fig, axes = plt.subplots(3, 2, figsize=(8, 12))
+        """Bar plot of epoch-averaged AUC, one subplot per direction.
+
+        Four bars per subplot: observed in_dist, in_dist null, observed cross_gen, cross_gen null.
+        Observed bar error = SEM across folds.  Null bar error = std across shuffles (ddof=1).
+        """
+        fig, axes = plt.subplots(3, 2, figsize=(10, 12))
         axes = axes.flatten()
-        bar_width = 0.4
+        bar_width = 0.6
         color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
         for ax, ((e1, e2), (te1, te2)) in zip(axes, self.train_test_pairs):
             train_key = f"{e1}_{e2}"
             results = self.roc_auc_scores[train_key]
-            means, errors, labels, bar_colors = [], [], [], []
-            for j, (result_type, nmr) in enumerate(results.items()):
-                T = nmr.roc_auc.shape[0]
-                x = np.linspace(-self.pre_window, self.event_length + self.post_window, T)
-                start_idx = np.searchsorted(x, start)
-                stop_idx  = T if stop is None else np.searchsorted(x, stop)
+            T = results["in_dist"].roc_auc.shape[0]
+            x = np.linspace(-self.pre_window, self.event_length + self.post_window, T)
+            start_idx = int(np.searchsorted(x, start))
+            stop_idx = T if stop is None else int(np.searchsorted(x, stop))
+            labels, means, errors, bar_colors = [], [], [], []
+            for j, rt in enumerate(("in_dist", "cross_gen")):
+                nmr = results[rt]
                 avg_per_fold = np.nanmean(nmr.roc_auc[start_idx:stop_idx], axis=0)
+                null_window = np.nanmean(self.shuffles[train_key][rt][start_idx:stop_idx], axis=0)
+                labels.append(rt)
                 means.append(np.nanmean(avg_per_fold))
                 errors.append(sem(avg_per_fold, nan_policy="omit"))
-                labels.append(result_type)
-                bar_colors.append("lightgray" if result_type == "shuffle" else color_cycle[j % len(color_cycle)])
-            x_pos = np.arange(len(results))
+                bar_colors.append(color_cycle[j % len(color_cycle)])
+                labels.append(f"{rt}\nnull")
+                means.append(np.nanmean(null_window))
+                errors.append(np.nanstd(null_window, ddof=1))
+                bar_colors.append("lightgray")
+            x_pos = np.arange(len(means))
             ax.bar(x_pos, means, bar_width, yerr=errors, capsize=5, color=bar_colors)
             ax.set_xticks(x_pos)
             ax.set_xticklabels(labels, rotation=15, ha="right")
@@ -1851,6 +2031,56 @@ class cross_gen_2x2_results:
             ax.set_ylabel("ROC AUC")
             ax.set_title(f"[{self.axis_map[train_key]}] Train: {e1} vs {e2}\n→ Test: {te1} vs {te2}")
         plt.suptitle("2x2 Cross-generalization decoder (time-averaged)")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_null_distribution(self, start=0, stop=None, bins=20, method="z"):
+        """Histograms of time-window-averaged null AUC distributions.
+
+        One row per train_test_pair, two columns (in_dist | cross_gen).
+        Vertical dashed line marks the observed mean over (window, folds).
+        Title shows significance stars + numerical p-value.
+
+        Args:
+            start, stop : float, time window for averaging (default: full epoch).
+            bins        : int, histogram bin count (default 20).
+            method      : "z" (gaussian-fit, default) or "count" (empirical) — controls
+                          which p-value annotates the title and stars.
+        """
+        if method not in ("z", "count"):
+            raise ValueError(f"method must be 'z' or 'count', got {method!r}")
+        pvals = self.pval_in_window(start=start, stop=stop)
+        n_pairs = len(self.train_test_pairs)
+        fig, axes = plt.subplots(n_pairs, 2, figsize=(11, 2.4 * n_pairs), squeeze=False)
+        color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+        obs_colors = {"in_dist": color_cycle[0], "cross_gen": color_cycle[1]}
+        for i, ((e1, e2), (te1, te2)) in enumerate(self.train_test_pairs):
+            train_key = f"{e1}_{e2}"
+            T = self.roc_auc_scores[train_key]["in_dist"].roc_auc.shape[0]
+            x = np.linspace(-self.pre_window, self.event_length + self.post_window, T)
+            start_idx = int(np.searchsorted(x, start))
+            stop_idx  = T if stop is None else int(np.searchsorted(x, stop))
+            for j, rt in enumerate(("in_dist", "cross_gen")):
+                ax = axes[i, j]
+                null_window = np.nanmean(self.shuffles[train_key][rt][start_idx:stop_idx], axis=0)
+                null_window = null_window[~np.isnan(null_window)]
+                obs = float(np.nanmean(self.roc_auc_scores[train_key][rt].roc_auc[start_idx:stop_idx]))
+                if null_window.size > 0:
+                    ax.hist(null_window, bins=bins, color="lightgray", edgecolor="gray")
+                ax.axvline(obs, color=obs_colors[rt], linestyle="--", linewidth=1.5,
+                           label=f"observed = {obs:.3f}")
+                ax.axvline(0.5, color="k", linestyle=":", linewidth=0.8)
+                p = pvals[train_key][rt][method]
+                stars = _significance_stars(p)
+                ax.set_title(
+                    f"[{self.axis_map[train_key]}] {e1}/{e2} -> {te1}/{te2} | {rt}  "
+                    f"{stars} p({method})={p:.3g}"
+                )
+                ax.set_xlabel("ROC AUC")
+                ax.set_ylabel("count")
+                ax.legend(loc="upper right", fontsize=8)
+        window_str = f"{start}-{stop if stop is not None else 'end'}"
+        plt.suptitle(f"2x2 Cross-generalization null distributions (window {window_str})")
         plt.tight_layout()
         plt.show()
 
