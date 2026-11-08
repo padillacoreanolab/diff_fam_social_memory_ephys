@@ -156,3 +156,6 @@ dmypy.json
 .Rproj.user
 *.RData
 .Rhistory
+
+# behavior GIF viewer output
+vid_helper_fxns/bout_gifs/
